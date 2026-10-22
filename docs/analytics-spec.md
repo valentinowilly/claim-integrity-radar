@@ -131,7 +131,7 @@ Status tindak lanjut adalah `pending_review`, `needs_more_evidence`, `not_substa
 
 ## Pemeriksa tambahan eksperimen (Tahap 12)
 
-Pemeriksa berikut berada di `backend/app/analytics/`, menerima record fitur sintetis terkontrol, tidak membaca ground truth, dan belum dihubungkan ke API. Hasilnya adalah kandidat untuk ditinjau manusia. Semuanya diuji dengan fixture/generator sintetis; tidak ada validasi pada klaim nyata.
+Pemeriksa berikut berada di `backend/app/analytics/`, menerima record fitur sintetis terkontrol, dan tidak membaca ground truth. Service API saat ini memanggil keenam pemeriksa melalui `run_detector_suite`; hasilnya adalah kandidat untuk ditinjau manusia. Unit test memakai fixture/generator sintetis; tidak ada validasi pada klaim nyata. Snapshot API menghitung ulang sumber demo kecil dan bukan AnalysisRun persisten.
 
 ### Kewajaran kapasitas sintetis
 
@@ -166,11 +166,11 @@ Aturan tersebut menguji kelengkapan daftar dalam skenario perangkat lunak, bukan
 
 ### Status pengujian dan batas penggunaan
 
-Empat pemeriksa dan detektor lama diuji dengan unit test sintetis, termasuk kondisi normal, pola skenario, input tidak lengkap, input tidak berubah, pembatasan near-match, determinisme, dan kasus yang dapat menjadi false positive. Benchmark terpisah mengukur waktu dan alokasi Python pada ukuran sintetis yang ditentukan; keberhasilan benchmark tidak membuktikan performa pada data produksi. Belum ada MinHash/LSH, metrik evaluasi, integrasi API, maupun validasi ahli domain.
+**Status historis Tahap 12:** enam pemeriksa memiliki unit test sintetis dan benchmark terpisah; benchmark bukan bukti performa pada data produksi. MinHash/LSH tidak digunakan; near-duplicate memakai blocking berbatas. Integrasi API dilaksanakan pada Tahap 17 dan dirangkum pada bagian Pipeline API terkoordinasi di atas. Validasi ahli domain pada data BPJS belum dilakukan.
 
 ## Skor risiko gabungan dan prioritas audit (Tahap 13)
 
-Modul `risk_scoring.py` menerima enam keluaran detektor beserta record fitur, dan `audit_priority.py` membentuk antrean terpisah. `run_detector_suite(records, facilities)` menjalankan keenam detektor pada record fitur saja; ia tidak menerima ground truth. API runtime belum memanggil modul ini.
+Modul `risk_scoring.py` menerima enam keluaran detektor beserta record fitur, dan `audit_priority.py` membentuk antrean terpisah. `run_detector_suite(records, facilities)` menjalankan keenam detektor pada record fitur saja; ia tidak menerima ground truth. **Implementasi aktual saat ini:** `backend/app/services/analytics.py::build_analytics_snapshot` memanggil suite detektor, scoring, lalu prioritas dalam satu pass; route analytics memanggil snapshot tersebut. API runtime memakai adapter `synthetic_demo` kecil, bukan generator benchmark. Hasil snapshot dihitung saat GET dipanggil dan belum disimpan sebagai AnalysisRun persisten. Spesifikasi ini mencatat keadaan source saat ini; ia tidak menetapkan perilaku target batch/run.
 
 ### Bobot dan rumus skor
 
