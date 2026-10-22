@@ -162,7 +162,7 @@ def test_review_response_contains_no_source_tokens_or_signature_values(review_ap
         item for item in get_synthetic_records() if item["case_id"] == case_id
     )
     for field, raw_value in source_record.items():
-        if field not in {"case_id", "participant_token"} and raw_value:
+        if field not in {"case_id", "participant_token"} and raw_value and str(raw_value).strip():
             assert str(raw_value) not in serialized
     assert "demo-person-" not in serialized
     assert "signature" not in serialized.lower()

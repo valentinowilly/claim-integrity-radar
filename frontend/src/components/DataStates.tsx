@@ -64,5 +64,9 @@ export function formatNumber(value: number | null | undefined): string {
 export function indicatorLabel(code: string): string {
   if (code === "repeat_billing_candidate") return "Repeat billing candidate";
   if (code === "similar_claim_pattern_candidate") return "Similar claim-pattern candidate";
+  if (code === "near_duplicate_claim_candidate") return "Near-duplicate claim candidate";
+  if (code === "synthetic_capacity_candidate") return "Synthetic service capacity candidate";
+  if (code === "temporal_pattern_candidate") return "Temporal pattern candidate";
+  if (code === "supporting_evidence_completeness_candidate") return "Supporting evidence completeness candidate";
   return code.replace(/_/g, " ");
 }

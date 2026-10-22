@@ -90,3 +90,22 @@ Benchmark seed `2026` berhasil membuat 120.000 klaim dan 200 fasilitas; 4.800 kl
 Ada 384 kejadian cloning (191 berisi 2 klaim, 193 berisi 3), 383 kejadian repeat (189 berisi 2, 194 berisi 3), dan 386 kejadian campuran (198 berisi 2, 188 berisi 3). Skenario fisioterapi dan tindakan tanpa penunjang adalah label individual sehingga masing-masing memiliki 0 kelompok. Kontrol repeat sah memiliki satu grup beranggotakan 2 klaim.
 
 Distribusi jumlah klaim per fasilitas: minimum 517, median 599, persentil ke-95 645, maksimum 665 dari 200 fasilitas. Rentang tanggal aktual adalah 2024-01-01 sampai 2024-12-31. Generator memerlukan 15,561 detik; `tracemalloc` mengukur puncak alokasi Python 281,58 MiB dan alokasi tersisa 267,67 MiB saat ringkasan dibuat. Nilai ini bukan RSS total proses. Hasil hanya mencerminkan biaya pembuatan generator pada lingkungan pengujian, bukan biaya menjalankan detektor.
+
+## Benchmark fasilitas versi 4 (Stage 16)
+
+Modul `backend/app/data_sources/synthetic_benchmark_generator.py` menambahkan profil evaluasi fasilitas tanpa mengubah atau merusak generator v3. Profile default `facility-stratified-sparse-positive-v1` memilih sekitar 20% fasilitas positif dengan pembulatan half-up dan seed turunan deterministik. Pemilihan distratifikasi berdasarkan `facility_type` sintetis agar tipe fasilitas tidak menjadi petunjuk tunggal. Positif dipilih acak di dalam strata, bukan dari posisi atau urutan ID.
+
+Kelompok anomali v3 tetap sebagai unit kejadian dan ditempatkan pada fasilitas positif dengan beban kejadian yang diseimbangkan. Label individual yang memang tidak memiliki relasi kelompok tetap berupa kejadian satu klaim. Semua klaim normal lainnya dialokasikan ke slot fasilitas sehingga total klaim per fasilitas berbeda paling banyak satu. Fitur fasilitas dan hitungan klaim harian diselaraskan setelah penempatan. Rentang tanggal dan distribusi atribut layanan normal berasal dari base generator v3 yang sama; generator benchmark tidak membaca data nyata. Kontrol repeat sah tetap berlabel non-anomali dan ditempatkan pada fasilitas negatif. Tidak ada perubahan atribut fitur yang memasukkan label; `ground_truth.facility_labels` disimpan terpisah dan diturunkan dari label klaim.
+
+Pada konfigurasi proposal, target tetap 120.000 klaim, 200 fasilitas, periode 2024, dan tingkat label klaim sintetis 4% (4.800 klaim dengan pembulatan half-up). Default positif fasilitas 20% (40 fasilitas), sedangkan 160 fasilitas lainnya menjadi kontrol negatif. Proporsi tersebut adalah parameter benchmark buatan, bukan prevalensi fraud atau pola nyata. Untuk sampel kecil, jumlah fasilitas positif dibatasi minimal satu dan maksimal satu kurang dari total fasilitas; realisasi aktual dicatat metadata.
+
+Benchmark versi 4 memerlukan minimal dua fasilitas. Jumlah klaim per fasilitas diseimbangkan, bukan ditentukan label; perbedaan jumlah anomaly di antara fasilitas positif mungkin masih mencerminkan penempatan kejadian dan tidak dimaksudkan mewakili risiko operasional. Tipe, kapasitas, bukti, tanggal, dan pola kelompok tetap konstruksi sintetis; evaluator perlu menampilkan keterbatasan pencarian serta klaim yang tidak dinilai.
+
+Pembuatan dan evaluasi target dilakukan terpisah dari generator runtime `synthetic_demo`. Perintah evaluasi target versi 4:
+
+```powershell
+cd backend
+.venv\Scripts\python -m app.analytics.evaluate_synthetic --claims 120000 --facilities 200 --seed 2026 --random-seeds 30 --generator-version 4 --positive-facility-fraction 0.20 --audit-budgets 0.05 0.10 0.20
+```
+
+Laporan agregat disimpan di `outputs/synthetic_evaluations/` (diabaikan Git). Benchmark menjalankan detektor dan scoring; berbeda dari pemeriksaan generator v3 yang hanya menghitung distribusi.

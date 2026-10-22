@@ -18,6 +18,14 @@ export default function AnalysisPage() {
     return { analysis, cases };
   }, []);
   const { state, reload } = useApiResource(load);
+  const coverageLabel = (status: string) => ({
+    complete: "Tercakup",
+    partial: "Parsial",
+    unavailable: "Tidak tersedia",
+    not_applicable: "Tidak berlaku pada data ini",
+    available: "Tersedia",
+    not_assessable: "Belum dapat dinilai",
+  }[status] ?? status);
 
   return (
     <>
@@ -45,11 +53,12 @@ export default function AnalysisPage() {
                   return (
                     <article className="analysis-indicator-card" key={indicator.code}>
                       <div className="analysis-card-heading">
-                        <div><span className="indicator-pill indicator-active">Berjalan</span><h3>{indicator.name}</h3><code>{indicator.code}</code></div>
+                        <div><span className={`indicator-pill ${indicator.status === "complete" ? "indicator-active" : "indicator-planned"}`}>{coverageLabel(indicator.status)}</span><h3>{indicator.name}</h3><code>{indicator.code}</code></div>
                         <div className="analysis-count"><strong>{formatNumber(indicator.candidate_count)}</strong><span>kandidat</span></div>
                       </div>
                       <p className="definition-copy">{indicator.definition}</p>
-                      <div className="analysis-facts"><span><strong>{formatNumber(indicator.candidate_group_count)}</strong> kelompok kandidat</span><span><strong>{formatNumber(indicator.eligible_count)}</strong> record layak</span></div>
+                      <div className="analysis-facts"><span><strong>{formatNumber(indicator.candidate_group_count)}</strong> kelompok kandidat</span><span><strong>{formatNumber(indicator.eligible_count)}</strong> record dinilai</span><span><strong>{formatNumber(indicator.not_applicable_count)}</strong> tidak berlaku</span><span><strong>{formatNumber(indicator.unassessed_count)}</strong> belum dinilai</span></div>
+                      {indicator.search_truncated && <p className="notice-inline">Pencarian mencapai batas komputasi. Kasus yang tidak muncul tidak dianggap hasil negatif.</p>}
                       <div className="reason-block"><strong>Alasan deteksi dari API</strong>
                         {distinctReasons.length ? <ul>{distinctReasons.map(reason => <li key={reason}>{reason}</li>)}</ul> : <p>Belum ada alasan kandidat untuk indikator ini pada cakupan aktif.</p>}
                       </div>
@@ -59,6 +68,13 @@ export default function AnalysisPage() {
                 })}
               </div>
             )}
+          </section>
+
+          <section className="surface-panel section-block">
+            <div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">SKOR DAN PRIORITAS</span><h2>Indeks aturan dan antrean audit</h2></div></div>
+            <p className="definition-copy">Versi skor {state.data.analysis.risk_scoring.version}. {state.data.analysis.risk_scoring.weight_basis} Indeks bukan probabilitas fraud atau level risiko tervalidasi.</p>
+            <div className="analysis-facts"><span><strong>{formatNumber(state.data.analysis.risk_scoring.unassessable_case_count)}</strong> kasus tak dapat dinilai</span><span><strong>{formatNumber(state.data.analysis.audit_priority.unit_count)}</strong> unit prioritas terbentuk</span><span><strong>{formatNumber(state.data.analysis.audit_priority.unassigned_triggered_case_count)}</strong> kasus bersinyal tanpa unit</span><span><strong>{coverageLabel(state.data.analysis.audit_priority.status)}</strong> status prioritas</span></div>
+            <div className="limitation-block"><strong>Batas prioritas audit</strong><ul>{state.data.analysis.audit_priority.limitations.map(text => <li key={text}>{text}</li>)}</ul></div>
           </section>
 
           <section className="surface-panel section-block">

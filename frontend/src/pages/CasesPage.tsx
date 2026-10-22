@@ -36,7 +36,7 @@ export default function CasesPage() {
 
   return (
     <>
-      <PageHeading eyebrow="TINDAK LANJUT" title="Antrean Audit" description="Daftar kandidat yang perlu ditinjau. Urutan saat ini deterministik berdasarkan ID kasus, bukan tingkat risiko." action={state.status === "success" ? <SourceBadge source={state.data.data_source} /> : undefined} />
+      <PageHeading eyebrow="TINDAK LANJUT" title="Antrean Audit" description="Daftar kandidat yang perlu ditinjau. Indeks aturan bersifat provisional, bukan probabilitas fraud atau level risiko tervalidasi." action={state.status === "success" ? <SourceBadge source={state.data.data_source} /> : undefined} />
       <section className="queue-toolbar surface-panel">
         <div className="queue-toolbar-title"><span className="toolbar-icon"><Filter size={16} /></span><div><strong>Filter dan urutan</strong><small>Parameter diteruskan ke API</small></div></div>
         <div className="filter-controls">
@@ -48,6 +48,10 @@ export default function CasesPage() {
             <option value="">Semua indikator</option>
             <option value="repeat_billing_candidate">Repeat billing</option>
             <option value="similar_claim_pattern_candidate">Pola klaim serupa</option>
+            <option value="near_duplicate_claim_candidate">Pola klaim mendekati</option>
+            <option value="synthetic_capacity_candidate">Kapasitas sintetis</option>
+            <option value="temporal_pattern_candidate">Pola temporal</option>
+            <option value="supporting_evidence_completeness_candidate">Kelengkapan bukti</option>
           </select></label>
           <label>Status tinjauan<select value={reviewStatus} onChange={event => changeReviewStatus(event.target.value)}>
             <option value="">Semua status tinjauan</option>
@@ -56,7 +60,7 @@ export default function CasesPage() {
             ))}
           </select></label>
           <label>Kolom urutan<select value={sortBy} onChange={event => { setSortBy(event.target.value as "risk_score" | "detected_at"); setPage(1); }}>
-            <option value="risk_score">Skor risiko (belum tersedia)</option>
+            <option value="risk_score">Indeks aturan provisional</option>
             <option value="detected_at">Waktu deteksi (belum tersedia)</option>
           </select></label>
           <label>Arah<select value={sortOrder} onChange={event => { setSortOrder(event.target.value as "asc" | "desc"); setPage(1); }}>

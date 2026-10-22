@@ -9,11 +9,12 @@ from uuid import uuid4
 
 import httpx
 
-from app.analytics.repeat_billing import detect_repeat_billing_candidates
-from app.analytics.similar_claim_pattern import detect_similar_claim_patterns
+from app.analytics.audit_priority import build_audit_priority_queue
+from app.analytics.risk_scoring import DETECTOR_ORDER, run_detector_suite, score_claims
 from app.data_sources.synthetic import get_synthetic_records
 from app.main import create_app
 from app.services.analytics import build_analytics_snapshot
+import app.services.analytics as analytics_service
 
 
 TEST_APP = create_app(Path(gettempdir()) / f"cir-api-tests-{uuid4().hex}.sqlite3")
@@ -44,7 +45,8 @@ def test_all_contract_endpoints_return_expected_shapes_and_synthetic_label():
     }
     assert set(responses["analysis"].json()) == {
         "availability", "data_source", "generated_at", "filters", "coverage",
-        "indicators", "planned_indicators", "limitations",
+        "indicators", "planned_indicators", "indicator_coverage", "risk_scoring",
+        "audit_priority", "limitations",
     }
     assert set(responses["cases"].json()) == {
         "availability", "data_source", "items", "pagination", "applied_filters", "notice"
@@ -66,10 +68,11 @@ def test_health_contract_is_unchanged():
     }
 
 
-def test_dashboard_and_analysis_counts_are_calculated_by_both_detectors():
+def test_dashboard_and_analysis_counts_are_calculated_by_all_six_detectors():
     records = get_synthetic_records()
-    repeat = detect_repeat_billing_candidates(records)
-    similar = detect_similar_claim_patterns(records)
+    detector_results = run_detector_suite(records, [])
+    scored = score_claims(records, detector_results)
+    priority = build_audit_priority_queue(records, scored)
     snapshot = build_analytics_snapshot()
     summary = request("GET", "/api/v1/dashboard/summary").json()
     analysis_result = request("GET", "/api/v1/analysis").json()
@@ -77,18 +80,88 @@ def test_dashboard_and_analysis_counts_are_calculated_by_both_detectors():
     assert summary["summary"]["claims_reviewed"] == len(records)
     assert summary["summary"]["cases_in_queue"] == len(snapshot["cases"])
     assert summary["summary"]["risk_level_counts"] == {"high": None, "medium": None, "low": None}
-    expected = {
-        "repeat_billing_candidate": repeat,
-        "similar_claim_pattern_candidate": similar,
-    }
+    assert set(detector_results) == set(DETECTOR_ORDER)
+    expected = {item["code"]: item for item in snapshot["indicators"]}
+    assert set(expected) == set(DETECTOR_ORDER)
     for item in analysis_result["indicators"]:
         result = expected[item["code"]]
-        candidate_ids = {
-            case_id for group in result["candidate_groups"] for case_id in group["case_ids"]
-        }
-        assert item["candidate_count"] == len(candidate_ids)
-        assert item["candidate_group_count"] == len(result["candidate_groups"])
-        assert item["eligible_count"] == result["input_record_count"] - len(result["ineligible_cases"])
+        assert item["candidate_count"] == result["candidate_count"]
+        assert item["candidate_group_count"] == result["candidate_group_count"]
+        assert item["eligible_count"] == result["eligible_count"]
+    assert analysis_result["risk_scoring"]["version"] == scored["scoring_version"]
+    assert analysis_result["audit_priority"]["priority_version"] == priority["priority_version"]
+    assert analysis_result["audit_priority"]["unit_count"] == len(priority["items"])
+    assert analysis_result["audit_priority"]["unassigned_triggered_case_count"] == priority["unassigned_triggered_case_count"]
+    assert analysis_result["indicator_coverage"] == snapshot["indicator_coverage"]
+
+
+def test_coordinated_pipeline_calls_detectors_scoring_and_priority_once(monkeypatch):
+    calls = {"detectors": 0, "scoring": 0, "priority": 0}
+    original_detectors = analytics_service.run_detector_suite
+    original_scoring = analytics_service.score_claims
+    original_priority = analytics_service.build_audit_priority_queue
+
+    def detectors(*args, **kwargs):
+        calls["detectors"] += 1
+        result = original_detectors(*args, **kwargs)
+        assert set(result) == set(DETECTOR_ORDER)
+        return result
+
+    def scoring(*args, **kwargs):
+        calls["scoring"] += 1
+        return original_scoring(*args, **kwargs)
+
+    def priority(*args, **kwargs):
+        calls["priority"] += 1
+        return original_priority(*args, **kwargs)
+
+    monkeypatch.setattr(analytics_service, "run_detector_suite", detectors)
+    monkeypatch.setattr(analytics_service, "score_claims", scoring)
+    monkeypatch.setattr(analytics_service, "build_audit_priority_queue", priority)
+    snapshot = build_analytics_snapshot()
+
+    assert calls == {"detectors": 1, "scoring": 1, "priority": 1}
+    assert len(snapshot["indicator_coverage"]) == 6
+    by_code = {item["indicator"]: item for item in snapshot["indicator_coverage"]}
+    assert by_code["synthetic_capacity_candidate"]["records_not_applicable"] == len(get_synthetic_records())
+    assert by_code["temporal_pattern_candidate"]["status"] == "partial"
+    assert snapshot["audit_priority"]["status"] == "not_assessable"
+    assert snapshot["audit_priority"]["unassigned_triggered_case_count"] > 0
+    serialized = json.dumps(snapshot["cases"], sort_keys=True)
+    assert "demo-person-" not in serialized
+    assert "is_synthetic_anomaly" not in serialized
+    assert "primary_scenario" not in serialized
+    assert "scenario_group_id" not in serialized
+
+
+def test_empty_source_is_insufficient_data_with_a_valid_empty_queue():
+    snapshot = build_analytics_snapshot(records=[])
+    assert snapshot["availability"] == "insufficient_data"
+    assert snapshot["records_considered"] == 0
+    assert snapshot["cases"] == {}
+    assert snapshot["risk_scoring"]["unassessable_case_count"] == 0
+    assert all(item["candidate_count"] == 0 for item in snapshot["indicators"])
+
+
+def test_unavailable_detectors_report_null_candidate_counts_not_false_zero(monkeypatch):
+    monkeypatch.setattr(analytics_service, "run_detector_suite", lambda records, facilities: {
+        indicator: {"indicator": indicator, "status": "unavailable", "error_type": "SyntheticTestFailure"}
+        for indicator in DETECTOR_ORDER
+    })
+    snapshot = build_analytics_snapshot()
+    assert snapshot["availability"] == "unavailable"
+    assert all(item["candidate_count"] is None for item in snapshot["indicators"])
+    assert all(item["candidate_group_count"] is None for item in snapshot["indicators"])
+    assert all(item["status"] == "unavailable" for item in snapshot["indicator_coverage"])
+    assert snapshot["risk_scoring"]["unassessable_case_count"] == len(get_synthetic_records())
+    assert snapshot["audit_priority"]["status"] == "not_assessable"
+    analysis_response = request("GET", "/api/v1/analysis")
+    assert analysis_response.status_code == 200
+    assert analysis_response.json()["availability"] == "unavailable"
+    assert all(item["candidate_count"] is None for item in analysis_response.json()["indicators"])
+    summary_response = request("GET", "/api/v1/dashboard/summary")
+    assert summary_response.status_code == 200
+    assert all(item["candidate_records"] is None for item in summary_response.json()["summary"]["indicator_counts"])
 
 
 def test_pagination_filters_and_sorting_are_deterministic():
@@ -98,8 +171,11 @@ def test_pagination_filters_and_sorting_are_deterministic():
     first_ids = [item["case_id"] for item in first["items"]]
     second_ids = [item["case_id"] for item in second["items"]]
     assert not set(first_ids) & set(second_ids)
-    assert first_ids + second_ids == sorted(item["case_id"] for item in all_items[:4])
-    assert [item["case_id"] for item in all_items] == sorted(item["case_id"] for item in all_items)
+    assert first_ids + second_ids == [item["case_id"] for item in all_items[:4]]
+    assert all(item["risk_score"] is not None for item in all_items)
+    assert [item["risk_score"] for item in all_items] == sorted(
+        [item["risk_score"] for item in all_items], reverse=True
+    )
 
     repeat = request("GET", "/api/v1/cases?indicator=repeat_billing_candidate").json()
     assert all("repeat_billing_candidate" in item["indicators"] for item in repeat["items"])
@@ -124,7 +200,8 @@ def test_case_details_are_explainable_minimized_and_unknown_ids_are_404():
     for field, raw_value in source_record.items():
         if field != "case_id" and raw_value:
             assert str(raw_value) not in serialized
-    assert case["risk_level"] is None and case["risk_score"] is None
+    assert case["risk_level"] is None and case["risk_score"] is not None
+    assert case["score_status"] in {"assessed", "partial_coverage"}
     missing = request("GET", "/api/v1/cases/case_unknown")
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "CASE_NOT_FOUND"

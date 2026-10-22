@@ -7,9 +7,16 @@ from pydantic import BaseModel, Field, field_validator
 
 
 Availability = Literal["available", "not_configured", "insufficient_data", "unavailable"]
-IndicatorCode = Literal["repeat_billing_candidate", "similar_claim_pattern_candidate"]
+IndicatorCode = Literal[
+    "repeat_billing_candidate", "similar_claim_pattern_candidate",
+    "near_duplicate_claim_candidate", "synthetic_capacity_candidate",
+    "temporal_pattern_candidate", "supporting_evidence_completeness_candidate",
+]
 RiskLevel = Literal["high", "medium", "low"] | None
 CaseStatus = Literal["pending", "in_review", "resolved"]
+IndicatorRunStatus = Literal["complete", "partial", "unavailable", "not_applicable"]
+IndicatorState = Literal["triggered", "not_triggered", "not_applicable", "not_assessed"]
+ScoreStatus = Literal["assessed", "assessed_no_signal", "partial_coverage", "not_assessable"]
 ReviewStatus = Literal[
     "pending_review", "needs_more_evidence", "not_substantiated", "escalated"
 ]
@@ -22,8 +29,9 @@ class DataSource(BaseModel):
 
 class IndicatorCount(BaseModel):
     indicator: IndicatorCode
-    candidate_groups: int
-    candidate_records: int
+    candidate_groups: int | None
+    candidate_records: int | None
+    status: IndicatorRunStatus
 
 
 class DashboardMetrics(BaseModel):
@@ -45,10 +53,45 @@ class DashboardSummaryResponse(BaseModel):
 class AnalysisIndicator(BaseModel):
     code: IndicatorCode
     name: str
-    candidate_count: int
-    candidate_group_count: int
+    status: IndicatorRunStatus
+    candidate_count: int | None
+    candidate_group_count: int | None
     eligible_count: int
+    not_applicable_count: int
+    unassessed_count: int
+    search_truncated: bool
     definition: str
+    limitations: list[str]
+
+
+class IndicatorCoverage(BaseModel):
+    indicator: IndicatorCode
+    status: IndicatorRunStatus
+    records_assessed: int
+    records_not_applicable: int
+    records_unassessed: int
+    search_truncated: bool
+    candidate_group_count: int | None
+    limitations: list[str]
+
+
+class RiskScoringSummary(BaseModel):
+    version: str
+    weights: dict[str, float]
+    weight_basis: str
+    unassessable_case_count: int
+    limitations: list[str]
+
+
+class AuditPrioritySummary(BaseModel):
+    status: Literal["available", "not_assessable"]
+    priority_version: str
+    unit: str
+    formula: str
+    sorted_by: list[str]
+    items: list[dict[str, Any]]
+    unit_count: int
+    unassigned_triggered_case_count: int
     limitations: list[str]
 
 
@@ -67,6 +110,9 @@ class AnalysisResponse(BaseModel):
     coverage: dict[str, int]
     indicators: list[AnalysisIndicator]
     planned_indicators: list[PlannedIndicator]
+    indicator_coverage: list[IndicatorCoverage]
+    risk_scoring: RiskScoringSummary
+    audit_priority: AuditPrioritySummary
     limitations: list[str]
 
 
@@ -75,13 +121,26 @@ class CaseReason(BaseModel):
     summary: str
     evidence: list[str]
     limitations: list[str]
+    supporting_values: dict[str, Any] = Field(default_factory=dict)
+
+
+class CaseIndicatorCoverage(BaseModel):
+    indicator: IndicatorCode
+    status: IndicatorState
+    reason: str | None
 
 
 class CaseListItem(BaseModel):
     case_id: str
     risk_level: RiskLevel
     risk_score: float | None
+    score_status: ScoreStatus
+    scoring_version: str
     indicators: list[IndicatorCode]
+    assessed_indicators: list[IndicatorCode]
+    not_applicable_indicators: list[IndicatorCode]
+    not_assessed_indicators: list[IndicatorCode]
+    indicator_coverage: list[CaseIndicatorCoverage]
     status: CaseStatus
     review_status: ReviewStatus
     detected_at: datetime | None
@@ -122,9 +181,15 @@ class CaseDetail(BaseModel):
     case_id: str
     risk_level: RiskLevel
     risk_score: float | None
+    score_status: ScoreStatus
+    scoring_version: str
     status: CaseStatus
     detected_at: datetime | None
     indicators: list[IndicatorCode]
+    assessed_indicators: list[IndicatorCode]
+    not_applicable_indicators: list[IndicatorCode]
+    not_assessed_indicators: list[IndicatorCode]
+    indicator_coverage: list[CaseIndicatorCoverage]
     reasons: list[CaseReason]
     limitations: list[str]
     review: ReviewState

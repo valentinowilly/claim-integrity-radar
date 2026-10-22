@@ -11,6 +11,7 @@ Dokumen ini menetapkan kontrak awal untuk frontend dan backend Claim Integrity R
 - `availability` bernilai `available`, `not_configured`, `insufficient_data`, atau `unavailable`. `available` hanya boleh dipakai bila hasil memang dihitung dari sumber yang terhubung.
 - Nilai agregat boleh `null` bila belum dapat dihitung. Jangan mengganti nilai yang tidak tersedia dengan nol.
 - Kasus adalah kandidat peninjauan. Indikator risiko bukan bukti fraud dan tidak menggantikan keputusan auditor.
+- Kode indikator aktif saat ini: `repeat_billing_candidate`, `similar_claim_pattern_candidate`, `near_duplicate_claim_candidate`, `synthetic_capacity_candidate`, `temporal_pattern_candidate`, dan `supporting_evidence_completeness_candidate`.
 - Respons tidak boleh mengekspos baris mentah, identitas peserta, token/hash identitas, atau fingerprint internal.
 
 ## Format error
@@ -66,6 +67,8 @@ Parameter query opsional: `period_from`, `period_to` (tanggal ISO `YYYY-MM-DD`).
 
 `summary` berisi agregat terhitung saja. Pada respons yang tersedia, `claims_reviewed` berarti jumlah record sumber yang diproses, sedangkan `cases_in_queue` berarti jumlah case ID unik yang muncul pada sedikitnya satu kelompok kandidat. Setiap `indicator_counts` memiliki `indicator`, `candidate_groups`, dan `candidate_records` (case ID unik untuk indikator tersebut). Jangan menampilkan metrik sintetis sebagai temuan nyata; UI wajib menandai data sintetis dengan jelas.
 
+Setiap hitungan indikator juga memiliki `status`: `complete`, `partial`, `unavailable`, atau `not_applicable`. Bila detektor tidak tersedia, jumlah kandidat/kelompok bernilai null, bukan nol. `not_applicable` berarti tidak ada record yang memenuhi prasyarat/rule indikator; `partial` berarti ada record belum dinilai atau pencarian terbatas; `complete` berarti detektor menyelesaikan pencarian pada input yang dapat dinilai, bukan bukti bahwa metode tervalidasi.
+
 `risk_level_counts` tetap menggunakan nilai `null` per tingkat sampai definisi level risiko disetujui. Jangan menggantinya dengan nol karena tidak tersedia bukan berarti tidak ada kasus.
 
 ## `GET /api/v1/analysis`
@@ -84,7 +87,13 @@ Parameter query opsional: `period_from`, `period_to`, `indicator` (kode indikato
 }
 ```
 
-Setiap elemen `indicators` yang tersedia memuat `code`, `name`, `candidate_count` (case ID unik), `candidate_group_count`, `eligible_count`, `definition`, dan `limitations`. `planned_indicators` memisahkan indikator yang belum diimplementasikan. `coverage.records_eligible` berarti jumlah record yang layak untuk minimal satu indikator aktif; kelayakan per indikator tersedia pada `eligible_count`. Jumlah harus berasal dari proses analitik yang benar-benar dijalankan.
+Setiap elemen `indicators` yang tersedia memuat `code`, `name`, `status` (`complete`, `partial`, `unavailable`), `candidate_count` (case ID unik atau `null` bila pemeriksaan gagal), `candidate_group_count`, `eligible_count` (record yang benar-benar dinilai), `not_applicable_count`, `unassessed_count`, `search_truncated`, `definition`, dan `limitations`. `planned_indicators` memisahkan indikator yang belum diimplementasikan. `coverage.records_eligible` berarti jumlah record yang dinilai oleh sedikitnya satu indikator. `indicator_coverage` menyajikan hitungan dinilai/tidak berlaku/belum dinilai per indikator, batas pencarian, dan keterbatasan.
+
+`risk_scoring` memuat versi, bobot yang sedang digunakan, dasar bobot, jumlah case yang tidak dapat dinilai, dan batas interpretasi. Indeks aturan `risk_score` adalah rentang 0–1 yang hanya memakai indikator yang dapat dinilai. Nilai null berarti tidak ada dasar penilaian yang cukup; nilai 0 hanya berarti tidak ada sinyal pada indikator yang telah dinilai. Indeks ini bukan probabilitas fraud, kerugian, atau level risiko tervalidasi. Level `risk_level` tetap null.
+
+`audit_priority` memuat versi, unit, formula, urutan, unit fasilitas yang benar-benar dapat dibentuk, hitungan sinyal tanpa fasilitas untuk diagregasi, alasan, komponen nilai klaim/upaya, cakupan, dan keterbatasan. Unit fasilitas hanya dihasilkan jika `facility_id` sumber memang tersedia. Adapter `synthetic_demo` saat ini tidak menyuplai metadata fasilitas/ID fasilitas; karena itu antrean prioritas fasilitasnya kosong dan sinyal kasus dilaporkan sebagai belum terpetakan, bukan ditempelkan pada fasilitas buatan. Filter `indicator` hanya memfilter daftar indikator yang ditampilkan; scoring dan antrean prioritas tetap dihitung dari keenam indikator pada periode yang sama.
+
+Setiap status cakupan indikator pada respons analisis membedakan `complete`, `partial`, `unavailable`, dan `not_applicable`, beserta jumlah `records_assessed`, `records_not_applicable`, `records_unassessed`, `search_truncated`, dan keterbatasan. Pada detail kasus, `indicator_coverage[].status` bernilai `triggered`, `not_triggered`, `not_applicable`, atau `not_assessed`; alasan/status belum dinilai dicantumkan jika tersedia. Skor hanya memakai indikator yang dapat dinilai. Indikator yang tidak berlaku tidak dimasukkan ke denominator; pemeriksaan belum tuntas juga tidak dianggap negatif.
 
 ## `GET /api/v1/cases`
 
@@ -113,15 +122,15 @@ Parameter enum/nilai di luar rentang menghasilkan `400`. Urutan harus determinis
 
 `total_items` dan `total_pages` bernilai `null` jika sumber belum dapat dihitung; saat tersedia, `total_pages` dapat bernilai `0` untuk hasil kosong. Elemen kasus yang tersedia memakai bentuk ringkas:
 
-Untuk implementasi demo sintetis saat ini, `risk_level`, `risk_score`, dan `detected_at` bernilai `null`; item juga menyertakan `reasons` yang hanya berisi alasan dan nama atribut cocok, tanpa nilai signature atau token peserta. Filter `risk_level` tetap menerima enum kontrak, tetapi tidak menghasilkan item selama level belum ditetapkan. Status antrean awal adalah `pending`; filter status valid lain dapat menghasilkan daftar kosong.
+`risk_level` dan `detected_at` tetap null karena level tidak ditetapkan dan waktu peristiwa deteksi tidak dicatat. `risk_score` memuat indeks aturan hanya jika ada pemeriksaan yang dapat dinilai. Item menyertakan `score_status`, `scoring_version`, daftar indikator yang dinilai/tidak berlaku/belum dinilai, status cakupan per indikator, `reasons`, serta `limitations`. Alasan bersumber dari output detektor; `supporting_values` hanya memuat field aman yang diizinkan dan tidak berisi token atau signature lengkap. Filter `risk_level` tetap menerima enum kontrak, tetapi tidak menghasilkan item selama level belum ditetapkan. Status antrean awal adalah `pending`; filter status valid lain dapat menghasilkan daftar kosong.
 
-Semua sort key kontrak diterima. Karena `risk_score` dan `detected_at` belum tersedia, hasil sementara menggunakan `case_id` ascending sebagai pemutus urutan deterministik untuk kedua sort key dan kedua arah. Respons memberi tahu bahwa urutan ini bukan peringkat risiko. `status` lama tetap dipertahankan untuk kompatibilitas. Field tambahan `review_status` pada tiap item menggunakan status alur auditor di bawah dan default `pending_review`; filter `review_status` hanya memfilter tindak lanjut auditor, bukan status fraud.
+Semua sort key kontrak diterima. `risk_score` mengurutkan indeks aturan provisional, null selalu diletakkan terakhir, dan `case_id` menjadi tie-break stabil. `detected_at` belum tersedia sehingga urutannya deterministik menurut ID kasus. Ini bukan level risiko atau peringkat fraud tervalidasi. `status` lama tetap dipertahankan untuk kompatibilitas. Field tambahan `review_status` pada tiap item menggunakan status alur auditor di bawah dan default `pending_review`; filter `review_status` hanya memfilter tindak lanjut auditor, bukan status fraud.
 
 ```json
 {
   "case_id": "case_example",
   "risk_level": null,
-  "risk_score": null,
+"risk_score": 0.25,
   "indicators": ["repeat_billing_candidate"],
   "status": "pending",
   "review_status": "pending_review",
@@ -183,7 +192,7 @@ Path parameter `case_id` adalah ID internal aplikasi yang tidak mengandung ident
 }
 ```
 
-Saat tersedia, `case` memiliki `case_id`, `risk_level`, `risk_score`, `status`, `detected_at`, `indicators`, `reasons`, `limitations`, dan `review`. `reasons` menjelaskan kondisi teramati dan dasar indikator; jangan sertakan nilai identitas, token peserta, signature lengkap, atau detail baris yang tidak perlu. Contoh bentuk alasan (ilustrasi saja):
+Saat tersedia, `case` memiliki `case_id`, `risk_level`, `risk_score`, `score_status`, `scoring_version`, indikator pemicu, indikator yang dinilai/tidak berlaku/belum dinilai, `indicator_coverage`, `status`, `detected_at`, `reasons`, `limitations`, dan `review`. `reasons` menyertakan ringkasan detektor, bukti/atribut aman, batasan, dan `supporting_values` yang diminimalkan. Jangan sertakan nilai identitas, token peserta, signature lengkap, atau detail baris yang tidak perlu. Contoh bentuk alasan (ilustrasi saja):
 
 ```json
 {
@@ -192,7 +201,7 @@ Saat tersedia, `case` memiliki `case_id`, `risk_level`, `risk_score`, `status`, 
   "risk_score": null,
   "status": "pending",
   "detected_at": null,
-  "reasons": [{"indicator": "repeat_billing_candidate", "summary": "Pola atribut klaim teramati berulang.", "evidence": []}],
+  "reasons": [{"indicator": "repeat_billing_candidate", "summary": "Pola atribut klaim teramati berulang.", "evidence": ["matched_attributes: ..."], "limitations": ["Sinyal memerlukan tinjauan auditor."], "supporting_values": {"candidate_record_count": 2}}],
   "limitations": ["Pola berulang adalah sinyal untuk ditinjau, bukan bukti fraud."],
   "review": {"decision": null, "reviewed_at": null}
 }

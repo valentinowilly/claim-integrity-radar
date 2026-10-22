@@ -15,7 +15,7 @@ from app.schemas.analytics import (
 )
 from app.services.analytics import (
     DATA_SOURCE,
-    INDICATORS,
+    INDICATOR_DEFINITIONS,
     PLANNED_INDICATORS,
     build_analytics_snapshot,
 )
@@ -28,7 +28,7 @@ from app.services.reviews import (
 
 
 router = APIRouter(prefix="/api/v1")
-INDICATOR_CODES = {item["code"] for item in INDICATORS}
+INDICATOR_CODES = {item["code"] for item in INDICATOR_DEFINITIONS}
 RISK_LEVELS = {"high", "medium", "low"}
 CASE_STATUSES = {"pending", "in_review", "resolved"}
 REVIEW_STATUSES = set(STATUS_LABELS)
@@ -86,12 +86,13 @@ def dashboard_summary(period_from: str | None = None, period_to: str | None = No
             "indicator": indicator["code"],
             "candidate_groups": indicator["candidate_group_count"],
             "candidate_records": indicator["candidate_count"],
+            "status": indicator["status"],
         }
         for indicator in snapshot["indicators"]
     ]
     return {
-        "availability": "available",
-        "data_source": DATA_SOURCE,
+        "availability": snapshot["availability"],
+        "data_source": snapshot["data_source"],
         "generated_at": _now(),
         "period": {"from": period_from, "to": period_to},
         "summary": {
@@ -118,8 +119,8 @@ def analysis(period_from: str | None = None, period_to: str | None = None,
     if indicator is not None:
         active = [entry for entry in active if entry["code"] == indicator]
     return {
-        "availability": "available",
-        "data_source": DATA_SOURCE,
+        "availability": snapshot["availability"],
+        "data_source": snapshot["data_source"],
         "generated_at": _now(),
         "filters": {"period_from": period_from, "period_to": period_to, "indicator": indicator},
         "coverage": {
@@ -128,6 +129,9 @@ def analysis(period_from: str | None = None, period_to: str | None = None,
         },
         "indicators": active,
         "planned_indicators": PLANNED_INDICATORS,
+        "indicator_coverage": snapshot["indicator_coverage"],
+        "risk_scoring": snapshot["risk_scoring"],
+        "audit_priority": snapshot["audit_priority"],
         "limitations": [
             "Hasil hanya berasal dari fixture sintetis deterministik dan tidak mewakili klaim BPJS.",
             "Kandidat membutuhkan tinjauan auditor; tidak ada skor atau level risiko tervalidasi.",
@@ -174,9 +178,23 @@ def list_cases(request: Request, page: str = "1", page_size: str = "25", risk_le
     if review_status is not None:
         items = [item for item in items if item["review_status"] == review_status]
 
-    # Scores and detection timestamps are intentionally null; case_id is the
-    # stable tie-breaker, so no risk ranking is implied by this ordering.
-    items.sort(key=lambda item: item["case_id"])
+    # Scores are the existing provisional rule index. Null scores stay at the
+    # end; stable case IDs break ties. Risk levels remain undefined.
+    if sort_by == "risk_score":
+        items.sort(
+            key=lambda item: (
+                item["risk_score"] is None,
+                -(item["risk_score"] or 0) if sort_order == "desc" else (item["risk_score"] or 0),
+                item["case_id"],
+            )
+        )
+    else:
+        direction = 1 if sort_order == "asc" else -1
+        items.sort(key=lambda item: (
+            item["detected_at"] is None,
+            item["detected_at"].timestamp() * direction if item["detected_at"] is not None else 0,
+            item["case_id"],
+        ))
     total = len(items)
     total_pages = ceil(total / size) if total else 0
     offset = (page_number - 1) * size
@@ -194,8 +212,8 @@ def list_cases(request: Request, page: str = "1", page_size: str = "25", risk_le
             "sort_by": sort_by, "sort_order": sort_order,
         },
         "notice": (
-            "Antrean berisi kandidat tinjauan dari data sintetis. Risk score dan detected_at "
-            "belum tersedia; urutan deterministik memakai case_id dan bukan peringkat risiko."
+            "Antrean berisi kandidat tinjauan dari data sintetis. Skor adalah indeks aturan "
+            "provisional, bukan probabilitas fraud atau level risiko tervalidasi."
         ),
     }
 
@@ -207,8 +225,8 @@ def case_detail(case_id: str):
     if case is None:
         raise ApiError(404, "CASE_NOT_FOUND", "Kasus tidak ditemukan.", {})
     return {
-        "availability": "available",
-        "data_source": DATA_SOURCE,
+        "availability": snapshot["availability"],
+        "data_source": snapshot["data_source"],
         "case": case,
         "notice": "Detail memuat alasan kandidat dari data sintetis; bukan keputusan fraud.",
     }

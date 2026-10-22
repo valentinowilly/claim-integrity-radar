@@ -13,6 +13,12 @@ import { EmptyState, ErrorState, indicatorLabel, LoadingState, PageHeading, Sour
 import { useApiResource } from "../hooks/useApiResource";
 
 const statusOptions = Object.keys(reviewStatusLabels) as ReviewStatus[];
+const indicatorStateLabels: Record<string, string> = {
+  triggered: "Sinyal terpicu",
+  not_triggered: "Tidak ada sinyal pada cakupan yang dinilai",
+  not_applicable: "Tidak berlaku",
+  not_assessed: "Belum dinilai",
+};
 
 export default function CaseDetailPage() {
   const { caseId = "" } = useParams();
@@ -85,12 +91,25 @@ export default function CaseDetailPage() {
               <section className="detail-hero surface-panel">
                 <div className="detail-identity"><span className="detail-icon"><FileSearch size={19} /></span><div><span className="eyebrow muted-eyebrow">ID KASUS APLIKASI</span><h2>{detailResource.state.data.case.case_id}</h2></div></div>
                 <div className="detail-meta">
+                  <span className="status-pill status-neutral">Indeks aturan: {detailResource.state.data.case.risk_score === null ? "belum dapat dinilai" : detailResource.state.data.case.risk_score.toFixed(3)} / 1</span>
                   {review ? <span className={`status-pill status-review-${review.status}`}>{review.status_label}</span> : <span className="status-pill status-neutral">Status belum dimuat</span>}
                   <SourceBadge source={detailResource.state.data.data_source} />
                 </div>
               </section>
 
               <section className="detail-context notice-panel"><ShieldCheck size={18} /><p>{detailResource.state.data.notice} Keputusan akhir tetap memerlukan tinjauan auditor dan konteks layanan.</p></section>
+
+              <section className="surface-panel section-block detail-section">
+                <div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">CAKUPAN PENILAIAN</span><h2>Status enam pemeriksaan</h2></div><span className="small-context">Skor bukan probabilitas fraud</span></div>
+                <div className="planned-list">
+                  {detailResource.state.data.case.indicator_coverage.map(item => (
+                    <article className="planned-row" key={item.indicator}>
+                      <span className={`indicator-pill ${item.status === "triggered" ? "indicator-active" : "indicator-planned"}`}>{indicatorStateLabels[item.status]}</span>
+                      <div><strong>{indicatorLabel(item.indicator)}</strong>{item.reason && <p>{item.reason}</p>}</div>
+                    </article>
+                  ))}
+                </div>
+              </section>
 
               <section className="section-block detail-section">
                 <div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">INDIKATOR PEMICU</span><h2>{detailResource.state.data.case.indicators.length} indikator</h2></div></div>

@@ -1,5 +1,7 @@
 # Spesifikasi Analitik Awal
 
+> Protokol evaluasi detektor dan ranking sintetis ditetapkan terpisah dalam `docs/evaluation-spec.md`. Angka benchmark di sana berasal dari generator v3 dan bukan pengukuran data BPJS.
+
 Dokumen ini membedakan ide indikator dari implementasi yang sudah terbukti. Skrip eksplorasi yang ada menjadi bahan rancangan; keberadaan skrip **tidak** berarti analitik produksi telah tervalidasi. Semua indikator menghasilkan kandidat untuk tinjauan manusia, bukan kesimpulan fraud.
 
 ## Prinsip umum
@@ -112,6 +114,16 @@ Fixture `backend/tests/fixtures/synthetic_claims.py` sepenuhnya artifisial dan h
 ## Keluaran analitik dan tata kelola
 
 Setiap hasil kandidat sebaiknya menyimpan kode dan versi indikator, waktu proses, cakupan/periode, jumlah record yang diperiksa dan memenuhi syarat, alasan ringkas, serta batasan. Keluaran kasus menggunakan ID internal acak aplikasi. Catatan auditor/keputusan disimpan terpisah dari hasil deteksi. Akses, retensi, dan audit log untuk data nyata harus ditetapkan sebelum integrasi dataset.
+
+## Pipeline API terkoordinasi (Tahap 17)
+
+`backend/app/services/analytics.py` menjalankan satu pass berurutan pada sumber demo aktif: enam detektor melalui `run_detector_suite`, `score_claims`, lalu `build_audit_priority_queue`. Detektor menerima record fitur dan metadata fasilitas eksplisit saja; ground truth generator benchmark tidak diimpor atau dibaca oleh service/API. Skor mengagregasi bobot provisional yang sudah ditetapkan per indikator yang dapat dinilai; sinyal yang sama dari banyak grup dalam indikator yang sama tetap dihitung satu kali oleh scoring yang ada. Formula prioritas, deduplikasi nilai klaim, batas berkas audit, dan tie-break tetap mengikuti `audit_priority.py`.
+
+Respons analisis mengekspos versi/bobot, cakupan per detektor, jumlah kandidat/grup, status pemotongan, serta unit prioritas dan alasannya. Status per kasus membedakan sinyal, tidak ada sinyal pada pemeriksaan tercakup, tidak berlaku, dan belum dinilai. Skor null tetap null ketika tidak ada pemeriksaan yang dapat dinilai; level risiko tetap null karena threshold level tidak didefinisikan. `/api/v1/cases` mengurutkan indeks aturan provisional jika diminta `sort_by=risk_score`, bukan probabilitas fraud.
+
+Adapter runtime `synthetic_demo` saat ini berisi 12 klaim artifisial tetapi tidak memberikan metadata kapasitas fasilitas atau identifier fasilitas. Oleh sebab itu pemeriksa kapasitas tidak berlaku pada klaim demo tersebut, sebagian aturan temporal/bukti belum dinilai, dan audit priority fasilitas tidak membentuk unit dari identitas rekaan. Kandidat terpicu yang tidak memiliki facility ID dilaporkan sebagai `unassigned_triggered_case_count`. Hal ini berbeda dari generator benchmark, yang memberi fasilitas sintetis untuk evaluasi batch tetapi tidak dipanggil oleh API.
+
+Semua API response masih bertanda `synthetic_demo`; indeks skor dan alasan adalah hasil aturan pada fixture tersebut. Skor bukan probabilitas fraud, sementara ketiadaan sinyal, ketidakberlakuan, atau pemeriksaan terpotong tidak membuktikan klaim normal.
 
 ## Status proses tinjauan auditor (Tahap 8)
 
