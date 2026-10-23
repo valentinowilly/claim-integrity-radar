@@ -149,3 +149,17 @@ def test_evidence_checker_distinguishes_not_recorded_from_recorded_empty_and_inv
     assert result["candidate_count"] == 0
     assert result["unassessed_cases"][0]["case_id"] == not_recorded["case_id"]
     assert result["ineligible_cases"][0]["case_id"] == invalid["case_id"]
+
+
+def test_evidence_rule_outside_configured_service_scope_is_explicitly_not_applicable():
+    data = _dataset()
+    row = deepcopy(data.records[0])
+    row["service_type"] = "synthetic_service_without_rule"
+    result = detect_evidence_completeness([row])
+
+    assert result["not_applicable_cases"] == [{
+        "case_id": row["case_id"],
+        "reason": "Belum ada aturan bukti untuk jenis layanan ini.",
+    }]
+    assert result["unassessed_cases"] == []
+    assert result["candidates"] == []

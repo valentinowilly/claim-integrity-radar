@@ -9,13 +9,16 @@ import pytest
 from app.data_sources.synthetic import get_synthetic_records
 from app.main import create_app
 from app.services.analytics import build_analytics_snapshot
+from app.security.auth import AuthStore
 
 
 def request(app, method: str, path: str, payload: dict | None = None):
     async def send():
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            return await client.request(method, path, json=payload)
+            cookies = getattr(app.state, "test_auth_cookies", {})
+            headers = {"X-CSRF-Token": cookies["cir_csrf"]} if method not in {"GET", "HEAD"} and cookies else None
+            return await client.request(method, path, json=payload, cookies=cookies, headers=headers)
 
     return asyncio.run(send())
 
@@ -23,7 +26,13 @@ def request(app, method: str, path: str, payload: dict | None = None):
 @pytest.fixture
 def review_app(tmp_path):
     db_path = tmp_path / "isolated" / "reviews.sqlite3"
-    return create_app(review_db_path=db_path), db_path
+    app = create_app(review_db_path=db_path, auth_db_path=db_path, cookie_secure=False)
+    store = AuthStore(db_path)
+    user = store.create_user("review-verifikator", "Review-only-password-2026!", "verifikator", "test-bootstrap")
+    session, token = store.authenticate("review-verifikator", "Review-only-password-2026!")
+    app.state.test_auth_cookies = {"cir_session": token, "cir_csrf": session["csrf_token"]}
+    app.state.test_user_id = user["user_id"]
+    return app, db_path
 
 
 def candidate_id() -> str:
@@ -79,7 +88,8 @@ def test_status_update_appends_history_with_previous_and_new_status(review_app):
     assert current["history"][1]["status"] == current["status"]
     assert current["history"][-1]["changed_at"] == current["updated_at"]
     assert current["history"][-1]["note"] == current["note"]
-    assert current["reviewer_label"] == "demo_reviewer (unauthenticated)"
+    assert current["reviewer_label"] == "review-verifikator"
+    assert current["history"][-1]["actor_id"] == app.state.test_user_id
 
 
 @pytest.mark.parametrize("payload", [
@@ -124,7 +134,9 @@ def test_state_persists_after_database_connection_and_app_are_recreated(review_a
     updated = request(app, "POST", f"/api/v1/cases/{case_id}/review", {
         "status": "not_substantiated", "note": "Indikasi tidak cukup setelah peninjauan.",
     })
-    reopened_app = create_app(review_db_path=db_path)
+    reopened_app = create_app(review_db_path=db_path, auth_db_path=db_path, cookie_secure=False)
+    reopened_app.state.test_auth_cookies = app.state.test_auth_cookies
+    reopened_app.state.test_user_id = app.state.test_user_id
     reopened = request(reopened_app, "GET", f"/api/v1/cases/{case_id}/review")
 
     assert updated.status_code == reopened.status_code == 200
@@ -133,16 +145,25 @@ def test_state_persists_after_database_connection_and_app_are_recreated(review_a
 
 
 def test_health_does_not_initialize_review_database(review_app):
-    app, db_path = review_app
+    _, db_path = review_app
+    app = create_app(review_db_path=db_path, auth_db_path=db_path, cookie_secure=False)
     response = request(app, "GET", "/health")
-    assert response.status_code == 200
-    assert not db_path.exists()
+    fresh_path = db_path.parent / "health-only.sqlite3"
+    health_app = create_app(review_db_path=fresh_path, auth_db_path=fresh_path, cookie_secure=False)
+    health_response = request(health_app, "GET", "/health")
+    assert response.status_code == health_response.status_code == 200
+    assert not fresh_path.exists()
 
 
 def test_storage_failure_returns_controlled_503_without_database_details(tmp_path):
     blocker = tmp_path / "not-a-directory"
     blocker.write_text("fixture", encoding="utf-8")
-    app = create_app(review_db_path=blocker / "reviews.sqlite3")
+    auth_path = tmp_path / "auth.sqlite3"
+    app = create_app(review_db_path=blocker / "reviews.sqlite3", auth_db_path=auth_path, cookie_secure=False)
+    store = AuthStore(auth_path)
+    store.create_user("storage-verifikator", "Storage-test-password-2026!", "verifikator", "test-bootstrap")
+    session, token = store.authenticate("storage-verifikator", "Storage-test-password-2026!")
+    app.state.test_auth_cookies = {"cir_session": token, "cir_csrf": session["csrf_token"]}
     response = request(app, "GET", f"/api/v1/cases/{candidate_id()}/review")
 
     assert response.status_code == 503

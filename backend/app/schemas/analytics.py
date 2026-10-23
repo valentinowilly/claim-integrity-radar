@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 Availability = Literal["available", "not_configured", "insufficient_data", "unavailable"]
+AnalysisExecutionStatus = Literal["completed", "partial", "failed"]
 IndicatorCode = Literal[
     "repeat_billing_candidate", "similar_claim_pattern_candidate",
     "near_duplicate_claim_candidate", "synthetic_capacity_candidate",
@@ -43,6 +44,7 @@ class DashboardMetrics(BaseModel):
 
 class DashboardSummaryResponse(BaseModel):
     availability: Availability
+    execution_status: AnalysisExecutionStatus
     data_source: DataSource
     generated_at: datetime
     period: dict[str, str | None]
@@ -84,14 +86,16 @@ class RiskScoringSummary(BaseModel):
 
 
 class AuditPrioritySummary(BaseModel):
-    status: Literal["available", "not_assessable"]
+    status: Literal["available", "partial", "not_assessable"]
     priority_version: str
     unit: str
     formula: str
     sorted_by: list[str]
     items: list[dict[str, Any]]
     unit_count: int
+    eligible_unit_count: int
     unassigned_triggered_case_count: int
+    eligibility_reasons: list[str]
     limitations: list[str]
 
 
@@ -104,6 +108,7 @@ class PlannedIndicator(BaseModel):
 
 class AnalysisResponse(BaseModel):
     availability: Availability
+    execution_status: AnalysisExecutionStatus
     data_source: DataSource
     generated_at: datetime
     filters: dict[str, str | None]
@@ -165,6 +170,7 @@ class AppliedFilters(BaseModel):
 
 class CasesResponse(BaseModel):
     availability: Availability
+    execution_status: AnalysisExecutionStatus
     data_source: DataSource
     items: list[CaseListItem]
     pagination: Pagination
@@ -197,6 +203,7 @@ class CaseDetail(BaseModel):
 
 class CaseDetailResponse(BaseModel):
     availability: Availability
+    execution_status: AnalysisExecutionStatus
     data_source: DataSource
     case: CaseDetail
     notice: str
@@ -232,6 +239,7 @@ class ReviewHistoryEntry(BaseModel):
     status: ReviewStatus
     note: str | None
     reviewer_label: str
+    actor_id: str | None = None
 
 
 class CaseReviewResponse(BaseModel):

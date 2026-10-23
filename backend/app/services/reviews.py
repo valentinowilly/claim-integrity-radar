@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
+from uuid import uuid4
 
 
 DEFAULT_REVIEW_DB_PATH = Path(__file__).resolve().parents[2] / "outputs" / "review_workflow.sqlite3"
-REVIEWER_LABEL = "demo_reviewer (unauthenticated)"
 INITIAL_STATUS = "pending_review"
 STATUS_LABELS = {
     "pending_review": "Menunggu Tinjauan",
@@ -60,12 +61,27 @@ class ReviewStore:
                     previous_status TEXT,
                     status TEXT NOT NULL,
                     note TEXT,
-                    reviewer_label TEXT NOT NULL
+                    reviewer_label TEXT NOT NULL,
+                    actor_id TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_review_history_case_id_id
                     ON review_history(case_id, id);
+                CREATE TABLE IF NOT EXISTS security_audit_events (
+                    event_id TEXT PRIMARY KEY,
+                    occurred_at TEXT NOT NULL,
+                    actor_user_id TEXT,
+                    event_type TEXT NOT NULL,
+                    target_type TEXT,
+                    target_id TEXT,
+                    metadata_json TEXT NOT NULL
+                );
                 """
             )
+            history_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(review_history)").fetchall()
+            }
+            if "actor_id" not in history_columns:
+                connection.execute("ALTER TABLE review_history ADD COLUMN actor_id TEXT")
             yield connection
             connection.commit()
         except (OSError, sqlite3.Error) as exc:
@@ -84,7 +100,7 @@ class ReviewStore:
                 (case_id,),
             ).fetchone()
             history_rows = connection.execute(
-                "SELECT changed_at, previous_status, status, note, reviewer_label "
+                "SELECT changed_at, previous_status, status, note, reviewer_label, actor_id "
                 "FROM review_history WHERE case_id = ? ORDER BY id",
                 (case_id,),
             ).fetchall()
@@ -117,7 +133,8 @@ class ReviewStore:
         stored = {row["case_id"]: row["status"] for row in rows}
         return {case_id: stored.get(case_id, INITIAL_STATUS) for case_id in case_ids}
 
-    def update_review(self, case_id: str, status: str, note: str | None) -> dict:
+    def update_review(self, case_id: str, status: str, note: str | None,
+                      actor_id: str, reviewer_label: str) -> dict:
         changed_at = datetime.now(timezone.utc).isoformat()
         with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -129,18 +146,23 @@ class ReviewStore:
                 connection.execute(
                     "INSERT INTO review_cases "
                     "(case_id, status, note, reviewer_label, updated_at) VALUES (?, ?, ?, ?, ?)",
-                    (case_id, status, note, REVIEWER_LABEL, changed_at),
+                    (case_id, status, note, reviewer_label, changed_at),
                 )
             else:
                 connection.execute(
                     "UPDATE review_cases SET status = ?, note = ?, reviewer_label = ?, "
                     "updated_at = ? WHERE case_id = ?",
-                    (status, note, REVIEWER_LABEL, changed_at, case_id),
+                    (status, note, reviewer_label, changed_at, case_id),
                 )
             connection.execute(
                 "INSERT INTO review_history "
-                "(case_id, changed_at, previous_status, status, note, reviewer_label) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (case_id, changed_at, previous_status, status, note, REVIEWER_LABEL),
+                "(case_id, changed_at, previous_status, status, note, reviewer_label, actor_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (case_id, changed_at, previous_status, status, note, reviewer_label, actor_id),
+            )
+            connection.execute(
+                "INSERT INTO security_audit_events VALUES (?, ?, ?, 'review_updated', 'case', ?, ?)",
+                (f"evt_{uuid4().hex}", changed_at, actor_id, case_id,
+                 json.dumps({"status": status}, sort_keys=True)),
             )
         return self.get_review(case_id)

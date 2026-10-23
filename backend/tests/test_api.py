@@ -14,17 +14,24 @@ from app.analytics.risk_scoring import DETECTOR_ORDER, run_detector_suite, score
 from app.data_sources.synthetic import get_synthetic_records
 from app.main import create_app
 from app.services.analytics import build_analytics_snapshot
+from app.security.auth import AuthStore
 import app.services.analytics as analytics_service
 
 
-TEST_APP = create_app(Path(gettempdir()) / f"cir-api-tests-{uuid4().hex}.sqlite3")
+TEST_DB = Path(gettempdir()) / f"cir-api-tests-{uuid4().hex}.sqlite3"
+TEST_APP = create_app(review_db_path=TEST_DB, auth_db_path=TEST_DB, cookie_secure=False)
+_test_store = AuthStore(TEST_DB)
+_test_user = _test_store.create_user("api-verifikator", "Test-only-password-2026!", "verifikator", "test-bootstrap")
+_test_session, _test_token = _test_store.authenticate("api-verifikator", "Test-only-password-2026!")
+TEST_COOKIES = {"cir_session": _test_token, "cir_csrf": _test_session["csrf_token"]}
 
 
 def request(method: str, path: str):
     async def send():
         transport = httpx.ASGITransport(app=TEST_APP, raise_app_exceptions=False)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            return await client.request(method, path)
+            headers = {"X-CSRF-Token": TEST_COOKIES["cir_csrf"]} if method not in {"GET", "HEAD"} else None
+            return await client.request(method, path, cookies=TEST_COOKIES, headers=headers)
 
     return asyncio.run(send())
 
@@ -41,23 +48,24 @@ def test_all_contract_endpoints_return_expected_shapes_and_synthetic_label():
 
     assert all(response.status_code == 200 for response in responses.values())
     assert set(responses["summary"].json()) == {
-        "availability", "data_source", "generated_at", "period", "summary", "notice"
+        "availability", "execution_status", "data_source", "generated_at", "period", "summary", "notice"
     }
     assert set(responses["analysis"].json()) == {
-        "availability", "data_source", "generated_at", "filters", "coverage",
+        "availability", "execution_status", "data_source", "generated_at", "filters", "coverage",
         "indicators", "planned_indicators", "indicator_coverage", "risk_scoring",
         "audit_priority", "limitations",
     }
     assert set(responses["cases"].json()) == {
-        "availability", "data_source", "items", "pagination", "applied_filters", "notice"
+        "availability", "execution_status", "data_source", "items", "pagination", "applied_filters", "notice"
     }
-    assert set(responses["detail"].json()) == {"availability", "data_source", "case", "notice"}
+    assert set(responses["detail"].json()) == {"availability", "execution_status", "data_source", "case", "notice"}
     assert set(responses["evaluation"].json()) == {
         "availability", "data_source", "generated_at", "evaluation",
         "requirements_missing", "notice",
     }
     for response in responses.values():
         assert response.json()["data_source"] == {"kind": "synthetic", "label": "synthetic_demo"}
+    assert responses["analysis"].json()["execution_status"] in {"completed", "partial", "failed"}
 
 
 def test_health_contract_is_unchanged():
@@ -123,10 +131,13 @@ def test_coordinated_pipeline_calls_detectors_scoring_and_priority_once(monkeypa
     assert calls == {"detectors": 1, "scoring": 1, "priority": 1}
     assert len(snapshot["indicator_coverage"]) == 6
     by_code = {item["indicator"]: item for item in snapshot["indicator_coverage"]}
-    assert by_code["synthetic_capacity_candidate"]["records_not_applicable"] == len(get_synthetic_records())
+    assert by_code["synthetic_capacity_candidate"]["records_not_applicable"] == 0
+    assert by_code["synthetic_capacity_candidate"]["records_unassessed"] == len(get_synthetic_records())
+    assert by_code["synthetic_capacity_candidate"]["status"] == "partial"
     assert by_code["temporal_pattern_candidate"]["status"] == "partial"
     assert snapshot["audit_priority"]["status"] == "not_assessable"
     assert snapshot["audit_priority"]["unassigned_triggered_case_count"] > 0
+    assert snapshot["execution_status"] == "partial"
     serialized = json.dumps(snapshot["cases"], sort_keys=True)
     assert "demo-person-" not in serialized
     assert "is_synthetic_anomaly" not in serialized
@@ -153,11 +164,13 @@ def test_unavailable_detectors_report_null_candidate_counts_not_false_zero(monke
     assert all(item["candidate_count"] is None for item in snapshot["indicators"])
     assert all(item["candidate_group_count"] is None for item in snapshot["indicators"])
     assert all(item["status"] == "unavailable" for item in snapshot["indicator_coverage"])
+    assert snapshot["execution_status"] == "failed"
     assert snapshot["risk_scoring"]["unassessable_case_count"] == len(get_synthetic_records())
     assert snapshot["audit_priority"]["status"] == "not_assessable"
     analysis_response = request("GET", "/api/v1/analysis")
     assert analysis_response.status_code == 200
     assert analysis_response.json()["availability"] == "unavailable"
+    assert analysis_response.json()["execution_status"] == "failed"
     assert all(item["candidate_count"] is None for item in analysis_response.json()["indicators"])
     summary_response = request("GET", "/api/v1/dashboard/summary")
     assert summary_response.status_code == 200

@@ -15,6 +15,8 @@ from app.analytics.temporal_patterns import detect_temporal_patterns
 
 
 SCORING_VERSION = "rule-risk-index-v1-provisional"
+# Manually maintained contract identifier; this is not a source/build hash.
+DETECTOR_SUITE_VERSION = "detector-suite-v1-manual"
 DETECTOR_ORDER = (
     "repeat_billing_candidate",
     "similar_claim_pattern_candidate",
@@ -157,11 +159,21 @@ def score_claims(
         case_id: {indicator: [] for indicator in DETECTOR_ORDER} for case_id in case_ids
     }
     unassessed_by_indicator: dict[str, set[str]] = {indicator: set() for indicator in DETECTOR_ORDER}
+    not_applicable_by_indicator: dict[str, set[str]] = {indicator: set() for indicator in DETECTOR_ORDER}
     partial_group_notes: list[dict[str, Any]] = []
 
     for indicator in DETECTOR_ORDER:
         result = (detector_results or {}).get(indicator)
-        if not isinstance(result, Mapping) or result.get("indicator") != indicator or result.get("status") == "unavailable":
+        if not isinstance(result, Mapping) or result.get("indicator") != indicator:
+            status_by_indicator[indicator] = "unavailable"
+            unassessed_by_indicator[indicator] = set(case_ids)
+            continue
+        declared_status = result.get("status")
+        if declared_status not in {None, "complete", "partial", "unavailable", "not_applicable"}:
+            status_by_indicator[indicator] = "unavailable"
+            unassessed_by_indicator[indicator] = set(case_ids)
+            continue
+        if declared_status == "unavailable":
             status_by_indicator[indicator] = "unavailable"
             unassessed_by_indicator[indicator] = set(case_ids)
             continue
@@ -177,19 +189,42 @@ def score_claims(
             continue
 
         ineligible: set[str] = set()
+        not_applicable: set[str] = set()
+        unassessed: set[str] = set()
         malformed = False
         for collection_key in ("ineligible_cases", "unassessed_cases", "unassessed_time_cases"):
             items = result.get(collection_key, [])
             if not isinstance(items, (list, tuple)):
                 malformed = True
                 break
-            ineligible.update(item["case_id"] for item in items if isinstance(item, Mapping) and isinstance(item.get("case_id"), str))
+            if any(not isinstance(item, Mapping) or not isinstance(item.get("case_id"), str) for item in items):
+                malformed = True
+                break
+            ids = {item["case_id"] for item in items}
+            (ineligible if collection_key == "ineligible_cases" else unassessed).update(ids)
+        applicable_items = result.get("not_applicable_cases", [])
+        if not isinstance(applicable_items, (list, tuple)):
+            malformed = True
+        else:
+            if any(not isinstance(item, Mapping) or not isinstance(item.get("case_id"), str) for item in applicable_items):
+                malformed = True
+            else:
+                not_applicable.update(item["case_id"] for item in applicable_items)
+        if (ineligible | unassessed | not_applicable) - case_ids:
+            malformed = True
+        if (ineligible & not_applicable) or (unassessed & not_applicable):
+            malformed = True
         if malformed:
             status_by_indicator[indicator] = "unavailable"
             unassessed_by_indicator[indicator] = set(case_ids)
             continue
 
-        partial = result.get("search_truncated") is True
+        truncated_value = result.get("search_truncated", False)
+        if not isinstance(truncated_value, bool):
+            status_by_indicator[indicator] = "unavailable"
+            unassessed_by_indicator[indicator] = set(case_ids)
+            continue
+        partial = truncated_value or declared_status == "partial"
         search_truncated_by_indicator[indicator] = partial
         for candidate in candidates:
             ids = _capacity_membership(candidate, validated) if indicator == "synthetic_capacity_candidate" else _candidate_ids(candidate)
@@ -231,8 +266,25 @@ def score_claims(
             for case_id in case_ids:
                 reasons_by_case[case_id][indicator].clear()
             continue
-        unassessed_by_indicator[indicator] = ineligible | (set(case_ids) if partial else set())
-        status_by_indicator[indicator] = "partial" if partial else "available"
+        if declared_status == "not_applicable" and any(reasons_by_case[case_id][indicator] for case_id in case_ids):
+            malformed = True
+        if malformed:
+            status_by_indicator[indicator] = "unavailable"
+            unassessed_by_indicator[indicator] = set(case_ids)
+            not_applicable_by_indicator[indicator].clear()
+            for case_id in case_ids:
+                reasons_by_case[case_id][indicator].clear()
+            continue
+        if declared_status == "not_applicable":
+            not_applicable = set(case_ids)
+        not_applicable_by_indicator[indicator] = not_applicable
+        unassessed_by_indicator[indicator] = ineligible | unassessed | {
+            case_id for case_id in case_ids if partial and case_id not in not_applicable
+        }
+        status_by_indicator[indicator] = (
+            "not_applicable" if not_applicable == case_ids and not case_ids.intersection(ineligible)
+            else "partial" if partial or ineligible else "available"
+        )
 
     scored_cases: list[dict[str, Any]] = []
     for case_id, row in validated:
@@ -248,13 +300,14 @@ def score_claims(
                 key=lambda item: (item["candidate_id"] or "", item["reason"]),
             )
             state = "triggered" if matches else (
+                "not_applicable" if case_id in not_applicable_by_indicator[indicator] else
                 "not_assessed" if case_id in unassessed_by_indicator[indicator] else "not_triggered"
             )
             trigger_states.append(state)
             if state in {"triggered", "not_triggered"}:
                 assessed.append(indicator)
                 denominator += weights[indicator]
-            else:
+            elif state == "not_assessed":
                 unassessed.append(indicator)
             if state == "triggered":
                 numerator += weights[indicator]
@@ -286,6 +339,10 @@ def score_claims(
             "triggered_indicators": [indicator for indicator, state in zip(DETECTOR_ORDER, trigger_states) if state == "triggered"],
             "assessed_indicators": assessed,
             "not_assessed_indicators": unassessed,
+            "not_applicable_indicators": [
+                indicator for indicator, state in zip(DETECTOR_ORDER, trigger_states)
+                if state == "not_applicable"
+            ],
             "indicator_coverage": [
                 {"indicator": indicator, "status": state} for indicator, state in zip(DETECTOR_ORDER, trigger_states)
             ],

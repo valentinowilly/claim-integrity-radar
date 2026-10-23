@@ -19,15 +19,15 @@ PDF yang diperiksa: proposal-healthkathon.pdf (20 halaman) dan panduan-data-samp
 
 **Fakta proposal — hlm. 14, transkripsi visual pengguna.** Setup ilustratif: 200 faskes sintetis, 120.000 klaim, Januari–Desember 2024, injeksi sintetis 3–5%, lima skenario. Metode yang ditampilkan: audit acak, satu aturan sederhana, dan gabungan Radar. Angka Precision@K 20/45/78%, Recall Fraud 20/45/75%, fraud per 100 berkas 4/9/16, klaim sah tetap hijau 95/88/92%, dan klaim sah ke kuning/merah 5/12/8% diberi label dummy simulasi; slide menyatakan hasil kuantitatif belum tersedia dan belum divalidasi pada data riil. Angka itu bukan hasil terukur, target kinerja, baseline wajib, atau acceptance threshold.
 
-**Implementasi aktual.** backend/app/main.py mendaftarkan health, analytics, dan review routers. backend/app/services/analytics.py membangun snapshot dari adapter 12 record artifisial, menjalankan enam detektor, scoring, dan priority. API tidak memanggil benchmark generator. Endpoint evaluation API mengembalikan insufficient_data. Evaluator offline berada di backend/app/analytics/evaluation.py dan evaluate_synthetic.py. Review workflow disimpan di SQLite lokal terpisah. Frontend memiliki halaman Overview, Analysis, Cases, Detail, Evaluation, serta review UI.
+**Implementasi aktual setelah P0 Stage 6.** `backend/app/main.py` mendaftarkan health, auth, synthetic batch, runs, analytics, legacy review, dan run-scoped review routers. Route analytics lama tetap menghitung snapshot adapter 12 record `synthetic_demo`; `POST /api/v1/runs` menjalankan pipeline enam detektor/scoring/priority/policy pada fitur DataBatch siap dan menyimpan snapshot. GET run membaca hasil tersimpan. Run-scoped review dan outcome tersimpan terpisah dari snapshot pada tabel tambahan di database batch/run; review lama tetap berada di database legacy. Evaluasi API tetap `insufficient_data`; evaluator offline terpisah. Frontend belum memiliki UI impor batch, integrasi AnalysisRun, atau review run-scoped.
 
-**Belum diimplementasikan.** Tidak ditemukan login/account provisioning/role enforcement, import batch, schema profile API, AnalysisRun tersimpan, status proses batch, persistensi snapshot analitik, atau review outcome auditor yang terpisah. API tidak menyediakan jalur hijau/kuning/merah dan risk_level tetap null. Metadata review bukan audit log keamanan dan bukan identitas pengguna terautentikasi.
+**Belum diimplementasikan setelah P0 Stage 6.** Schema profile/API untuk sumber BPJS dan UI batch/run/review run-scoped belum tersedia. `risk_level` tetap null; action lane hanya policy demo dalam snapshot AnalysisRun dan tidak terintegrasi dengan UI. CSV DataBatch hanya pertukaran sintetis lokal; deklarasi `synthetic_only` tidak memverifikasi independen provenance konten.
 
 ## 3. Aktor dan user journey
 
 **Fakta proposal — hlm. 6 dan 19.** Pengguna yang disebut adalah verifikator dan Tim Anti Kecurangan; auditor melakukan pemeriksaan dan manusia menentukan tindak lanjut. Proposal menyebut RBAC tetapi tidak menetapkan role, permission, onboarding, atau separation of duties.
 
-**Implementasi aktual.** Autentikasi/kontrol akses tidak tersedia. Review API menerima request tanpa identitas terverifikasi; label demo_reviewer (unauthenticated) dibuat server.
+**Implementasi aktual setelah P0 Stage 2?4.** Auth cookie/session dan RBAC backend tersedia sebagai baseline prototype; review/import/run actor berasal dari principal tervalidasi. DataBatch dan run read/write memakai permission terpisah; hasil run hanya dapat dibaca verifikator/audit lead, sedangkan operator dapat membuat run dan membaca metadata/status. Role dan akses batch/run masih shared-synthetic tanpa assignment; ini bukan kebijakan akses operasional.
 
 **Rekomendasi untuk MVP.** Gunakan empat role operasional pada `docs/role-permission-matrix.md`: `platform_admin`, `data_operator`, `verifikator`, dan `audit_lead`. Operator mencakup impor/validasi serta memulai run; jangan membuat `analyst`, `data_steward`, `review_supervisor`, `read_only_auditor`, atau `evaluation_steward` sebagai role aplikasi terpisah sebelum ada kebutuhan dan approval organisasi. Akses baca-saja adalah kombinasi permission, sedangkan evaluasi ground truth tetap offline/terisolasi. Tidak ada registrasi publik. Akses data BPJS tetap diblokir sampai otorisasi, mapping, dan kontrol data disetujui.
 
@@ -49,7 +49,7 @@ flowchart TD
   N --> O[Riwayat dan audit keamanan sesuai kebijakan]
 ~~~
 
-**Implementasi aktual:** hanya alur kandidat → detail → review status yang berjalan pada fixture synthetic_demo. Auth, import, batch run, supervisor outcome, dan ekspor belum tersedia.
+**Implementasi aktual:** alur login, akses RBAC, kandidat → detail → review status pada fixture synthetic_demo, serta import/list/detail metadata batch CSV sintetis tersedia. Batch belum memulai run dan belum menggantikan synthetic_demo pada analytics. Supervisor outcome, AnalysisRun, dan ekspor batch belum tersedia.
 
 ## 4. Empat kelompok proposal dan enam modul
 
@@ -62,9 +62,9 @@ flowchart TD
 | Waktu/pengulangan | repeat_billing.py exact match; temporal_patterns.py | Berjalan bila prasyarat fitur dipenuhi; coverage parsial tetap dilaporkan. | Tanggal tidak sama dengan jam/menit. |
 | Kelengkapan bukti | evidence_completeness.py | Checker berbasis fixture sintetis dengan inventaris/status pencatatan. | Tidak membuktikan layanan dilakukan atau tidak dilakukan. |
 
-**Implementasi aktual.** risk_scoring.py memakai bobot awal sama (1) pada versi rule-risk-index-v1-provisional; satu indikator berkontribusi paling banyak sekali per klaim. Indeks ini bukan probabilitas fraud. audit_priority.py mengagregasi klaim terpicu per facility_id, menjumlah billed_amount valid per klaim unik, dan mengestimasi berkas (default satu per klaim, batas 20). Formula aktual adalah risk_score × known indicated claim value ÷ recommended record files. Satuan nilai adalah satuan billed_amount sintetis. Unit hanya dapat dibentuk jika facility_id ada; adapter runtime tidak memberi facility ID/metadata.
+**Implementasi aktual setelah P0 Stage 5.** `risk_scoring.py` mempertahankan bobot awal sama (1) pada versi `rule-risk-index-v1-provisional`; satu indikator berkontribusi paling banyak sekali per klaim. Indeks ini bukan probabilitas fraud. `audit_priority.py` mengagregasi klaim terpicu per `facility_id`, menjumlah `billed_amount` valid per klaim unik, dan mengestimasi berkas (default satu per klaim, batas 20). Formula tetap `risk_score × known indicated claim value ÷ recommended record files`. Prioritas hanya diberi indeks jika semua nilai klaim terindikasi valid, skor dan coverage unit dapat dinilai lengkap, keanggotaan grup tidak terpotong, facility ID tersedia, dan usaha positif; selain itu indeks null dengan alasan. `not_applicable` tidak menghalangi bila pemeriksaan relevan lain lengkap. Satuan nilai hanya satuan sintetis; FKL47 dan unit resmi belum disahkan. Adapter runtime tidak memberi facility ID/metadata.
 
-**Rekomendasi.** Jangan mengubah score menjadi risk_level atau action lane sebelum threshold/policy divalidasi dan disahkan. Bedakan triggered, not_triggered hanya pada scope selesai, not_applicable, not_assessed, partial, unavailable, dan truncation. Coverage hilang tidak boleh diperlakukan sebagai negatif.
+`risk_level` tetap null. `backend/app/analytics/action_policy.py` kini menyediakan policy terpisah `action-policy-demo-v1-provisional` untuk kandidat kasus dalam AnalysisRun. Rentang skor 0–1 dibagi sama besar: `green <= 1/3`, `yellow <= 2/3` setelah batas hijau, dan `red > 2/3`. Batas itu konfigurasi demo sementara, bukan threshold operasional atau hasil kalibrasi. Skor null/parsial, cakupan kasus tak lengkap, indikator relevan unavailable, atau pencarian relevan truncated menghasilkan `cannot_recommend`; `not_applicable` sendiri diabaikan. Policy result dan konfigurasi disimpan dalam snapshot run immutable. `action_lane` bukan `risk_level`, prioritas fasilitas, review status/outcome, probabilitas fraud, atau keputusan pelanggaran. Request run dapat memilih versi server-side yang terdaftar; perubahan konfigurasi perlu versi baru. Identifier `detector-suite-v1-manual` dipelihara manual dan bukan hash source/build.
 
 ## 5. Dimensi keluaran yang berbeda
 
@@ -73,11 +73,11 @@ flowchart TD
 | Sinyal indikator | Output detector, alasan dan coverage. | Ada di snapshot/API. |
 | risk_score | Indeks aturan 0–1 atas checker yang dapat dinilai; bukan probabilitas. | Ada dan bisa null. |
 | risk_level | Kategori kebijakan high/medium/low. | Selalu null; threshold belum ditetapkan. |
-| Action lane | Rekomendasi proses hijau/kuning/merah. | Proposal saja; belum diimplementasikan. |
-| review_status | Tahap pekerjaan: `pending_review`, `in_review`, `awaiting_evidence`, `escalated`, `closed` (target model). | API lama memakai `pending_review`, `needs_more_evidence`, `not_substantiated`, `escalated`; target model belum diimplementasikan. |
-| review_outcome | Hasil substantif setelah tinjauan manusia, dipisahkan dari tahap pekerjaan. Kategori final harus disahkan pemilik proses. | Belum ada field outcome terpisah. |
+| Action lane | Saran proses demo yang terpisah dari skor, risk level dan review. | Diimplementasikan hanya dalam AnalysisRun melalui policy provisional berversi; UI belum mengintegrasikannya. |
+| review_status | Tahap pekerjaan run-scoped: `pending_review`, `in_review`, `awaiting_evidence`, `escalated`, `closed`. | Diimplementasikan pada P0 Stage 6; API legacy tetap menggunakan enum lama dan tidak dimigrasikan. |
+| review_outcome | Hasil substantif setelah tinjauan manusia, terpisah dari tahap pekerjaan, skor, lane, dan sinyal. | Field run-scoped nullable; kosakata sementara `signal_supported`, `signal_not_supported`, `inconclusive`, belum disahkan pemilik proses. Dicatat eksplisit oleh `audit_lead`, tidak diinferensikan. |
 
-**Catatan migrasi desain:** status legacy `not_substantiated` bermakna hasil, bukan tahap pekerjaan. Saat memigrasikan data demo, pertahankan history aslinya; petakan status saat ini ke `review_status=closed` dan `review_outcome=not_substantiated` hanya jika kebijakan outcome disetujui. Jangan melakukan migrasi otomatis tanpa tes dan rencana kompatibilitas API.
+**Kompatibilitas:** API legacy mempertahankan `not_substantiated` sebagai status lama. P0 Stage 6 menambahkan tabel run-scoped yang tidak memigrasikan baris/history legacy. Status awal run-scoped adalah `pending_review`; outcome null. Tidak ada mapping otomatis dari `not_substantiated` ke status baru/outcome.
 
 ## 6. Impor dan profil sumber
 
@@ -85,7 +85,7 @@ flowchart TD
 
 **Fakta panduan — hlm. 6–7, 18–25, 30–31.** Panduan menguraikan lima dataset sampel dan hubungan dataset serta kamus FKRTL dan diagnosis sekunder. Kamus bukan bukti file aktual lengkap, konsisten, boleh digabung, atau mencukupi detector.
 
-**Implementasi aktual.** Belum ada importer, upload endpoint, DataBatch store, mapping registry, profiling endpoint, atau batch validation API.
+**Implementasi aktual setelah P0 Stage 4.** Backend menyediakan `synthetic-claims-v1` CSV exporter/parser, validasi sintetis agregat, DataBatch SQLite immutable, dan endpoint metadata/import. AnalysisRun dapat dijalankan hanya dari batch sintetis siap. Tidak ada schema profile BPJS, mapping BPJS, atau pembacaan `.dta`. Versi skema/mapping yang diterima hanya versi sintetis yang disebut dalam kontrak API.
 
 **Rekomendasi kontrak import.**
 
@@ -96,7 +96,9 @@ flowchart TD
 5. FKL05_NEW tidak tercantum pada kamus yang dibaca (panduan menyebut FKL05 sebagai provinsi). Panduan hlm. 25 menamai FKL47 sebagai biaya tagih provider dan FKL48 sebagai biaya verifikasi setelah verifikasi. Formula komponen FKL47 pada teks tampak sirkular; klarifikasi rumus, satuan, tipe, dan waktu ketersediaan diperlukan sebelum mapping.
 6. Diagnosis sekunder adalah add-on; FKL02 join hanya setelah relasi/cardinality resmi dikonfirmasi. FKL24 bukan persyaratan FKRTL utama.
 
-### State DataBatch — rekomendasi, bukan fitur aktual
+### State DataBatch
+
+Prototype importer mengimplementasikan status `rejected`, `ready`, dan `ready_with_warnings`. Validasi format/isi yang gagal tersimpan sebagai batch `rejected` tanpa record anak parsial; penghilangan kolom opsional memberi warning. Versi ready immutable. Kontrol ini hanya untuk profil CSV sintetis v1, bukan lifecycle BPJS. Status `created`, `validating`, `archived`, dan expiry pada diagram berikut masih rekomendasi bagi fase lanjutan.
 
 ~~~mermaid
 stateDiagram-v2
@@ -113,22 +115,26 @@ stateDiagram-v2
 
 `ready` dan `ready_with_warnings` adalah versi batch yang telah dibekukan. Satu versi batch dapat menjadi sumber lebih dari satu AnalysisRun; memulai run tidak mengubah status batch menjadi terkunci. Perubahan isi atau mapping menghasilkan versi batch baru. Penghapusan ditolak selama ada run/review yang masih mereferensikan batch, kecuali kebijakan retensi/erasure yang disetujui menangani dependensi terkait.
 
+Untuk implementasi saat ini, `created` dan `validating` hanya fase sinkron dalam request, bukan status persisted; tabel menyimpan terminal `rejected`, `ready`, atau `ready_with_warnings`. `archived`/expiry dan penghapusan mengikuti diagram rekomendasi dan belum diimplementasikan. Import identik pada `batch_key`, checksum, schema version, dan mapping version mengembalikan versi tersimpan; perubahan salah satu komponen membuat ID/version baru. Batch key adalah label dataset sintetis yang operator tetapkan, bukan identitas peserta atau klaim.
+
 ## 7. AnalysisRun, versioning, persistensi
 
-**Implementasi aktual.** GET routes memanggil service untuk menghitung ulang snapshot sintetis kecil pada setiap permintaan. Response punya generated_at dan versi scoring/priority, tetapi tidak punya run ID, run history, result store, atau link ke source batch. Evaluator offline menerima feature records dan ground truth secara terpisah; ini bukan endpoint evaluation runtime. Review SQLite menyimpan workflow terpisah dari sumber analitik.
+**Implementasi aktual setelah P0 Stage 5.** Route dashboard/analysis/cases yang lama tetap menghitung snapshot `synthetic_demo`. Route `POST /api/v1/runs` menjalankan pipeline koordinasi yang sama atas record fitur hasil adapter DataBatch sintetis dan menyimpan snapshot termasuk scoring, audit priority, serta action policy. GET run mengambil manifest dan hasil tersimpan tanpa menjalankan ulang pipeline. Manifest mengunci `batch_id`, versi, checksum, schema dan mapping; mencatat versi scoring, priority, detector suite manual, serta action policy dan configuration snapshot. Ground truth tidak diimpor oleh CSV dan tidak diteruskan ke pipeline. Policy config disimpan immutable per identifier; konflik config untuk versi yang sama ditolak. Manifest, result, policy registry, dan security events berada pada SQLite batch yang sama (`CIR_BATCH_DB_PATH`); tabel ditambahkan tanpa reset tabel batch/auth/review. Auth/review database tetap tidak disentuh oleh run storage.
 
-**Rekomendasi.** AnalysisRun mereferensikan DataBatch ID/digest, schema mapping/canonicalization version, detector/config/threshold, scoring weights/version, priority/effort config, initiator, timestamps, status, coverage, dan output references. Satu DetectorRun per checker; hasil/group membership, reasons, scores dan facility priorities terkait run. Ground truth disimpan pada ruang eksperimen terpisah dan tidak tersedia untuk operational detector/API. Retry membuat run baru; hasil lama immutable. Endpoint pembacaan run harus mengambil snapshot tersimpan berdasarkan run ID; GET tidak boleh menjalankan ulang analisis tanpa menyatakan pembuatan run baru. Simpan status gagal/parsial dan coverage per checker; kandidat hasil run dan review harus memakai kunci run-scoped agar history tidak berpindah ke run lain.
+Run sinkron merekam `running` terlebih dahulu, lalu status terminal `completed`, `partial`, atau `failed`. `not_applicable` sendiri tidak membuat run parsial/gagal. Run gagal terminal; retry hanya untuk `failed` dan membuat run baru dengan `retry_of_run_id` serta batch version/checksum identik. Retry tanpa pemilihan policy baru mewarisi versi/config policy asal. Trigger SQLite melindungi manifest/result terminal. Kegagalan exception hanya menyimpan kategori aman; hasil all-detectors-unavailable dapat tersimpan sebagai diagnostik berstatus failed. Proses yang terputus meninggalkan status `running`; recovery otomatis belum ada. Hasil menghapus token peserta dan atribut token dari penjelasan, tidak menyimpan row mentah atau label eksperimen. Permission baseline: `runs:write` untuk `data_operator`; `runs:read` untuk operator/verifikator/audit lead; `runs:results:read` untuk verifikator/audit lead. Akses hasil dan batch masih `shared_synthetic`, tanpa assignment scope. Review run-scoped memerlukan run `completed`/`partial` dengan result tersimpan dan kandidat `case_id` yang cocok; status/outcome dan security events tidak mengubah snapshot. Frontend belum menyediakan alur pilih batch/buat run/baca hasil run atau review run-scoped.
 
 ~~~mermaid
 stateDiagram-v2
-  [*] --> queued
-  queued --> running
-  queued --> cancelled
-  running --> completed
-  running --> completed_with_warnings
-  running --> failed
-  running --> cancelled
+  [*] --> running: manifest committed before synchronous execution
+  running --> completed: all assessed pipeline checks terminal
+  running --> partial: material coverage incomplete/unavailable/truncated
+  running --> failed: fatal error or all detectors unavailable
+  completed --> [*]
+  partial --> [*]
+  failed --> [*]
 ~~~
+
+Retry membuat entitas AnalysisRun baru berstatus `running` dengan `retry_of_run_id`; state terminal run gagal tidak dibuka kembali.
 
 Run yang `failed` bersifat terminal. Retry membuat AnalysisRun baru dengan `retry_of_run_id` yang menunjuk run gagal; jangan menghidupkan kembali atau menimpa hasil run lama. Run selesai tetap immutable. Jika ada run lebih baru, relasi `supersedes_run_id` atau penanda “versi terbaru” disimpan terpisah tanpa mengubah keluaran historis. `completed` berarti pekerjaan terkonfigurasi selesai dalam eligible scope, bukan akurasi/validasi. Not applicable, partial, unassessed, unavailable dan truncated tetap terpisah.
 
@@ -144,9 +150,11 @@ Semua finding, score, priority, review, dan history harus terikat ke `analysis_r
 
 ## 8. API dan batas kontrak
 
-**Implementasi aktual.** docs/api-contracts.md mencakup GET /health; dashboard summary; analysis; cases (filter/sort/page); case detail; evaluation; review GET/POST. Belum ada auth, import/profile/batch/run/status/outcome/export/security audit API. Error terstruktur. Health tidak menginisialisasi review SQLite.
+**Implementasi aktual setelah P0 Stage 4.** `docs/api-contracts.md` mencakup health, dashboard, analysis, cases, case detail, evaluation, review, auth/provisioning, DataBatch sintetis, dan AnalysisRun (`POST/GET /api/v1/runs`). Tidak ada profile BPJS atau ekspor batch API. Error terstruktur; health tidak menginisialisasi auth, review, batch, atau run database.
 
-**Rekomendasi.** Pertahankan kontrak pembacaan untuk prototipe. API mendatang perlu session/account, schema profile, batch, run, run-specific results, dan coverage/provenance. Review writes harus menggunakan authenticated subject yang ditetapkan server. Review outcome perlu endpoint terpisah setelah kebijakan disetujui.
+**P0 Stage 6 aktual.** `GET /api/v1/runs/{run_id}/cases/{case_id}/review`, `PATCH` pada path yang sama untuk status, dan `POST .../review/outcome` untuk outcome terpisah memvalidasi kandidat dari result run tersimpan. GET tidak membuat state; mutasi menambah history event dan security audit event yang berbeda. Review tables berada pada SQLite batch/run (`CIR_BATCH_DB_PATH`); legacy review DB dan semantik endpoint lamanya tidak diubah. Outcome taxonomy dan RBAC masih asumsi prototipe; assignment scope belum tersedia.
+
+**Pekerjaan tersisa.** UI belum terhubung ke endpoint run-scoped. Browser E2E belum diverifikasi. Pemetaan status legacy tidak dilakukan; jika diperlukan kelak, harus melalui desain migrasi dan tes eksplisit. Profil BPJS hanya setelah hard gate otorisasi/mapping/privacy dipenuhi.
 
 ## 9. Dua profil data
 

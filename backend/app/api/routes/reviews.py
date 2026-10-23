@@ -1,11 +1,13 @@
 """Human-in-the-loop review status and append-only history routes."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from app.api.errors import ApiError
 from app.schemas.analytics import CaseReviewResponse, ReviewUpdateRequest
 from app.services.analytics import DATA_SOURCE, build_analytics_snapshot
 from app.services.reviews import ReviewStorageError, ReviewStore, STATUS_LABELS
+from app.security.auth import Principal
+from app.security.dependencies import require_csrf, require_permission
 
 
 router = APIRouter(prefix="/api/v1/cases/{case_id}/review", tags=["review"])
@@ -27,7 +29,8 @@ def _response(case_id: str, state: dict) -> dict:
 
 
 @router.get("", response_model=CaseReviewResponse)
-def get_case_review(case_id: str, request: Request):
+def get_case_review(case_id: str, request: Request,
+                    _principal: Principal = Depends(require_permission("review:read"))):
     _candidate_exists(case_id)
     try:
         state = ReviewStore(request.app.state.review_db_path).get_review(case_id)
@@ -37,11 +40,13 @@ def get_case_review(case_id: str, request: Request):
 
 
 @router.post("", response_model=CaseReviewResponse)
-def update_case_review(case_id: str, payload: ReviewUpdateRequest, request: Request):
+def update_case_review(case_id: str, payload: ReviewUpdateRequest, request: Request,
+                       principal: Principal = Depends(require_permission("review:write")),
+                       _csrf: Principal = Depends(require_csrf)):
     _candidate_exists(case_id)
     try:
         state = ReviewStore(request.app.state.review_db_path).update_review(
-            case_id, payload.status, payload.note
+            case_id, payload.status, payload.note, principal.user_id, principal.username
         )
     except ReviewStorageError as exc:
         raise ApiError(503, "REVIEW_STORAGE_UNAVAILABLE", str(exc), {}) from exc

@@ -65,6 +65,8 @@ Indikator pada header memeriksa `GET /health` melalui proxy Vite secara berkala.
 - Evaluasi: `GET /api/v1/evaluation`
 - Antrean dan detail review: `GET /api/v1/cases` memakai filter `review_status`, `GET /api/v1/cases/{case_id}/review`, dan `POST /api/v1/cases/{case_id}/review`.
 
-Status review adalah metadata workflow (`pending_review`, `needs_more_evidence`, `not_substantiated`, atau `escalated`), bukan kesimpulan fraud. Catatan disimpan di SQLite lokal backend. Demo belum memiliki autentikasi/kontrol akses; jangan masukkan data peserta, klaim nyata, identitas, atau informasi sensitif pada catatan.
+Status review adalah metadata workflow (`pending_review`, `needs_more_evidence`, `not_substantiated`, atau `escalated`), bukan kesimpulan fraud. Catatan disimpan di SQLite lokal backend. Login menggunakan cookie sesi `HttpOnly` dan token CSRF in-memory; frontend tidak menyimpan session bearer token di `localStorage`. Backend tetap menjadi otoritas untuk permission. Role saat ini baseline demo dan belum disetujui untuk penggunaan operasional. Jangan masukkan data peserta, klaim nyata, identitas, atau informasi sensitif pada catatan.
+
+Administrator pertama dibuat lewat prosedur CLI backend (lihat `backend/README.md`); tidak ada registrasi publik atau credential default. Setelah server/backend dan akun tersedia, login melalui halaman awal. Refresh memulihkan sesi dengan `GET /api/v1/auth/me`; logout mencabut sesi di server. HTTPS wajib untuk deployment; konfigurasi `CIR_COOKIE_SECURE=false` hanya untuk pengembangan lokal HTTP yang terisolasi.
 
 Jika request gagal atau respons tidak sesuai kontrak, halaman menampilkan error dan aksi coba lagi; daftar kosong dari API ditampilkan sebagai empty state tersendiri. Skor/level risiko dan waktu deteksi yang bernilai `null` tidak ditampilkan sebagai metrik. Sorting antrean meneruskan parameter kontrak, tetapi backend saat ini menggunakan urutan `case_id` karena nilai risiko/waktu belum tersedia.

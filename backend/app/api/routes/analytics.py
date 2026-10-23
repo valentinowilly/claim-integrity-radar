@@ -3,7 +3,7 @@
 from datetime import date, datetime, timezone
 from math import ceil
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from app.api.errors import ApiError
 from app.schemas.analytics import (
@@ -25,6 +25,8 @@ from app.services.reviews import (
     ReviewStore,
     STATUS_LABELS,
 )
+from app.security.auth import Principal
+from app.security.dependencies import require_permission
 
 
 router = APIRouter(prefix="/api/v1")
@@ -78,7 +80,8 @@ def _integer(value: str, parameter: str, minimum: int, maximum: int | None = Non
 
 
 @router.get("/dashboard/summary", response_model=DashboardSummaryResponse)
-def dashboard_summary(period_from: str | None = None, period_to: str | None = None):
+def dashboard_summary(period_from: str | None = None, period_to: str | None = None,
+                      _principal: Principal = Depends(require_permission("dashboard:read"))):
     start, end = _period(period_from, period_to)
     snapshot = build_analytics_snapshot(period_from=start, period_to=end)
     counts = [
@@ -92,6 +95,7 @@ def dashboard_summary(period_from: str | None = None, period_to: str | None = No
     ]
     return {
         "availability": snapshot["availability"],
+        "execution_status": snapshot["execution_status"],
         "data_source": snapshot["data_source"],
         "generated_at": _now(),
         "period": {"from": period_from, "to": period_to},
@@ -110,7 +114,8 @@ def dashboard_summary(period_from: str | None = None, period_to: str | None = No
 
 @router.get("/analysis", response_model=AnalysisResponse)
 def analysis(period_from: str | None = None, period_to: str | None = None,
-             indicator: str | None = None):
+             indicator: str | None = None,
+             _principal: Principal = Depends(require_permission("analytics:read"))):
     start, end = _period(period_from, period_to)
     if indicator is not None and indicator not in INDICATOR_CODES:
         raise ApiError(400, "INVALID_FILTER", "Kode indikator tidak dikenal.", {"parameter": "indicator"})
@@ -120,6 +125,7 @@ def analysis(period_from: str | None = None, period_to: str | None = None,
         active = [entry for entry in active if entry["code"] == indicator]
     return {
         "availability": snapshot["availability"],
+        "execution_status": snapshot["execution_status"],
         "data_source": snapshot["data_source"],
         "generated_at": _now(),
         "filters": {"period_from": period_from, "period_to": period_to, "indicator": indicator},
@@ -143,7 +149,8 @@ def analysis(period_from: str | None = None, period_to: str | None = None,
 def list_cases(request: Request, page: str = "1", page_size: str = "25", risk_level: str | None = None,
                indicator: str | None = None, status: str | None = None,
                review_status: str | None = None,
-               sort_by: str = "risk_score", sort_order: str = "desc"):
+               sort_by: str = "risk_score", sort_order: str = "desc",
+               _principal: Principal = Depends(require_permission("cases:read"))):
     page_number = _integer(page, "page", 1)
     size = _integer(page_size, "page_size", 1, 100)
     if risk_level is not None and risk_level not in RISK_LEVELS:
@@ -199,7 +206,8 @@ def list_cases(request: Request, page: str = "1", page_size: str = "25", risk_le
     total_pages = ceil(total / size) if total else 0
     offset = (page_number - 1) * size
     return {
-        "availability": "available",
+        "availability": snapshot["availability"],
+        "execution_status": snapshot["execution_status"],
         "data_source": DATA_SOURCE,
         "items": items[offset:offset + size],
         "pagination": {
@@ -219,13 +227,14 @@ def list_cases(request: Request, page: str = "1", page_size: str = "25", risk_le
 
 
 @router.get("/cases/{case_id}", response_model=CaseDetailResponse)
-def case_detail(case_id: str):
+def case_detail(case_id: str, _principal: Principal = Depends(require_permission("cases:read"))):
     snapshot = build_analytics_snapshot()
     case = snapshot["cases"].get(case_id)
     if case is None:
         raise ApiError(404, "CASE_NOT_FOUND", "Kasus tidak ditemukan.", {})
     return {
         "availability": snapshot["availability"],
+        "execution_status": snapshot["execution_status"],
         "data_source": snapshot["data_source"],
         "case": case,
         "notice": "Detail memuat alasan kandidat dari data sintetis; bukan keputusan fraud.",
@@ -234,7 +243,8 @@ def case_detail(case_id: str):
 
 @router.get("/evaluation", response_model=EvaluationResponse)
 def evaluation(period_from: str | None = None, period_to: str | None = None,
-               evaluation_version: str | None = None):
+               evaluation_version: str | None = None,
+               _principal: Principal = Depends(require_permission("analytics:read"))):
     _period(period_from, period_to)
     return {
         "availability": "insufficient_data",

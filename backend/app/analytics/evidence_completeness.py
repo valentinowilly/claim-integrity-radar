@@ -34,12 +34,13 @@ def detect_evidence_completeness(
     candidates: list[dict[str, Any]] = []
     unassessed: list[dict[str, str]] = []
     ineligible: list[dict[str, str]] = []
+    not_applicable: list[dict[str, str]] = []
 
     for case_id, row in validated:
         service_type = text_value(row.get("service_type"))
         required = rules.get(service_type) if service_type else None
         if required is None:
-            unassessed.append({"case_id": case_id, "reason": "Belum ada aturan bukti untuk jenis layanan ini."})
+            not_applicable.append({"case_id": case_id, "reason": "Belum ada aturan bukti untuk jenis layanan ini."})
             continue
         status = text_value(row.get("supporting_evidence_recording_status"))
         if status == "not_recorded":
@@ -95,6 +96,7 @@ def detect_evidence_completeness(
         "candidates": candidates,
         "unassessed_cases": sorted(unassessed, key=lambda item: item["case_id"]),
         "ineligible_cases": sorted(ineligible, key=lambda item: item["case_id"]),
+        "not_applicable_cases": sorted(not_applicable, key=lambda item: item["case_id"]),
         "active_rules": {service: list(required) for service, required in sorted(rules.items())},
         "limitations": LIMITATIONS.copy(),
     }

@@ -48,12 +48,15 @@ def _coverage_for_unit(scored_cases: list[Mapping[str, Any]], top_coverage: Mapp
                     states.append(coverage.get("status"))
                     break
         assessed = sum(state in {"triggered", "not_triggered"} for state in states)
-        not_assessed = len(states) - assessed
+        not_applicable = sum(state == "not_applicable" for state in states)
+        not_assessed = len(states) - assessed - not_applicable
         status = top_coverage.get(indicator, "unavailable")
         if status == "unavailable":
             unit_status = "unavailable"
         elif status == "partial" or not_assessed:
             unit_status = "partial"
+        elif states and not_applicable == len(states):
+            unit_status = "not_applicable"
         elif assessed == 0:
             unit_status = "unavailable"
         else:
@@ -63,6 +66,7 @@ def _coverage_for_unit(scored_cases: list[Mapping[str, Any]], top_coverage: Mapp
             "status": unit_status,
             "assessed_claim_count": assessed,
             "not_assessed_claim_count": not_assessed,
+            "not_applicable_claim_count": not_applicable,
             "triggered_claim_count": sum(state == "triggered" for state in states),
         })
     return rows
@@ -150,20 +154,35 @@ def build_audit_priority_queue(
         effort_files = min(raw_effort, config.max_files_per_unit) if config.max_files_per_unit is not None else raw_effort
         effort_status = "capped" if capped else "estimated"
 
-        priority_index: float | None = None
-        priority_decimal: Decimal | None = None
-        if unit_score is not None and valid_value_count and effort_files > 0:
-            priority_decimal = Decimal(str(round(unit_score, 6))) * total_value / Decimal(effort_files)
-            priority_index = round(float(priority_decimal), 8)
-
         coverage = _coverage_for_unit(case_scores, top_coverage)
         coverage_partial = any(item["status"] == "partial" for item in coverage)
+        coverage_unavailable = any(item["status"] == "unavailable" for item in coverage)
+        unassessable_score_count = sum(item.get("risk_score") is None for item in case_scores)
         unresolved_case_count = sum(
             int(note.get("unresolved_case_count", 0))
             for note in partial_group_notes
             if isinstance(note, Mapping) and facility_id in note.get("known_facility_ids", [])
         )
         group_truncated = unresolved_case_count > 0
+        eligibility_reasons: list[str] = []
+        if unit_score is None or unassessable_score_count:
+            eligibility_reasons.append("risk_score tidak tersedia untuk satu atau lebih klaim terindikasi.")
+        if invalid_value_count:
+            eligibility_reasons.append("Nilai billed_amount tidak valid atau tidak tersedia pada satu atau lebih klaim terindikasi.")
+        if coverage_partial or coverage_unavailable:
+            eligibility_reasons.append("Cakupan indikator unit audit parsial atau tidak tersedia.")
+        if group_truncated:
+            eligibility_reasons.append("Keanggotaan kelompok indikator belum lengkap.")
+        priority_eligible = (
+            unit_score is not None and unassessable_score_count == 0
+            and valid_value_count == len(triggered_ids) and effort_files > 0
+            and not coverage_partial and not coverage_unavailable and not group_truncated
+        )
+        priority_index: float | None = None
+        priority_decimal: Decimal | None = None
+        if priority_eligible:
+            priority_decimal = Decimal(str(round(unit_score, 6))) * total_value / Decimal(effort_files)
+            priority_index = round(float(priority_decimal), 8)
         partial_reasons = []
         if coverage_partial:
             partial_reasons.append("Sebagian pemeriksaan indikator tidak tersedia atau cakupannya terpotong; posisi antrean dapat berubah.")
@@ -220,8 +239,9 @@ def build_audit_priority_queue(
             "priority_formula": "risk_score × known_indicated_claim_value ÷ recommended_record_files",
             "priority_index": priority_index,
             "priority_status": "not_assessable" if priority_index is None else (
-                "partial" if coverage_partial or value_status == "partial" or capped or group_truncated else "available"
+                "partial" if capped else "available"
             ),
+            "eligibility_reasons": eligibility_reasons,
             "priority_components": {
                 "risk_score": unit_score,
                 "known_indicated_claim_value": f"{total_value:.2f}" if valid_value_count else None,
@@ -245,8 +265,22 @@ def build_audit_priority_queue(
     for index, item in enumerate(queue, start=1):
         item["priority_order"] = index
 
+    eligible_units = sum(item["priority_index"] is not None for item in queue)
+    if not grouped and unassigned:
+        eligibility_reasons = ["Klaim terindikasi tidak memiliki facility_id sumber yang valid untuk membentuk unit audit fasilitas."]
+    elif not grouped:
+        eligibility_reasons = ["Tidak ada klaim terindikasi yang dapat dimasukkan ke antrean prioritas fasilitas."]
+    elif eligible_units == len(queue) and not unassigned:
+        eligibility_reasons = []
+    else:
+        eligibility_reasons = ["Satu atau lebih unit fasilitas tidak memenuhi prasyarat prioritas; lihat eligibility_reasons per unit."]
+        if unassigned:
+            eligibility_reasons.append("Sebagian klaim terindikasi tidak memiliki facility_id untuk dimasukkan ke ranking fasilitas.")
     return {
         "priority_version": PRIORITY_VERSION,
+        "status": "not_assessable" if eligible_units == 0 else ("partial" if eligible_units < len(queue) or unassigned else "available"),
+        "eligible_unit_count": eligible_units,
+        "eligibility_reasons": eligibility_reasons,
         "unit": "synthetic facility",
         "formula": "risk_score × unique indicated claim value ÷ estimated record-file effort",
         "sorted_by": ["priority_index desc", "tie_break_case_id asc"],

@@ -157,8 +157,40 @@ def test_missing_detectors_and_truncated_near_search_are_not_reported_as_no_sign
     assert case_a["score_status"] == "partial_coverage"
     assert {item["indicator"] for item in case_a["indicator_coverage"] if item["status"] == "not_assessed"} == {"near_duplicate_claim_candidate"}
     queue = build_audit_priority_queue(rows, partial)
-    assert queue["items"][0]["priority_status"] == "partial"
+    assert queue["items"][0]["priority_status"] == "not_assessable"
+    assert queue["items"][0]["priority_index"] is None
+    assert queue["items"][0]["eligibility_reasons"]
     assert any("terpotong" in limitation for limitation in queue["items"][0]["limitations"])
+
+
+def test_priority_requires_facility_id_complete_coverage_and_all_valid_claim_values():
+    rows = _rows()
+    results = _empty_results(rows)
+    results["repeat_billing_candidate"]["candidate_groups"] = [{
+        "group_id": "repeat", "case_ids": ["syn-case-a", "syn-case-b"], "reason": "Repeat candidate.",
+    }]
+    scores = score_claims(rows, results)
+    complete = build_audit_priority_queue(rows, scores)
+    assert complete["status"] == "available"
+    assert complete["eligible_unit_count"] == 1
+    assert complete["items"][0]["priority_index"] is not None
+
+    invalid_rows = deepcopy(rows)
+    invalid_rows[1]["billed_amount"] = None
+    invalid_scores = score_claims(invalid_rows, results)
+    invalid = build_audit_priority_queue(invalid_rows, invalid_scores)
+    assert invalid["items"][0]["priority_index"] is None
+    assert any("billed_amount" in reason for reason in invalid["items"][0]["eligibility_reasons"])
+
+    missing_facility = deepcopy(rows)
+    for row in missing_facility:
+        row.pop("facility_id")
+    missing_scores = score_claims(missing_facility, results)
+    unavailable = build_audit_priority_queue(missing_facility, missing_scores)
+    assert unavailable["status"] == "not_assessable"
+    assert unavailable["items"] == []
+    assert unavailable["unassigned_triggered_case_count"] == 2
+    assert unavailable["eligibility_reasons"]
 
 
 def test_no_eligible_evidence_for_any_indicator_is_not_assessable():

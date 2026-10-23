@@ -11,6 +11,7 @@ import {
 } from "../api/client";
 import { EmptyState, ErrorState, indicatorLabel, LoadingState, PageHeading, SourceBadge } from "../components/DataStates";
 import { useApiResource } from "../hooks/useApiResource";
+import { useAuth } from "../auth/AuthContext";
 
 const statusOptions = Object.keys(reviewStatusLabels) as ReviewStatus[];
 const indicatorStateLabels: Record<string, string> = {
@@ -21,6 +22,8 @@ const indicatorStateLabels: Record<string, string> = {
 };
 
 export default function CaseDetailPage() {
+  const { state: auth } = useAuth();
+  const canWriteReview = auth.loading ? false : Boolean(auth.session?.permissions.includes("review:write"));
   const { caseId = "" } = useParams();
   const loadDetail = useCallback((signal: AbortSignal) => getCaseDetail(caseId, signal), [caseId]);
   const loadReview = useCallback((signal: AbortSignal) => getCaseReview(caseId, signal), [caseId]);
@@ -135,8 +138,10 @@ export default function CaseDetailPage() {
                   <>
                     <div className="review-safety-note" role="note">
                       <CircleAlert size={17} />
-                      <p><strong>Data demo sintetis.</strong> Status adalah metadata workflow, bukan keputusan fraud yang terbukti. Catatan disimpan pada database lokal. Aplikasi belum memiliki autentikasi atau kontrol akses; jangan masukkan data peserta, klaim nyata, identitas, atau informasi sensitif.</p>
+                      <p><strong>Data demo sintetis.</strong> Status adalah metadata workflow, bukan keputusan fraud yang terbukti. Catatan disimpan pada database lokal dan dikaitkan dengan akun sesi. Kebijakan akses masih baseline prototipe; jangan masukkan data peserta, klaim nyata, identitas, atau informasi sensitif.</p>
                     </div>
+                    {!canWriteReview && <div className="review-readonly-note">Role akun ini dapat membaca riwayat, tetapi tidak memiliki izin mengubah status tinjauan.</div>}
+                    {canWriteReview && (
                     <form className="surface-panel review-form" onSubmit={handleSubmit}>
                       <div className="review-form-heading"><div><span className="eyebrow muted-eyebrow">STATUS SAAT INI</span><span className={`status-pill status-review-${review.status}`}>{review.status_label}</span></div><span className="reviewer-demo-label">{review.reviewer_label ?? "Belum ada catatan reviewer"}</span></div>
                       <label className="review-field">Status tindak lanjut
@@ -150,6 +155,7 @@ export default function CaseDetailPage() {
                       <div className="review-form-footer"><span className={note.length > 1000 ? "character-count character-count-error" : "character-count"}>{note.length}/1000 karakter</span><button className="button button-primary" type="submit" disabled={saving || note.length > 1000}>{saving ? "Menyimpan…" : <><Save size={14} />Simpan tinjauan</>}</button></div>
                       {feedback && <div className={`review-feedback review-feedback-${feedback.kind}`} role={feedback.kind === "error" ? "alert" : "status"}>{feedback.message}</div>}
                     </form>
+                    )}
 
                     <section className="surface-panel review-history-panel">
                       <div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">AUDIT TRAIL LOKAL</span><h2><History size={16} /> Riwayat tinjauan</h2></div><span className="history-count">{review.history.length} kejadian</span></div>

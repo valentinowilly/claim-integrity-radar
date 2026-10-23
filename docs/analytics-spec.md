@@ -170,7 +170,7 @@ Aturan tersebut menguji kelengkapan daftar dalam skenario perangkat lunak, bukan
 
 ## Skor risiko gabungan dan prioritas audit (Tahap 13)
 
-Modul `risk_scoring.py` menerima enam keluaran detektor beserta record fitur, dan `audit_priority.py` membentuk antrean terpisah. `run_detector_suite(records, facilities)` menjalankan keenam detektor pada record fitur saja; ia tidak menerima ground truth. **Implementasi aktual saat ini:** `backend/app/services/analytics.py::build_analytics_snapshot` memanggil suite detektor, scoring, lalu prioritas dalam satu pass; route analytics memanggil snapshot tersebut. API runtime memakai adapter `synthetic_demo` kecil, bukan generator benchmark. Hasil snapshot dihitung saat GET dipanggil dan belum disimpan sebagai AnalysisRun persisten. Spesifikasi ini mencatat keadaan source saat ini; ia tidak menetapkan perilaku target batch/run.
+Modul `risk_scoring.py` menerima enam keluaran detektor beserta record fitur, dan `audit_priority.py` membentuk antrean terpisah. `run_detector_suite(records, facilities)` menjalankan keenam detektor pada record fitur saja; ia tidak menerima ground truth. Route analytics lama tetap menghitung snapshot `synthetic_demo`; route AnalysisRun menjalankan pipeline pada batch CSV sintetis siap dan menyimpan snapshot. GET AnalysisRun membaca hasil tersimpan. Evaluasi ground truth tetap terpisah dari jalur operasional.
 
 ### Bobot dan rumus skor
 
@@ -201,7 +201,7 @@ Untuk eksperimen generator, unit audit adalah `synthetic_facility` dengan ID `fa
 
 Skor unit adalah **maksimum skor per klaim yang terindikasi** dalam fasilitas itu. Aturan max dipilih agar jumlah klaim fasilitas tidak dengan sendirinya menaikkan skor. Daftar alasan unit menautkan klaim dan indikator pemicu; indikator unit merupakan gabungan indikator unik.
 
-Nilai klaim unit adalah jumlah `billed_amount` valid dari ID klaim unik yang terindikasi oleh setidaknya satu detektor. Klaim yang dipicu beberapa indikator atau beberapa pasangan hanya dijumlahkan sekali. Nilai hilang/invalid tidak diisi. Jika sebagian valid, jumlah yang diketahui berstatus parsial dan antrean memberi peringatan bahwa nilai/prioritas dapat berubah; jika tidak ada yang valid, indeks unit `null` dan unit tidak dapat diurutkan secara numerik.
+Nilai klaim unit adalah jumlah `billed_amount` valid dari ID klaim unik yang terindikasi oleh setidaknya satu detektor. Klaim yang dipicu beberapa indikator atau beberapa pasangan hanya dijumlahkan sekali. Nilai hilang/invalid tidak diisi. Indeks prioritas hanya dihitung jika seluruh klaim terindikasi pada unit memiliki nilai valid; jika ada nilai yang hilang/invalid, nilai agregat yang diketahui tetap dapat ditampilkan sebagai parsial, tetapi `priority_index` adalah `null` dan unit tidak mendapat urutan numerik.
 
 Usaha audit diukur sebagai **jumlah berkas rekam medis yang direkomendasikan**, bukan waktu kerja: `ceil(jumlah klaim terindikasi unik × files_per_claim)`. Default simulasi adalah satu berkas per klaim dan batas maksimal 20 berkas per unit. Parameter dapat dikonfigurasi. Jika batas berlaku, antrean mencatat nilai sebelum dan setelah pembatasan serta status `capped`; pemilihan berkas sampel belum ditentukan. Ini bukan standar operasional BPJS.
 
@@ -211,7 +211,7 @@ Indeks mengikuti formula proposal tanpa perubahan:
 
 `Prioritas Audit(unit) = Skor Risiko(unit) × Nilai Klaim(unit) ÷ Usaha Audit(unit)`
 
-Pada implementasi, skor yang dipakai adalah skor unit (maksimum skor klaim terindikasi), nilai adalah total nilai klaim valid unik yang diketahui, dan usaha adalah jumlah berkas yang direkomendasikan. Komponen ditampilkan secara terpisah. Bila skor, nilai, atau usaha tidak valid/tidak tersedia, indeks `null`; tidak ada pembagi nol atau pengganti numerik. Bila nilai atau cakupan parsial, indeks berdasarkan nilai/cakupan diketahui ditandai `partial`; antrean menyebut posisinya dapat berubah.
+Pada implementasi, skor yang dipakai adalah skor unit (maksimum skor klaim terindikasi), nilai adalah total nilai klaim valid unik, dan usaha adalah jumlah berkas yang direkomendasikan. Komponen ditampilkan secara terpisah. Bila skor tidak tersedia, nilai tidak lengkap, usaha tidak positif, cakupan unit parsial/tidak tersedia, atau keanggotaan kandidat terpotong, indeks `null`; tidak ada pembagi nol atau pengganti numerik. `not_applicable` tidak menghalangi ranking jika pemeriksaan relevan lainnya cukup. Jika beberapa unit eligible dan beberapa tidak, status ringkasan antrean adalah `partial`, dan alasan ketidaklayakan disajikan per unit. Batas jumlah berkas tetap merupakan asumsi; unit berstatus `capped` dapat memiliki indeks yang mengikuti konfigurasi cap tetapi diberi keterbatasan eksplisit.
 
 Urutan adalah `priority_index` menurun, lalu `tie_break_case_id` menaik hanya saat indeks sama. Unit tanpa indeks ditempatkan sesudah indeks yang dapat dihitung; ID kasus tidak menggantikan nilai prioritas. Urutan ini alat bantu pengurutan prototipe, bukan peringkat risiko tervalidasi, prediksi kerugian, atau probabilitas fraud.
 
@@ -222,3 +222,13 @@ Tes sintetis membuat tiga klaim unik di satu unit fasilitas: nilai 100, 200, dan
 ### Status dan validasi
 
 Tes mencakup kontribusi berbobot, banyak pasangan dari indikator sama, deduplikasi nilai, nilai invalid, tidak tersedia vs tidak terpicu, truncation near-duplicate, usaha tidak valid, formula indeks, perubahan urutan, tie-break case ID, determinisme, minimisasi keluaran, dan input tak berubah. Benchmark dilakukan terpisah pada ukuran sintetis; tidak ada klaim kinerja 120.000 klaim hanya dari benchmark yang lebih kecil. Bobot, unit, nilai usaha, aturan cakupan, dan kegunaan skor tetap perlu ditinjau pengguna serta ahli domain sebelum pemakaian selain eksperimen sintetis.
+
+### Policy action demo (P0 Stage 5)
+
+`backend/app/analytics/action_policy.py` memisahkan lane tindakan demo dari scoring dan facility priority. Policy berlaku hanya pada finding kasus yang memang ada di snapshot run; klaim yang tidak masuk `cases` tidak otomatis memperoleh lane hijau. Nilai `risk_level` tetap `null`, dan status review/outcome manusia tidak berubah.
+
+Versi default `action-policy-demo-v1-provisional` membagi rentang indeks aturan `[0,1]` menjadi tiga interval sama besar: `green` bila skor `<= 1/3`, `yellow` bila `1/3 < skor <= 2/3`, dan `red` bila `skor > 2/3`. Nilai tersebut hanya batas teknis untuk demonstrasi, bukan threshold domain, hasil kalibrasi, kebijakan resmi, atau validasi BPJS. Versi konfigurasi didefinisikan server-side; route hanya menerima pemilihan versi yang tersedia, bukan threshold bebas dari operator. Setiap versi terdaftar immutable di database batch/run; memakai konfigurasi berbeda memerlukan identifier versi baru. Manifest menyimpan versi dan konfigurasi persis yang digunakan.
+
+Lane `cannot_recommend` dikembalikan untuk skor null/invalid, status score parsial/tidak dapat dinilai, tidak adanya indikator relevan yang dinilai, indikator lokal `not_assessed`, indikator relevan unavailable, atau pencarian relevan truncated. `not_applicable` diabaikan dan tidak meniadakan lane bila masih ada pemeriksaan yang dinilai lengkap. Cakupan global parsial pada record lain ditampilkan sebagai limitation; kasus dengan penilaian lokal lengkap dapat tetap memperoleh lane. Semua hasil menyertakan input assessment status, alasan, versi, dan limitation. Ini saran alur demo, bukan probabilitas fraud, `risk_level`, prioritas fasilitas, atau keputusan auditor.
+
+AnalysisRun menambahkan action policy pada snapshot persisten; GET mengembalikan nilai tersimpan tanpa menghitung ulang. `DETECTOR_SUITE_VERSION = detector-suite-v1-manual` adalah identifier kontrak yang dipelihara manual, bukan source hash, provenance build, atau jaminan seluruh perubahan kode terdeteksi. Run menyimpan scoring/priority versions serta action-policy version/configuration yang benar-benar dipakai. Proses yang terputus masih dapat meninggalkan run `running`; pemulihan otomatis belum diterapkan.

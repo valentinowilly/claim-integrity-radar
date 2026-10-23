@@ -110,32 +110,17 @@ def _coverage_for_indicator(
         ), "not_assessed")
         for item in scored_cases
     }
-    ineligible_ids = {
-        item.get("case_id") for item in _entries(result, "ineligible_cases")
+    not_applicable_ids = {
+        item.get("case_id") for item in _entries(result, "not_applicable_cases")
         if isinstance(item.get("case_id"), str)
     }
-    not_applicable_ids = set(ineligible_ids)
-    unassessed_ids = {
-        item.get("case_id") for key in ("unassessed_cases", "unassessed_time_cases")
-        for item in _entries(result, key) if isinstance(item.get("case_id"), str)
-    }
-    # Evidence rules that do not cover a service are out of scope; an inventory
-    # that was not recorded remains unassessed instead of being called absent.
-    for item in _entries(result, "unassessed_cases"):
-        if "Belum ada aturan bukti" in str(item.get("reason", "")):
-            not_applicable_ids.add(item["case_id"])
-            unassessed_ids.discard(item["case_id"])
-
     unavailable = result.get("status") == "unavailable"
     truncated = result.get("search_truncated") is True or any(
         item.get("case_ids_truncated") is True
         for item in _entries(result, "candidate_groups") + _entries(result, "candidates")
     )
     assessed_count = sum(state in {"triggered", "not_triggered"} for state in states.values())
-    not_assessed_count = sum(
-        state == "not_assessed" and case_id not in not_applicable_ids
-        for case_id, state in states.items()
-    )
+    not_assessed_count = sum(state == "not_assessed" for state in states.values())
     if unavailable:
         status = "unavailable"
     elif not assessed_count and not not_assessed_count and not_applicable_ids and states:
@@ -146,7 +131,7 @@ def _coverage_for_indicator(
         "indicator": indicator,
         "status": status,
         "records_assessed": assessed_count,
-        "records_not_applicable": len(not_applicable_ids),
+        "records_not_applicable": sum(state == "not_applicable" for state in states.values()),
         "records_unassessed": not_assessed_count,
         "search_truncated": truncated,
         "candidate_group_count": _candidate_group_count(result) if not unavailable else None,
@@ -187,6 +172,7 @@ def build_analytics_snapshot(
     period_from: date | None = None,
     period_to: date | None = None,
     facilities: Sequence[Mapping[str, Any]] | None = None,
+    data_source: Mapping[str, str | None] | None = None,
 ) -> dict[str, Any]:
     """Run one coordinated detector, scoring, and priority pass on features only."""
     source_records = list(records if records is not None else get_synthetic_records())
@@ -215,6 +201,12 @@ def build_analytics_snapshot(
         code: _coverage_for_indicator(code, detector_results[code], scored_cases)
         for code in DETECTOR_ORDER
     }
+    execution_statuses = [item["status"] for item in coverage.values()]
+    execution_status = (
+        "failed" if execution_statuses and all(status == "unavailable" for status in execution_statuses)
+        else "partial" if any(status in {"partial", "unavailable"} for status in execution_statuses)
+        else "completed"
+    )
 
     indicator_summaries: list[dict[str, Any]] = []
     for definition in INDICATOR_DEFINITIONS:
@@ -255,6 +247,9 @@ def build_analytics_snapshot(
             ineligible_entry = next((
                 item for item in _entries(result, "ineligible_cases") if item.get("case_id") == case_id
             ), None)
+            not_applicable_entry = next((
+                item for item in _entries(result, "not_applicable_cases") if item.get("case_id") == case_id
+            ), None)
             unassessed_items = _entries(result, "unassessed_cases") + _entries(result, "unassessed_time_cases")
             matching_unassessed = next((
                 item for item in unassessed_items if item.get("case_id") == case_id
@@ -263,25 +258,24 @@ def build_analytics_snapshot(
                 api_state = "triggered"
             elif state == "not_triggered":
                 api_state = "not_triggered"
-            elif ineligible_entry is not None:
+            elif not_applicable_entry is not None:
                 api_state = "not_applicable"
                 not_applicable.append(indicator)
-                state_reason = str(ineligible_entry.get("reason", "Atribut yang diperlukan untuk pemeriksaan ini tidak tersedia."))
+                state_reason = str(not_applicable_entry.get("reason", "Pemeriksaan ini tidak berlaku untuk ruang lingkup record."))
+            elif ineligible_entry is not None:
+                api_state = "not_assessed"
+                not_assessed.append(indicator)
+                state_reason = str(ineligible_entry.get("reason", "Prasyarat atribut tidak terpenuhi; hasil negatif tidak dapat disimpulkan."))
             else:
                 matching_reason = str(matching_unassessed.get("reason", "")) if matching_unassessed else ""
-                if "Belum ada aturan bukti" in matching_reason:
-                    api_state = "not_applicable"
-                    not_applicable.append(indicator)
-                    state_reason = matching_reason
-                else:
-                    api_state = "not_assessed"
-                    not_assessed.append(indicator)
-                    state_reason = matching_reason or (
-                        "Detektor tidak tersedia." if result.get("status") == "unavailable" else
-                        "Pencarian dibatasi; ketiadaan sinyal untuk kasus ini belum dapat dinilai."
-                        if result.get("search_truncated") is True else
-                        "Pemeriksaan belum menghasilkan penilaian untuk kasus ini."
-                    )
+                api_state = "not_assessed"
+                not_assessed.append(indicator)
+                state_reason = matching_reason or (
+                    "Detektor tidak tersedia." if result.get("status") == "unavailable" else
+                    "Pencarian dibatasi; ketiadaan sinyal untuk kasus ini belum dapat dinilai."
+                    if result.get("search_truncated") is True else
+                    "Pemeriksaan belum menghasilkan penilaian untuk kasus ini."
+                )
             coverage_rows.append({"indicator": indicator, "status": api_state, "reason": state_reason})
 
         reasons = [_api_reason(item) for item in scored.get("indicator_reasons", [])]
@@ -317,7 +311,8 @@ def build_analytics_snapshot(
     availability = "unavailable" if not available_count else ("insufficient_data" if not source_records else "available")
     return {
         "availability": availability,
-        "data_source": dict(DATA_SOURCE),
+        "execution_status": execution_status,
+        "data_source": dict(data_source or DATA_SOURCE),
         "records_considered": len(source_records),
         "records_eligible": len({
             item["case_id"] for item in scored_cases if item.get("assessed_indicators")
@@ -332,7 +327,7 @@ def build_analytics_snapshot(
             "limitations": scoring["limitations"],
         },
         "audit_priority": {
-            "status": "available" if priority["items"] else "not_assessable",
+            "status": priority["status"],
             "priority_version": priority["priority_version"],
             "unit": priority["unit"],
             "formula": priority["formula"],
@@ -340,6 +335,8 @@ def build_analytics_snapshot(
             "items": priority["items"],
             "unit_count": len(priority["items"]),
             "unassigned_triggered_case_count": priority["unassigned_triggered_case_count"],
+            "eligible_unit_count": priority["eligible_unit_count"],
+            "eligibility_reasons": priority["eligibility_reasons"],
             "limitations": priority["limitations"] + ([
                 "Sumber demo tidak menyediakan ID fasilitas dan metadata kapasitas yang tervalidasi; sinyal kasus tidak dapat diagregasi menjadi unit fasilitas tanpa mengarang identitas."
             ] if priority["unassigned_triggered_case_count"] else []),
