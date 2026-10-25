@@ -13,15 +13,16 @@ import sqlite3
 from typing import Any, Iterator
 from uuid import uuid4
 
-from app.analytics.action_policy import ActionPolicyConfig, evaluate_action_policy, get_action_policy_config
+from app.analytics.action_policy import ActionPolicyConfig, get_action_policy_config
 from app.analytics.audit_priority import AuditEffortConfig
-from app.analytics.batch_adapter import BatchAdapterError, adapt_batch_features
+from app.analytics.batch_adapter import BatchAdapterError
 from app.analytics.capacity import CapacityConfig
 from app.analytics.evidence_completeness import DEFAULT_REQUIRED_EVIDENCE
 from app.analytics.near_duplicate_claims import NearDuplicateConfig
 from app.analytics.risk_scoring import DETECTOR_ORDER, DETECTOR_SUITE_VERSION
 from app.analytics.temporal_patterns import TemporalConfig
-from app.services.analytics import build_analytics_snapshot
+from app.data_sources.providers import SyntheticBatchProvider
+from app.services.provider_orchestrator import execute_provider_snapshot
 from app.services.batches import BatchStorageError, BatchStore
 
 
@@ -42,9 +43,6 @@ class RunExecutionError(Exception):
 
 
 TERMINAL_STATUSES = frozenset({"completed", "partial", "failed"})
-SYNTHETIC_BATCH_SOURCE = {"kind": "synthetic", "label": "synthetic_data_batch"}
-
-
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -92,7 +90,14 @@ def _safe_snapshot(snapshot: Mapping[str, Any], features: list[dict[str, Any]]) 
 def _execution_configuration(snapshot: Mapping[str, Any], action_policy: ActionPolicyConfig) -> dict[str, Any]:
     priority = snapshot.get("audit_priority", {})
     scoring = snapshot.get("risk_scoring", {})
+    data_source = snapshot.get("data_source", {})
     return {
+        "source": {
+            "source_type": "synthetic_csv",
+            "classification": data_source.get("classification", "synthetic_only_declared"),
+            "mapping_version": data_source.get("mapping_version"),
+            "schema_profile": data_source.get("source_schema_profile"),
+        },
         "detector_suite_version": DETECTOR_SUITE_VERSION,
         "detector_order": list(DETECTOR_ORDER),
         "detector_defaults": {
@@ -233,10 +238,15 @@ class AnalysisRunStore:
 
     @staticmethod
     def _manifest(row: sqlite3.Row, result: Any = None) -> dict[str, Any]:
+        configuration = _loads(row["configuration_json"])
+        source_classification = (configuration.get("source") or {}).get(
+            "classification", "synthetic_only_declared"
+        )
         return {
             "run_id": row["run_id"], "batch_id": row["batch_id"],
             "batch_version": row["batch_version"], "content_checksum": row["content_checksum"],
             "source_type": row["source_type"],
+            "source_classification": source_classification,
             "source_schema_version": row["source_schema_version"],
             "source_mapping_version": row["source_mapping_version"],
             "creator_user_id": row["creator_user_id"], "retry_of_run_id": row["retry_of_run_id"],
@@ -246,7 +256,7 @@ class AnalysisRunStore:
             "detector_suite_version": row["detector_suite_version"],
             "scoring_version": row["scoring_version"], "priority_version": row["priority_version"],
             "action_policy_version": row["action_policy_version"],
-            "configuration": _loads(row["configuration_json"]),
+            "configuration": configuration,
             "coverage": _loads(row["coverage_summary_json"]),
             "result_available": bool(row["result_available"]),
             "result_storage_reference": f"analysis_run_results:{row['run_id']}" if row["result_available"] else None,
@@ -306,8 +316,16 @@ class AnalysisRunStore:
                 (run_id, batch["batch_id"], batch["batch_version"], batch["content_checksum"], batch["source_type"],
                  batch["schema_version"], batch["mapping_version"], creator_user_id,
                  retry_of_run_id, now, now, action_policy.version,
-                 json.dumps({"detector_suite_version": DETECTOR_SUITE_VERSION,
-                             "action_policy": action_policy.as_dict()}, sort_keys=True, separators=(",", ":"))),
+                 json.dumps({
+                     "source": {
+                         "source_type": batch["source_type"],
+                         "classification": "synthetic_only_declared",
+                         "mapping_version": batch["mapping_version"],
+                         "schema_profile": batch["schema_version"],
+                     },
+                     "detector_suite_version": DETECTOR_SUITE_VERSION,
+                     "action_policy": action_policy.as_dict(),
+                 }, sort_keys=True, separators=(",", ":"))),
             )
             event_type = "analysis_run_retry_created" if retry_of_run_id else "analysis_run_created"
             connection.execute(
@@ -325,20 +343,31 @@ class AnalysisRunStore:
             raise ValueError("Run status must be terminal.")
         now = utc_now()
         coverage = snapshot.get("indicator_coverage") if snapshot is not None else None
-        config = _execution_configuration(snapshot, action_policy) if snapshot is not None else {
-            "detector_suite_version": DETECTOR_SUITE_VERSION,
-            "action_policy": action_policy.as_dict(),
-        }
+        config = _execution_configuration(snapshot, action_policy) if snapshot is not None else None
         scoring = snapshot.get("risk_scoring", {}) if snapshot is not None else {}
         priority = snapshot.get("audit_priority", {}) if snapshot is not None else {}
         serialized = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=_json_default) if snapshot is not None else None
         with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT execution_status FROM analysis_runs WHERE run_id=?", (run_id,)).fetchone()
+            row = connection.execute(
+                "SELECT execution_status,source_type,source_schema_version,source_mapping_version "
+                "FROM analysis_runs WHERE run_id=?", (run_id,),
+            ).fetchone()
             if row is None:
                 raise RunInputError("RUN_NOT_FOUND")
             if row["execution_status"] != "running":
                 raise RunInputError("RUN_TERMINAL")
+            if config is None:
+                config = {
+                    "source": {
+                        "source_type": row["source_type"],
+                        "classification": "synthetic_only_declared",
+                        "mapping_version": row["source_mapping_version"],
+                        "schema_profile": row["source_schema_version"],
+                    },
+                    "detector_suite_version": DETECTOR_SUITE_VERSION,
+                    "action_policy": action_policy.as_dict(),
+                }
             if serialized is not None:
                 connection.execute("INSERT INTO analysis_run_results(run_id,result_json) VALUES(?,?)", (run_id, serialized))
             connection.execute(
@@ -383,7 +412,8 @@ class AnalysisRunStore:
 
 def create_analysis_run(db_path: str | Path, batch_id: str | None, creator_user_id: str,
                         retry_of_run_id: str | None = None,
-                        action_policy: ActionPolicyConfig | None = None) -> dict[str, Any]:
+                        action_policy: ActionPolicyConfig | None = None,
+                        *, source_type: str = "synthetic_csv") -> dict[str, Any]:
     """Pin a ready batch, run the coordinated service once, then persist a terminal snapshot."""
     store = AnalysisRunStore(db_path)
     if retry_of_run_id is not None:
@@ -398,6 +428,8 @@ def create_analysis_run(db_path: str | Path, batch_id: str | None, creator_user_
             if isinstance(prior_policy, Mapping):
                 action_policy = ActionPolicyConfig(**prior_policy)
     action_policy = action_policy or get_action_policy_config()
+    if source_type != "synthetic_csv":
+        raise RunInputError("RUN_SOURCE_UNSUPPORTED")
     if not batch_id:
         raise RunInputError("BATCH_ID_REQUIRED")
 
@@ -408,6 +440,8 @@ def create_analysis_run(db_path: str | Path, batch_id: str | None, creator_user_
     if execution_input is None:
         raise RunInputError("BATCH_NOT_FOUND")
     batch = execution_input["batch"]
+    if batch.get("source_type") != source_type:
+        raise RunInputError("RUN_SOURCE_BATCH_MISMATCH")
     if batch["status"] not in {"ready", "ready_with_warnings"}:
         raise RunInputError("BATCH_NOT_RUNNABLE")
     if len(execution_input["records"]) != batch.get("row_count"):
@@ -415,12 +449,10 @@ def create_analysis_run(db_path: str | Path, batch_id: str | None, creator_user_
     run_id = store.create_running(batch, creator_user_id, retry_of_run_id, action_policy)
 
     try:
-        features, facilities = adapt_batch_features(batch, execution_input["records"])
-        snapshot = build_analytics_snapshot(
-            records=features, facilities=facilities, data_source=SYNTHETIC_BATCH_SOURCE,
+        dataset, snapshot = execute_provider_snapshot(
+            SyntheticBatchProvider(batch, execution_input["records"]), action_policy,
         )
-        snapshot = _safe_snapshot(snapshot, features)
-        snapshot["action_policy"] = evaluate_action_policy(snapshot, action_policy)
+        snapshot = _safe_snapshot(snapshot, [dict(row) for row in dataset.records])
         status = snapshot.get("execution_status")
         if status not in TERMINAL_STATUSES:
             raise RuntimeError("Invalid pipeline execution status")

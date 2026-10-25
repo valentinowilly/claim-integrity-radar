@@ -61,7 +61,8 @@ export interface BatchDetailResponse { batch: BatchMetadata; availability: "avai
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export interface RunManifest {
   run_id: string; batch_id: string; batch_version: number; content_checksum: string;
-  source_type: "synthetic_csv"; source_schema_version: string; source_mapping_version: string;
+  source_type: "synthetic_csv"; source_classification: "synthetic_only_declared";
+  source_schema_version: string; source_mapping_version: string;
   creator_user_id: string; retry_of_run_id: string | null; created_at: string; started_at: string;
   completed_at: string | null; execution_status: "running" | "completed" | "partial" | "failed";
   failure_category: string | null; detector_suite_version: string | null; scoring_version: string | null;
@@ -84,7 +85,7 @@ export interface RunResult {
   audit_priority: { status: string; priority_version: string; unit: string; formula: string; items: JsonValue[]; eligibility_reasons: string[]; limitations: string[] };
   cases: Record<string, RunCase>;
   action_policy: { status: string; unit: string; policy_version: string; input_assessment_status: string; lane_counts: Record<string, number>; cases: Record<string, { lane: string; policy_version: string; input_assessment_status: string; reasons: string[]; limitations: string[] }>; limitations: string[] };
-  limitations: string[];
+  limitations?: string[];
 }
 export interface RunCreateResponse { run: RunManifest; notice: string; }
 export interface RunListResponse { items: RunManifest[]; total_items: number; limit: number; offset: number; availability: "available"; }
@@ -112,6 +113,10 @@ export interface HealthResponse {
 export interface DataSource {
   kind: "synthetic" | "local" | "none";
   label: string | null;
+  classification?: string;
+  source_schema_profile?: string;
+  mapping_version?: string;
+  limitations?: string[];
 }
 
 export interface IndicatorCount {
@@ -378,6 +383,7 @@ function isBatchDetailResponse(value: unknown): value is BatchDetailResponse {
 function isRunManifest(value: unknown): value is RunManifest {
   return isRecord(value) && isString(value.run_id) && isString(value.batch_id) && isNumber(value.batch_version)
     && isString(value.content_checksum) && value.source_type === "synthetic_csv"
+    && value.source_classification === "synthetic_only_declared"
     && isString(value.source_schema_version) && isString(value.source_mapping_version)
     && isString(value.creator_user_id) && isNullableString(value.retry_of_run_id)
     && isString(value.created_at) && isString(value.started_at) && isNullableString(value.completed_at)
@@ -403,38 +409,53 @@ function isRunCase(value: unknown): value is RunCase {
       && isStringArray(item.limitations)) && isStringArray(value.limitations);
 }
 function isRunResult(value: unknown): value is RunResult {
-  if (!isRecord(value) || !isString(value.availability) || !isString(value.execution_status)
-    || !isSource(value.data_source) || !isNumber(value.records_considered) || !isNumber(value.records_eligible)
-    || !Array.isArray(value.indicators) || !Array.isArray(value.indicator_coverage)
-    || !isRecord(value.risk_scoring) || !isRecord(value.audit_priority) || !isRecord(value.cases)
-    || !isRecord(value.action_policy) || !isStringArray(value.limitations)) return false;
+  if (!isRecord(value)) return false;
+  const baseShape = {
+    availability: isString(value.availability), execution_status: isString(value.execution_status),
+    data_source: isSource(value.data_source), records_considered: isNumber(value.records_considered),
+    records_eligible: isNumber(value.records_eligible), indicators: Array.isArray(value.indicators),
+    indicator_coverage: Array.isArray(value.indicator_coverage), risk_scoring: isRecord(value.risk_scoring),
+    audit_priority: isRecord(value.audit_priority), cases: isRecord(value.cases),
+    action_policy: isRecord(value.action_policy),
+    limitations: value.limitations === undefined || isStringArray(value.limitations),
+  };
+  if (!Object.values(baseShape).every(Boolean)) return false;
+  if (!Array.isArray(value.indicators) || !Array.isArray(value.indicator_coverage)
+    || !isRecord(value.risk_scoring) || !isRecord(value.audit_priority)
+    || !isRecord(value.cases) || !isRecord(value.action_policy)) return false;
   const scoring = value.risk_scoring;
   const priority = value.audit_priority;
   const policy = value.action_policy;
-  return value.indicators.every(item => isRecord(item) && isString(item.code) && isString(item.name)
+  const shape = {
+    indicators: value.indicators.every(item => isRecord(item) && isString(item.code) && isString(item.name)
     && isString(item.status) && isNullableNumber(item.candidate_count) && isNullableNumber(item.candidate_group_count)
     && isNumber(item.eligible_count) && isNumber(item.not_applicable_count) && isNumber(item.unassessed_count)
-    && typeof item.search_truncated === "boolean" && isString(item.definition) && isStringArray(item.limitations))
-    && value.indicator_coverage.every(item => isRecord(item) && isString(item.indicator) && isString(item.status)
+    && typeof item.search_truncated === "boolean" && isString(item.definition) && isStringArray(item.limitations)),
+    coverage: value.indicator_coverage.every(item => isRecord(item) && isString(item.indicator) && isString(item.status)
       && isNumber(item.records_assessed) && isNumber(item.records_not_applicable) && isNumber(item.records_unassessed)
-      && typeof item.search_truncated === "boolean" && isNullableNumber(item.candidate_group_count) && isStringArray(item.limitations))
-    && isString(scoring.version) && isRecord(scoring.weights) && Object.values(scoring.weights).every(isNumber)
-    && isString(scoring.weight_basis) && isNumber(scoring.unassessable_case_count) && isStringArray(scoring.limitations)
-    && isString(priority.status) && isString(priority.priority_version) && isString(priority.unit)
+      && typeof item.search_truncated === "boolean" && isNullableNumber(item.candidate_group_count) && isStringArray(item.limitations)),
+    scoring: isString(scoring.version) && isRecord(scoring.weights) && Object.values(scoring.weights).every(isNumber)
+      && isString(scoring.weight_basis) && isNumber(scoring.unassessable_case_count) && isStringArray(scoring.limitations),
+    priority: isString(priority.status) && isString(priority.priority_version) && isString(priority.unit)
     && isString(priority.formula) && Array.isArray(priority.items) && priority.items.every(isJsonValue)
-    && isStringArray(priority.eligibility_reasons) && isStringArray(priority.limitations)
-    && Object.values(value.cases).every(isRunCase)
-    && isString(policy.status) && isString(policy.unit) && isString(policy.policy_version)
+    && isStringArray(priority.eligibility_reasons) && isStringArray(priority.limitations),
+    cases: Object.values(value.cases).every(isRunCase),
+    action_policy: isString(policy.status) && isString(policy.unit) && isString(policy.policy_version)
     && isString(policy.input_assessment_status) && isRecord(policy.lane_counts)
     && Object.values(policy.lane_counts).every(isNumber) && isRecord(policy.cases)
     && Object.values(policy.cases).every(item => isRecord(item) && isString(item.lane)
       && isString(item.policy_version) && isString(item.input_assessment_status)
-      && isStringArray(item.reasons) && isStringArray(item.limitations)) && isStringArray(policy.limitations);
+      && isStringArray(item.reasons) && isStringArray(item.limitations)) && isStringArray(policy.limitations),
+  };
+  return Object.values(shape).every(Boolean);
 }
 function isRunDetailResponse(value: unknown): value is RunDetailResponse {
-  return isRecord(value) && value.availability === "available" && isRunManifest(value.run)
-    && (value.result === null || isRunResult(value.result))
-    && isString(value.notice);
+  if (!isRecord(value)) return false;
+  const valid = {
+    availability: value.availability === "available", manifest: isRunManifest(value.run),
+    result: value.result === null || isRunResult(value.result), notice: isString(value.notice),
+  };
+  return Object.values(valid).every(Boolean);
 }
 function isRunReviewResponse(value: unknown): value is RunReviewResponse {
   if (!isRecord(value) || value.availability !== "available" || value.data_source !== "synthetic_data_batch"
@@ -713,7 +734,7 @@ export function importSyntheticCsv(file: File, batchKey: string): Promise<BatchI
 export function getRuns(limit = 50, offset = 0, batchId?: string, signal?: AbortSignal): Promise<RunListResponse> {
   return getJson(`/api/v1/runs${queryString({ limit, offset, batch_id: batchId })}`, isRunListResponse, signal);
 }
-export function createRun(payload: { batch_id?: string; retry_of_run_id?: string; action_policy_version?: string }): Promise<RunCreateResponse> {
+export function createRun(payload: { batch_id?: string; source_type?: "synthetic_csv"; retry_of_run_id?: string; action_policy_version?: string }): Promise<RunCreateResponse> {
   return requestJson("/api/v1/runs", isRunCreateResponse, { method: "POST", body: JSON.stringify(payload) });
 }
 export function getRun(runId: string, signal?: AbortSignal): Promise<RunDetailResponse> {

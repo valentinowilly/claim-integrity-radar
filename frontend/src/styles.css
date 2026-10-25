@@ -15,8 +15,8 @@
   -moz-osx-font-smoothing: grayscale;
   font-optical-sizing: auto;
   font-size: var(--text-base);
-  font-weight: 400;
-  line-height: 1.5;
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body);
 }
 
 * {
@@ -28,6 +28,11 @@ body {
   margin: 0;
   background: var(--canvas-bg);
   color: var(--text-primary);
+}
+input,
+select,
+textarea {
+  font-family: var(--font-sans);
 }
 button,
 a {
@@ -143,8 +148,8 @@ code {
 .nav-label {
   margin: 0 10px 8px;
   color: rgb(167 232 210 / 0.7);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-micro);
+  font-weight: var(--font-weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -163,8 +168,8 @@ code {
   padding: 0 12px;
   border-radius: var(--radius-sm);
   color: rgb(240 253 244 / 0.72);
-  font-size: 13.5px;
-  font-weight: 500;
+  font-size: var(--text-control);
+  font-weight: var(--font-weight-medium);
   transition:
     background 0.15s ease,
     color 0.15s ease;
@@ -301,13 +306,13 @@ code {
 
 .user-copy strong {
   color: #ffffff;
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
 }
 
 .user-copy span {
   color: rgb(240 253 244 / 0.6);
-  font-size: 11px;
+  font-size: var(--text-micro);
 }
 
 /* Main Panel & Topbar */
@@ -393,13 +398,16 @@ code {
 
 .topbar-user-copy strong {
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-user-copy span {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-micro);
 }
 
 .profile-chevron {
@@ -550,7 +558,7 @@ code {
   grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
   min-height: 100vh;
   background: var(--surface-bg);
-  font-family: var(--font-login);
+  font-family: var(--font-sans);
 }
 
 .login-intro {
@@ -610,10 +618,10 @@ code {
   max-width: 590px;
   margin: 0;
   color: #ffffff;
-  font-size: clamp(44px, 4.3vw, 58px);
-  font-weight: 650;
-  line-height: 1.04;
-  letter-spacing: -0.045em;
+  font-size: var(--text-display);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.08;
+  letter-spacing: var(--letter-spacing-heading);
 }
 
 .login-intro-copy h1 span {
@@ -727,18 +735,18 @@ code {
 
 .login-brand-header h2 {
   margin: 0;
-  font-size: 30px;
+  font-size: var(--text-2xl);
   line-height: 1.15;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-heading);
   color: var(--text-primary);
 }
 
 .login-brand-header p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 16px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--line-height-relaxed);
 }
 
 .login-card-footer {
@@ -762,7 +770,7 @@ code {
   gap: 6px;
   color: var(--text-secondary);
   font-size: 15px;
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
 }
 
 .login-card input {
@@ -919,18 +927,18 @@ code {
 h1 {
   margin: 6px 0 4px;
   color: var(--text-primary);
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.25;
+  font-size: var(--text-page-title);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-heading);
+  line-height: var(--line-height-tight);
 }
 
 .page-lede {
   max-width: 680px;
   margin: 0;
   color: var(--text-secondary);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--line-height-relaxed);
 }
 
 .heading-meta {
@@ -983,8 +991,8 @@ h1 {
   justify-content: space-between;
   gap: 8px;
   color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
 }
 
 .metric-icon {
@@ -1003,8 +1011,8 @@ h1 {
   margin-top: 10px;
   color: var(--text-primary);
   font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-heading);
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
 }
@@ -1047,9 +1055,10 @@ h1 {
 .queue-header h2 {
   margin: 4px 0 0;
   color: var(--text-primary);
-  font-size: 15.5px;
-  font-weight: 650;
-  letter-spacing: -0.015em;
+  font-size: var(--text-section-title);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: normal;
+  line-height: var(--line-height-tight);
 }
 
 .muted-eyebrow {
@@ -1094,8 +1103,8 @@ h1 {
 
 .panel-kicker {
   color: var(--login-mint);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-micro);
+  font-weight: var(--font-weight-bold);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -1104,8 +1113,8 @@ h1 {
   margin: 8px 0 6px;
   color: #ffffff;
   font-size: 28px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-heading);
   line-height: 1.2;
 }
 
@@ -1330,8 +1339,8 @@ h1 {
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: var(--text-sm);
-  font-weight: 600;
+  font-size: var(--text-control);
+  font-weight: var(--font-weight-semibold);
   transition:
     background 0.12s ease,
     border-color 0.12s ease;
@@ -1602,7 +1611,7 @@ h1 {
   color: var(--text-secondary);
   background: var(--surface-bg);
   font-size: var(--text-micro);
-  font-weight: 600;
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
@@ -1768,8 +1777,8 @@ h1 {
 .analysis-card-heading h3 {
   margin: 6px 0 2px;
   color: var(--text-primary);
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--text-section-title);
+  font-weight: var(--font-weight-semibold);
 }
 
 .analysis-card-heading code,
@@ -1798,7 +1807,7 @@ h1 {
 .definition-copy {
   margin: 12px 0;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   line-height: 1.6;
 }
 
@@ -2287,8 +2296,8 @@ h1 {
   display: grid;
   gap: 5px;
   color: var(--text-secondary);
-  font-size: var(--text-sm);
-  font-weight: 600;
+  font-size: var(--text-control);
+  font-weight: var(--font-weight-medium);
 }
 
 .review-field select,
@@ -2299,7 +2308,7 @@ h1 {
   color: var(--text-primary);
   background: var(--surface-bg);
   font: inherit;
-  font-size: var(--text-base);
+  font-size: var(--text-control);
   transition: border-color 0.12s ease;
 }
 
@@ -3308,6 +3317,9 @@ h1 {
   .topbar-right {
     gap: 8px;
   }
+  .topbar-user-copy {
+    max-width: 92px;
+  }
   .backend-status {
     gap: 5px;
     font-size: var(--text-micro);
@@ -3321,7 +3333,7 @@ h1 {
     padding: 20px 14px 24px;
   }
   h1 {
-    font-size: 22px;
+    font-size: var(--text-xl);
   }
   .page-lede {
     font-size: var(--text-sm);

@@ -31,6 +31,10 @@ def _raise_input_error(error: RunInputError) -> None:
         raise ApiError(409, code, "Batch atau AnalysisRun tidak memenuhi kondisi operasi.", {})
     if code == "BATCH_ID_REQUIRED":
         raise ApiError(422, "INVALID_PAYLOAD", "batch_id wajib untuk AnalysisRun baru.", {})
+    if code == "RUN_SOURCE_UNSUPPORTED":
+        raise ApiError(422, "RUN_SOURCE_UNSUPPORTED", "Sumber AnalysisRun yang diminta belum didukung.", {})
+    if code == "RUN_SOURCE_BATCH_MISMATCH":
+        raise ApiError(409, "RUN_SOURCE_BATCH_MISMATCH", "Jenis sumber tidak sesuai dengan batch yang dipilih.", {})
     raise ApiError(422, "INVALID_RUN_REFERENCE", "Referensi AnalysisRun tidak valid.", {})
 
 
@@ -45,7 +49,7 @@ def create_run(payload: RunCreateRequest, request: Request,
             raise ApiError(422, "ACTION_POLICY_VERSION_UNKNOWN", "Versi policy tidak tersedia.", {}) from exc
         run = create_analysis_run(
             request.app.state.run_db_path, payload.batch_id, principal.user_id, payload.retry_of_run_id,
-            action_policy,
+            action_policy, source_type=payload.source_type,
         )
     except RunInputError as exc:
         _raise_input_error(exc)

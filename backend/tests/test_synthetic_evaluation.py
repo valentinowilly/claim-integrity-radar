@@ -3,6 +3,7 @@ from copy import deepcopy
 import pytest
 
 import app.analytics.evaluation as evaluation
+from app.analytics.near_duplicate_claims import NearDuplicateConfig, detect_near_duplicate_claims
 from app.analytics.risk_scoring import DETECTOR_ORDER
 from app.data_sources.synthetic_benchmark_generator import (
     SyntheticBenchmarkProfile,
@@ -145,6 +146,59 @@ def test_truncated_detector_search_does_not_count_unseen_claims_as_true_negative
     assert near["metrics_target_scenarios_vs_normal"]["tn"] == 0
     assert near["metrics_target_scenarios_vs_normal"]["evaluated_count"] == 0
     assert report["combined"]["coverage"]["status"] == "partial"
+
+
+def test_explicit_unassessed_positive_and_negative_are_excluded_from_detector_metrics():
+    base = {
+        "service_date": "2024-04-12", "province_code": "SYN-PROV-01",
+        "municipality_code": "SYN-MUNI-001", "facility_ownership": "synthetic-public",
+        "facility_type": "synthetic-general", "facility_class": "synthetic-class-a",
+        "admission_diagnosis": "SYN-AD-001", "primary_diagnosis": "SYN-DX-001",
+        "claim_group": "SYN-GROUP-001", "procedure_code": "SYN-PROC-001",
+        "billed_amount": "125000",
+    }
+    records = []
+    for index in range(4):
+        records.append({
+            **base,
+            "case_id": f"syn-pair-{chr(ord('a') + index)}",
+            "participant_token": f"syn-participant-{index}",
+        })
+    scope = {row["case_id"] for row in records}
+    # A low-budget, four-record synthetic block reproduces stratified
+    # sampling: the detector explicitly reports the block as unassessed even
+    # though the hard comparison-cap flag is false.
+    result = detect_near_duplicate_claims(
+        records, NearDuplicateConfig(max_pair_comparisons=1, max_candidates=10),
+    )
+
+    predicted, eligible, coverage = evaluation._detector_coverage(
+        "near_duplicate_claim_candidate", result, scope,
+    )
+    missed = sorted(scope - predicted)
+    assert len(missed) == 2
+    actual_positive = {next(iter(predicted)), missed[0]}
+    metrics = evaluation.confusion_metrics(
+        actual_positive, predicted, eligible, scope,
+    )
+
+    assert len(predicted) == 2
+    assert eligible == predicted
+    assert result["search_diagnostics"]["stratified_block_sampling"] is True
+    assert len(result["unassessed_case_ids"]) == 4
+    assert result["search_truncated"] is False
+    assert coverage["status"] == "partial"
+    assert coverage["search_truncated"] is False
+    assert coverage["unassessed_count"] == 2
+    assert metrics["tp"] == 1
+    assert metrics["fp"] == 1
+    assert metrics["fn"] == 0
+    assert metrics["tn"] == 0
+    assert metrics["precision"] == 0.5
+    assert metrics["recall"] == 1.0
+    assert metrics["evaluated_count"] == 2
+    assert metrics["unassessed_positive_label_count"] == 1
+    assert metrics["unassessed_negative_label_count"] == 1
 
 
 def test_label_and_feature_ids_must_match_and_labels_cannot_be_feature_fields():

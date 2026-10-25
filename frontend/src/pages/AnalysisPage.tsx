@@ -1,247 +1,54 @@
-import { useCallback } from "react";
-import { CircleHelp, Info, Radar } from "lucide-react";
-import { getAnalysis, getCases, type AnalysisResponse, type CasesResponse } from "../api/client";
-import { EmptyState, ErrorState, formatNumber, LoadingState, PageHeading, SourceBadge } from "../components/DataStates";
-import { useApiResource } from "../hooks/useApiResource";
+import { Info } from "lucide-react";
+import { EmptyState, formatNumber, PageHeading, SourceBadge } from "../components/DataStates";
+import { RunSelector, RunStateMessage } from "../components/PersistedRunWorkspace";
+import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 
-interface AnalysisPayload {
-  analysis: AnalysisResponse;
-  cases: CasesResponse;
-}
+const stateLabels: Record<string, string> = {
+  triggered: "Ada sinyal", not_triggered: "Tidak terpicu pada penilaian tercakup",
+  not_applicable: "Tidak berlaku", not_assessed: "Belum dinilai",
+  complete: "Tercakup", partial: "Parsial", unavailable: "Tidak tersedia", not_assessable: "Belum dapat dinilai",
+};
 
 export default function AnalysisPage() {
-  const load = useCallback(async (signal: AbortSignal): Promise<AnalysisPayload> => {
-    const [analysis, cases] = await Promise.all([
-      getAnalysis({}, signal),
-      getCases({ page: 1, page_size: 100, sort_by: "risk_score", sort_order: "desc" }, signal),
-    ]);
-    return { analysis, cases };
-  }, []);
-  const { state, reload } = useApiResource(load);
-  const coverageLabel = (status: string) =>
-    ({
-      complete: "Tercakup",
-      partial: "Parsial",
-      unavailable: "Tidak tersedia",
-      not_applicable: "Tidak berlaku pada data ini",
-      available: "Tersedia",
-      not_assessable: "Belum dapat dinilai",
-    })[status] ?? status;
-
-  return (
-    <>
-      <PageHeading
-        eyebrow="ANALISIS"
-        title="Analisis Risiko"
-        description="Indikator, cakupan data, alasan kecocokan, dan batas interpretasi dari API."
-        action={state.status === "success" ? <SourceBadge source={state.data.analysis.data_source} /> : undefined}
-      />
-      {state.status === "loading" && <LoadingState label="Memuat indikator dan alasan dari API…" />}
-      {state.status === "error" && (
-        <ErrorState message={state.message} httpStatus={state.httpStatus} onRetry={reload} />
-      )}
-      {state.status === "success" && state.data.analysis.availability !== "available" && (
-        <EmptyState
-          title="Analisis belum tersedia"
-          message="Sumber belum menyediakan hasil analisis untuk ditampilkan."
-        />
-      )}
-      {state.status === "success" && state.data.analysis.availability === "available" && (
-        <>
-          <section className="analysis-overview-grid">
-            <div className="metric-card">
-              <div className="metric-card-top">
-                <span>Klaim dalam cakupan</span>
-                <span className="metric-icon">
-                  <Radar size={17} />
-                </span>
-              </div>
-              <strong className="metric-value">{formatNumber(state.data.analysis.coverage.records_considered)}</strong>
-              <small>Diterima dari sumber data aktif</small>
-            </div>
-            <div className="metric-card">
-              <div className="metric-card-top">
-                <span>Klaim memenuhi syarat</span>
-                <span className="metric-icon">
-                  <Info size={17} />
-                </span>
-              </div>
-              <strong className="metric-value">{formatNumber(state.data.analysis.coverage.records_eligible)}</strong>
-              <small>Memenuhi syarat untuk setidaknya satu indikator</small>
-            </div>
-            <div className="metric-card">
-              <div className="metric-card-top">
-                <span>Indikator aktif</span>
-                <span className="metric-icon">
-                  <CircleHelp size={17} />
-                </span>
-              </div>
-              <strong className="metric-value">{formatNumber(state.data.analysis.indicators.length)}</strong>
-              <small>Indikator yang dijalankan server</small>
-            </div>
-          </section>
-
-          <section className="surface-panel section-block">
-            <div className="panel-heading-row">
-              <div>
-                <span className="eyebrow muted-eyebrow">AKTIF</span>
-                <h2>Indikator yang dijalankan</h2>
-              </div>
-              <span className="small-context">Jumlah dan definisi berasal dari API</span>
-            </div>
-            {state.data.analysis.indicators.length === 0 ? (
-              <EmptyState
-                title="Tidak ada indikator aktif"
-                message="Respons API tidak memuat indikator yang dijalankan."
-              />
-            ) : (
-              <div className="analysis-indicator-list">
-                {state.data.analysis.indicators.map((indicator) => {
-                  const reasons = state.data.cases.items.flatMap((item) =>
-                    item.reasons
-                      .filter((reason) => reason.indicator === indicator.code)
-                      .map((reason) => reason.summary),
-                  );
-                  const distinctReasons = [...new Set(reasons)];
-                  return (
-                    <article className="analysis-indicator-card" key={indicator.code}>
-                      <div className="analysis-card-heading">
-                        <div>
-                          <span
-                            className={`indicator-pill ${indicator.status === "complete" ? "indicator-active" : "indicator-planned"}`}
-                          >
-                            {coverageLabel(indicator.status)}
-                          </span>
-                          <h3>{indicator.name}</h3>
-                          <code>{indicator.code}</code>
-                        </div>
-                        <div className="analysis-count">
-                          <strong>{formatNumber(indicator.candidate_count)}</strong>
-                          <span>kandidat</span>
-                        </div>
-                      </div>
-                      <p className="definition-copy">{indicator.definition}</p>
-                      <div className="analysis-facts">
-                        <span>
-                          <strong>{formatNumber(indicator.candidate_group_count)}</strong> kelompok kandidat
-                        </span>
-                        <span>
-                          <strong>{formatNumber(indicator.eligible_count)}</strong> record dinilai
-                        </span>
-                        <span>
-                          <strong>{formatNumber(indicator.not_applicable_count)}</strong> tidak berlaku
-                        </span>
-                        <span>
-                          <strong>{formatNumber(indicator.unassessed_count)}</strong> belum dinilai
-                        </span>
-                      </div>
-                      {indicator.search_truncated && (
-                        <p className="notice-inline">
-                          Pencarian mencapai batas komputasi. Kasus yang tidak muncul tidak dianggap hasil negatif.
-                        </p>
-                      )}
-                      <div className="reason-block">
-                        <strong>Alasan deteksi dari API</strong>
-                        {distinctReasons.length ? (
-                          <ul>
-                            {distinctReasons.map((reason) => (
-                              <li key={reason}>{reason}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p>Belum ada alasan kandidat untuk indikator ini pada cakupan aktif.</p>
-                        )}
-                      </div>
-                      <div className="limitation-block">
-                        <strong>Batas interpretasi</strong>
-                        <ul>
-                          {indicator.limitations.map((text) => (
-                            <li key={text}>{text}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          <section className="surface-panel section-block">
-            <div className="panel-heading-row">
-              <div>
-                <span className="eyebrow muted-eyebrow">SKOR DAN PRIORITAS</span>
-                <h2>Indeks aturan dan antrean audit</h2>
-              </div>
-            </div>
-            <p className="definition-copy">
-              Versi skor {state.data.analysis.risk_scoring.version}. {state.data.analysis.risk_scoring.weight_basis}{" "}
-              Indeks bukan probabilitas fraud atau level risiko tervalidasi.
-            </p>
-            <div className="analysis-facts">
-              <span>
-                <strong>{formatNumber(state.data.analysis.risk_scoring.unassessable_case_count)}</strong> kasus tak
-                dapat dinilai
-              </span>
-              <span>
-                <strong>{formatNumber(state.data.analysis.audit_priority.unit_count)}</strong> unit prioritas terbentuk
-              </span>
-              <span>
-                <strong>{formatNumber(state.data.analysis.audit_priority.unassigned_triggered_case_count)}</strong>{" "}
-                kasus bersinyal tanpa unit
-              </span>
-              <span>
-                <strong>{coverageLabel(state.data.analysis.audit_priority.status)}</strong> status prioritas
-              </span>
-            </div>
-            <div className="limitation-block">
-              <strong>Batas prioritas audit</strong>
-              <ul>
-                {state.data.analysis.audit_priority.limitations.map((text) => (
-                  <li key={text}>{text}</li>
-                ))}
-              </ul>
-            </div>
-          </section>
-
-          <section className="surface-panel section-block">
-            <div className="panel-heading-row">
-              <div>
-                <span className="eyebrow muted-eyebrow">BELUM AKTIF</span>
-                <h2>Indikator yang masih direncanakan</h2>
-              </div>
-              <span className="planned-count">
-                {formatNumber(state.data.analysis.planned_indicators.length)} rencana
-              </span>
-            </div>
-            {state.data.analysis.planned_indicators.length === 0 ? (
-              <EmptyState title="Tidak ada rencana tambahan" message="API tidak mengembalikan indikator rencana." />
-            ) : (
-              <div className="planned-list">
-                {state.data.analysis.planned_indicators.map((item) => (
-                  <article className="planned-row" key={item.code}>
-                    <span className="planned-mark" />
-                    <div>
-                      <strong>{item.name}</strong>
-                      <code>{item.code}</code>
-                      <p>{item.definition}</p>
-                    </div>
-                    <span className="indicator-pill indicator-planned">Rencana</span>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <div className="notice-panel">
-            <Info size={17} />
-            <p>
-              {state.data.analysis.limitations.join(" ")} Pola serupa adalah sinyal untuk ditinjau auditor, bukan bukti
-              fraud.
-            </p>
-          </div>
-        </>
-      )}
-    </>
-  );
+  const { state, selectRun, reload } = usePersistedRunSnapshot();
+  return <>
+    <PageHeading eyebrow="ANALISIS" title="Analisis Risiko" description="Cakupan, hasil indikator, dan alasan dari snapshot AnalysisRun yang persisten." action={state.status === "success" && state.detail.result ? <SourceBadge source={state.detail.result.data_source}/> : undefined}/>
+    {state.status !== "success" && <RunStateMessage state={state} retry={reload}/>}
+    {state.status === "success" && <>
+      <RunSelector runs={state.runs} detail={state.detail} onChange={selectRun}/>
+      {!state.detail.result ? <EmptyState title="Hasil run tidak tersedia" message="Tidak ada snapshot persisten untuk run terpilih."/> : state.detail.result.availability !== "available" ? <EmptyState title="Hasil analisis tidak tersedia" message={`Status ketersediaan: ${state.detail.result.availability}. Tidak ada indikator yang dapat disajikan sebagai hasil operasional.`}/> : <>
+        <section className="analysis-overview-grid">
+          <Metric label="Record dipertimbangkan" value={formatNumber(state.detail.result.records_considered)}/>
+          <Metric label="Record memenuhi syarat" value={formatNumber(state.detail.result.records_eligible)}/>
+          <Metric label="Status eksekusi" value={state.detail.result.execution_status}/>
+        </section>
+        <section className="surface-panel section-block"><div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">ENAM PEMERIKSA</span><h2>Cakupan dan sinyal</h2></div><span className="small-context">Status hasil, cakupan, dan status run adalah dimensi terpisah.</span></div>
+          {state.detail.result.indicators.length === 0 ? <EmptyState title="Tidak ada indikator pada hasil" message="Snapshot tidak menyertakan ringkasan pemeriksa."/> : <div className="analysis-indicator-list">{state.detail.result.indicators.map(indicator => {
+            const coverage = state.detail.result!.indicator_coverage.find(item => item.indicator === indicator.code);
+            const reasons = Object.values(state.detail.result!.cases).flatMap(item => item.reasons.filter(reason => reason.indicator === indicator.code).map(reason => reason.summary));
+            const caseStates = Object.values(state.detail.result!.cases).flatMap(item => item.indicator_coverage.filter(row => row.indicator === indicator.code).map(row => row.status));
+            const caseStateCounts = ["triggered", "not_triggered", "not_applicable", "not_assessed"].map(status => ({ status, count: caseStates.filter(item => item === status).length }));
+            return <article className="analysis-indicator-card" key={indicator.code}><div className="analysis-card-heading"><div><span className="indicator-pill">{stateLabels[indicator.status] ?? indicator.status}</span><h3>{indicator.name}</h3><code>{indicator.code}</code></div><div className="analysis-count"><strong>{formatNumber(indicator.candidate_count)}</strong><span>kandidat</span></div></div>
+              <p className="definition-copy">{indicator.definition}</p>
+              <div className="analysis-facts"><span><strong>{formatNumber(indicator.eligible_count)}</strong> memenuhi syarat</span><span><strong>{formatNumber(coverage?.records_assessed)}</strong> dinilai</span><span><strong>{formatNumber(indicator.not_applicable_count)}</strong> tidak berlaku</span><span><strong>{formatNumber(indicator.unassessed_count)}</strong> belum dinilai</span><span><strong>{coverage ? stateLabels[coverage.status] ?? coverage.status : "Belum tersedia"}</strong> status cakupan</span></div>
+              <p className="small-context">Status pada kandidat tersimpan: {caseStateCounts.map(item => `${stateLabels[item.status]} ${item.count}`).join(" · ")}. Ringkasan ini hanya meliputi kasus yang disertakan dalam snapshot.</p>
+              {(indicator.search_truncated || coverage?.search_truncated) && <p className="notice-inline">Pencarian terpotong; record yang tidak muncul tidak dapat dianggap tidak terpicu.</p>}
+              <div className="reason-block"><strong>Alasan kandidat tersimpan</strong>{reasons.length ? <ul>{[...new Set(reasons)].map(text => <li key={text}>{text}</li>)}</ul> : <p>Tidak ada alasan kandidat pada snapshot untuk indikator ini. Ini bukan bukti bahwa populasi bebas anomali.</p>}</div>
+              <div className="limitation-block"><strong>Keterbatasan</strong><ul>{indicator.limitations.map(text => <li key={text}>{text}</li>)}</ul></div>
+            </article>;
+          })}</div>}
+        </section>
+        <section className="surface-panel section-block"><div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">PENILAIAN DAN PRIORITAS</span><h2>Informasi tersimpan</h2></div></div>
+          <div className="analysis-facts"><span><strong>{state.detail.result.risk_scoring.version}</strong> versi skor</span><span><strong>{formatNumber(state.detail.result.risk_scoring.unassessable_case_count)}</strong> kasus tak dapat dinilai</span><span><strong>{state.detail.result.audit_priority.status}</strong> status prioritas fasilitas</span><span><strong>{state.detail.result.action_policy.policy_version}</strong> versi kebijakan demo</span><span><strong>{state.detail.result.action_policy.input_assessment_status}</strong> status masukan kebijakan</span></div>
+          <p className="definition-copy">Skor adalah indeks aturan provisional, bukan probabilitas fraud. Risk level tidak disediakan sebagai nilai tervalidasi.</p>
+          {state.detail.result.risk_scoring.limitations.length > 0 && <ul>{state.detail.result.risk_scoring.limitations.map(x => <li key={x}>{x}</li>)}</ul>}
+          {state.detail.result.audit_priority.status !== "available" && <p className="notice-inline">Prioritas fasilitas tidak tersedia atau cakupannya parsial sesuai prasyarat yang dicatat server.</p>}
+          <ul>{state.detail.result.audit_priority.eligibility_reasons.map(x => <li key={x}>{x}</li>)}</ul>
+          <ul>{state.detail.result.action_policy.limitations.map(x => <li key={x}>{x}</li>)}</ul>
+        </section>
+        <div className="notice-panel"><Info size={17}/><p>{state.detail.notice} Action lane bila ada adalah saran demo provisional; review manusia tetap terpisah.</p></div>
+      </>}
+    </>}
+  </>;
 }
+function Metric({ label, value }: { label: string; value: string }) { return <article className="metric-card"><div className="metric-card-top"><span>{label}</span></div><strong className="metric-value">{value}</strong><small>Dari hasil run tersimpan</small></article>; }

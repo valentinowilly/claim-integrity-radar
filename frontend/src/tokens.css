@@ -1,0 +1,98 @@
+/* ==========================================================================
+   CLAIM INTEGRITY RADAR — DESIGN SYSTEM TOKENS
+   Palet Institusional BPJS Kesehatan, tipografi modular, dan status semantik.
+   File ini memuat variabel CSS terpusat (:root) untuk digunakan di seluruh aplikasi.
+   ========================================================================== */
+
+:root {
+  /* Typography: BPJS public site uses Barlow; system sans-serif is the fallback. */
+  --font-sans: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Type roles */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --line-height-tight: 1.2;
+  --line-height-body: 1.5;
+  --line-height-relaxed: 1.6;
+  --letter-spacing-heading: -0.02em;
+
+  /* Readable scale: labels/captions stay at least 12px. */
+  --text-micro: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 30px;
+  --text-page-title: 30px;
+  --text-section-title: 18px;
+  --text-control: 14px;
+  --text-display: clamp(40px, 4.3vw, 58px);
+
+  /* Surface & Canvas Colors (Cool Slate Neutral) */
+  --canvas-bg: #f8fafc; /* Slate-50: Crisp, clean background */
+  --surface-bg: #ffffff; /* Primary card and panel surface */
+  --surface-subtle: #f1f5f9; /* Slate-100: Table headers, input hover */
+  --surface-muted: #f8fafc; /* Slate-50: Alternating rows, soft backgrounds */
+
+  /* Text & Foreground Colors */
+  --text-primary: #0f172a; /* Slate-900: High-contrast headings and body */
+  --text-secondary: #334155; /* Slate-700: Secondary text, table data */
+  --text-muted: #64748b; /* Slate-500: Microcopy, table headers, breadcrumbs */
+  --text-faint: #94a3b8; /* Slate-400: Placeholders, version labels */
+
+  /* Institutional BPJS Green Accent (Authoritative, non-marketing) */
+  --bpjs-green: #047857; /* Emerald-700: Primary actions, verified badges */
+  --bpjs-green-hover: #065f46; /* Emerald-800: Hover states */
+  --bpjs-green-subtle: #ecfdf5; /* Emerald-50: Active nav, badge background */
+  --bpjs-green-border: #a7f3d0; /* Emerald-200: Subtle green borders */
+  --bpjs-green-dark: #064e3b; /* Emerald-900: Deep brand marks */
+  --login-forest: #073f35; /* Deep forest surface for the login introduction */
+  --login-mint: #a7e8d2; /* Accent for the product wordmark on the forest panel */
+
+  /* Neutral Borders & Lines */
+  --border-subtle: #e2e8f0; /* Slate-200: Default card and divider borders */
+  --border-medium: #cbd5e1; /* Slate-300: Form field borders, separators */
+  --border-focus: #059669; /* Emerald-600: Focus ring outline */
+
+  /* Semantic Status Tokens (Accessible, standardized) */
+  --status-good-bg: #f0fdf4; /* Emerald-50 */
+  --status-good-text: #166534; /* Emerald-800 */
+  --status-good-border: #bbf7d0; /* Emerald-200 */
+  --status-good-dot: #16a34a; /* Emerald-600 */
+
+  --status-warn-bg: #fffbeb; /* Amber-50 */
+  --status-warn-text: #92400e; /* Amber-800 */
+  --status-warn-border: #fde68a; /* Amber-200 */
+  --status-warn-dot: #d97706; /* Amber-600 */
+  --status-warn-heading: #78350f; /* Amber-900: Callout heading text */
+
+  --status-danger-bg: #fef2f2; /* Red-50 */
+  --status-danger-text: #991b1b; /* Red-800 */
+  --status-danger-border: #fecaca; /* Red-200 */
+  --status-danger-dot: #dc2626; /* Red-600 */
+
+  --status-neutral-bg: #f8fafc; /* Slate-50 */
+  --status-neutral-text: #475569; /* Slate-600 */
+  --status-neutral-border: #e2e8f0; /* Slate-200 */
+  --status-neutral-dot: #64748b; /* Slate-500 */
+
+  --status-info-bg: #f0f9ff; /* Sky-50 */
+  --status-info-text: #075985; /* Sky-800 */
+  --status-info-border: #bae6fd; /* Sky-200 */
+  --status-info-dot: #0284c7; /* Sky-600 */
+
+  /* Elevation & Shadows (Subtle, enterprise) */
+  --shadow-subtle: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --shadow-card: 0 1px 3px 0 rgb(15 23 42 / 0.05), 0 1px 2px -1px rgb(15 23 42 / 0.05);
+
+  /* Border Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-pill: 9999px;
+}

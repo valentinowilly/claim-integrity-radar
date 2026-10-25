@@ -78,7 +78,7 @@ export default function RunCaseReviewPage() {
   if (!run || !result || !candidate || !review) return <EmptyState title="Detail review belum tersedia" message="Server tidak mengembalikan kandidat dan review lengkap untuk pasangan run/kasus ini." />;
 
   return <>
-    <PageHeading eyebrow="TINJAUAN TERIKAT RUN" title="Detail kandidat" description="Identitas review adalah pasangan AnalysisRun dan case ID; hasil analitik tetap immutable." action={<Link className="button button-secondary" to="/workflow"><ArrowLeft size={15} />Kembali ke run</Link>} />
+    <PageHeading eyebrow="TINJAUAN TERIKAT RUN" title="Detail kandidat" description="Identitas review adalah pasangan AnalysisRun dan case ID; hasil analitik tetap immutable." action={<Link className="button button-secondary" to={`/cases?run_id=${encodeURIComponent(runId)}`}><ArrowLeft size={15} />Kembali ke antrean run</Link>} />
     <div className="notice-panel workflow-notice"><ShieldCheck size={18} /><p>Semua sumber saat ini sintetis. Review adalah metadata proses, bukan keputusan fraud. Catatan disimpan lokal; aplikasi demo belum memiliki assignment-based access control. Jangan memasukkan data peserta, klaim nyata, atau informasi sensitif.</p></div>
     {error && <div className="workflow-error" role="alert"><strong>Permintaan gagal</strong><span>{error}</span></div>}
     {feedback && <div className="workflow-feedback" role="status">{feedback}</div>}

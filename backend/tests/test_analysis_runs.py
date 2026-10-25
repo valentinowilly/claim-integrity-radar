@@ -104,15 +104,16 @@ def test_create_pins_batch_persists_actual_pipeline_and_get_does_not_rerun(tmp_p
     batch, generated = import_batch(app, batch_db, operator)
     pinned = BatchStore(batch_db).get_execution_input(batch["batch_id"])["batch"]
 
-    original_pipeline = runs_service.build_analytics_snapshot
+    original_pipeline = runs_service.execute_provider_snapshot
     pipeline_calls = []
-    def check_feature_boundary(**kwargs):
+    def check_feature_boundary(provider, action_policy=None):
         pipeline_calls.append(1)
-        assert len(kwargs["records"]) == len(generated.records)
+        dataset, snapshot = original_pipeline(provider, action_policy)
+        assert len(dataset.records) == len(generated.records)
         assert all(not {"is_anomaly", "scenario", "ground_truth", "scenario_group_id"}.intersection(row)
-                   for row in kwargs["records"])
-        return original_pipeline(**kwargs)
-    monkeypatch.setattr(runs_service, "build_analytics_snapshot", check_feature_boundary)
+                   for row in dataset.records)
+        return dataset, snapshot
+    monkeypatch.setattr(runs_service, "execute_provider_snapshot", check_feature_boundary)
     response = create_run(app, operator, batch["batch_id"])
     assert response.status_code == 201, response.text
     manifest = response.json()["run"]
@@ -121,6 +122,13 @@ def test_create_pins_batch_persists_actual_pipeline_and_get_does_not_rerun(tmp_p
     assert manifest["content_checksum"] == pinned["content_checksum"]
     assert manifest["source_schema_version"] == SYNTHETIC_CSV_SCHEMA_VERSION
     assert manifest["source_mapping_version"] == SYNTHETIC_CSV_MAPPING_VERSION
+    assert manifest["source_classification"] == "synthetic_only_declared"
+    assert manifest["configuration"]["source"] == {
+        "source_type": "synthetic_csv",
+        "classification": "synthetic_only_declared",
+        "mapping_version": SYNTHETIC_CSV_MAPPING_VERSION,
+        "schema_profile": SYNTHETIC_CSV_SCHEMA_VERSION,
+    }
     assert manifest["creator_user_id"] == users["operator"]["user_id"]
     assert manifest["execution_status"] in {"completed", "partial"}
     assert manifest["completed_at"] is not None and manifest["result_available"] is True
@@ -135,13 +143,16 @@ def test_create_pins_batch_persists_actual_pipeline_and_get_does_not_rerun(tmp_p
     verifier = verifier_session(app, users)
     def fail_if_called(*args, **kwargs):
         raise AssertionError("GET must not execute analytics")
-    monkeypatch.setattr(runs_service, "build_analytics_snapshot", fail_if_called)
+    monkeypatch.setattr(runs_service, "execute_provider_snapshot", fail_if_called)
     detail = call(app, "GET", f"/api/v1/runs/{manifest['run_id']}", cookies=verifier)
     assert detail.status_code == 200
     result = detail.json()["result"]
     assert result["action_policy"]["policy_version"] == ACTION_POLICY_VERSION
     assert result["action_policy"]["configuration"] == manifest["configuration"]["action_policy"]
-    assert result["data_source"] == {"kind": "synthetic", "label": "synthetic_data_batch"}
+    assert result["data_source"]["kind"] == "synthetic"
+    assert result["data_source"]["label"] == "synthetic_data_batch"
+    assert result["data_source"]["classification"] == "synthetic_only_declared"
+    assert result["data_source"]["mapping_version"] == SYNTHETIC_CSV_MAPPING_VERSION
     assert result["records_considered"] == len(generated.records)
     assert len(result["indicator_coverage"]) == 6
     assert all(item["indicator"] in DETECTOR_ORDER for item in result["indicator_coverage"])
@@ -215,6 +226,21 @@ def test_policy_selection_rejects_unknown_versions_and_client_thresholds(tmp_pat
     assert arbitrary_thresholds.status_code == 422
 
 
+def test_run_source_selection_is_explicit_and_unsupported_source_never_falls_back(tmp_path, monkeypatch):
+    app, batch_db, users = setup(tmp_path)
+    operator = operator_session(app, users)
+    batch, _ = import_batch(app, batch_db, operator)
+
+    def must_not_execute(*args, **kwargs):
+        raise AssertionError("unsupported source must be rejected before provider execution")
+
+    monkeypatch.setattr(runs_service, "execute_provider_snapshot", must_not_execute)
+    rejected = create_run(app, operator, batch["batch_id"], extra={"source_type": "bpjs_sample"})
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "RUN_SOURCE_UNSUPPORTED"
+    assert runs_service.AnalysisRunStore(batch_db).list_runs(10, 0)["total_items"] == 0
+
+
 def test_missing_rejected_and_invalid_batches_are_rejected(tmp_path):
     app, _, users = setup(tmp_path)
     operator = operator_session(app, users)
@@ -273,8 +299,11 @@ def test_auth_csrf_role_and_creator_are_enforced(tmp_path):
     lead = verifier_session(app, users, "lead")
     assert call(app, "GET", f"/api/v1/runs/{run_id}", cookies=lead).status_code == 200
     admin = login(app, "root-admin", "Synthetic-admin-password-2026!")
-    assert call(app, "GET", "/api/v1/runs", cookies=admin).status_code == 403
-    assert call(app, "GET", f"/api/v1/runs/{run_id}", cookies=admin).status_code == 403
+    assert call(app, "GET", "/api/v1/runs", cookies=admin).status_code == 200
+    assert call(app, "GET", f"/api/v1/runs/{run_id}", cookies=admin).status_code == 200
+    no_csrf_admin_run = call(app, "POST", "/api/v1/runs", cookies=admin,
+                             json_body={"batch_id": batch["batch_id"]})
+    assert no_csrf_admin_run.status_code == 403
     assert call(app, "GET", f"/api/v1/runs/{run_id}").status_code == 401
 
 
@@ -284,7 +313,7 @@ def test_pipeline_failure_is_safe_terminal_and_retry_creates_new_run(tmp_path, m
     batch, _ = import_batch(app, batch_db, operator)
     def broken(*args, **kwargs):
         raise RuntimeError("sensitive participant-token failure detail")
-    monkeypatch.setattr(runs_service, "build_analytics_snapshot", broken)
+    monkeypatch.setattr(runs_service, "execute_provider_snapshot", broken)
     failed = create_run(app, operator, batch["batch_id"])
     assert failed.status_code == 500
     assert "sensitive participant-token" not in failed.text
@@ -331,7 +360,10 @@ def test_partial_status_null_scores_and_not_applicable_are_persisted_without_rei
         "cases": {"syn-claim-000001": {"risk_score": None, "risk_level": None,
                                        "score_status": "not_assessable"}},
     }
-    monkeypatch.setattr(runs_service, "build_analytics_snapshot", lambda **kwargs: synthetic_snapshot)
+    monkeypatch.setattr(
+        runs_service, "execute_provider_snapshot",
+        lambda provider, action_policy=None: (provider.load(), synthetic_snapshot),
+    )
     created = create_run(app, operator, batch["batch_id"])
     assert created.status_code == 201
     run_id = created.json()["run"]["run_id"]

@@ -75,6 +75,30 @@ def test_bootstrap_requires_secret_and_is_one_time(tmp_path):
         bootstrap(store, "second-admin")
 
 
+def test_local_demo_password_requires_explicit_development_mode(tmp_path, monkeypatch):
+    _, store = setup_app(tmp_path)
+    monkeypatch.delenv("CIR_ENV", raising=False)
+    with pytest.raises(ValueError, match="CIR_ENV=development"):
+        store.create_bootstrap_admin(
+            "admin", "admin123", "bootstrap-test-secret", "bootstrap-test-secret",
+            allow_local_demo_password=True,
+        )
+
+    monkeypatch.setenv("CIR_ENV", "development")
+    admin = store.create_bootstrap_admin(
+        "admin", "admin123", "bootstrap-test-secret", "bootstrap-test-secret",
+        allow_local_demo_password=True,
+    )
+    assert admin["username"] == "admin"
+    assert admin["role"] == "platform_admin"
+    with sqlite3.connect(store.path) as connection:
+        password_hash = connection.execute(
+            "SELECT password_hash FROM auth_users WHERE username = 'admin'"
+        ).fetchone()[0]
+    assert password_hash.startswith("scrypt$")
+    assert verify_password("admin123", password_hash)
+
+
 def test_login_me_logout_cookie_flags_revocation_and_audit_redaction(tmp_path):
     app, store = setup_app(tmp_path)
     admin = bootstrap(store)
@@ -142,15 +166,19 @@ def test_backend_permission_matrix_enforced_for_all_roles(tmp_path, role):
     assert call(app, "GET", "/api/v1/dashboard/summary", cookies=cookies).status_code == 200
 
     analysis = call(app, "GET", "/api/v1/analysis", cookies=cookies)
-    assert analysis.status_code == (403 if role == "platform_admin" else 200)
+    assert analysis.status_code == 200
     cases = call(app, "GET", "/api/v1/cases", cookies=cookies)
-    assert cases.status_code == (200 if role in {"verifikator", "audit_lead"} else 403)
+    assert cases.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead"} else 403)
     case_id = sorted(build_analytics_snapshot()["cases"])[0]
     review = call(app, "GET", f"/api/v1/cases/{case_id}/review", cookies=cookies)
-    assert review.status_code == (200 if role in {"verifikator", "audit_lead"} else 403)
+    assert review.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead"} else 403)
     review_update = call(app, "POST", f"/api/v1/cases/{case_id}/review",
                          json_body={"status": "needs_more_evidence"}, cookies=cookies, csrf=True)
-    assert review_update.status_code == (200 if role in {"verifikator", "audit_lead"} else 403)
+    assert review_update.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead"} else 403)
+    permissions = call(app, "GET", "/api/v1/auth/me", cookies=cookies).json()["permissions"]
+    assert ("runs:results:read" in permissions) == (role in {"platform_admin", "verifikator", "audit_lead"})
+    assert ("batches:write" in permissions) == (role in {"platform_admin", "data_operator"})
+    assert ("review:manage" in permissions) == (role in {"platform_admin", "audit_lead"})
     create_user = call(app, "POST", "/api/v1/auth/users", json_body={
         "username": f"created-{role}", "password": "Synthetic-created-password-2026!", "role": "data_operator",
     }, cookies=cookies, csrf=True)

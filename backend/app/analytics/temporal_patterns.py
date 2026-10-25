@@ -24,7 +24,7 @@ class TemporalConfig:
     min_repeat_claims: int = 2
     uniform_time_min_claims: int = 3
     max_case_ids: int = 20
-    max_candidates: int = 500
+    max_candidates: int = 5000
 
     def __post_init__(self) -> None:
         if self.repeat_window_days < 0 or self.min_repeat_claims < 2 or self.uniform_time_min_claims < 2:

@@ -148,6 +148,34 @@ def test_outcome_is_separate_and_audit_lead_only(review_env):
     assert changed.json()["history"][1]["previous_outcome"] == "signal_not_supported"
 
 
+def test_platform_admin_can_manage_synthetic_run_scoped_review(review_env):
+    app, _, _, users = review_env
+    admin_store = AuthStore(app.state.auth_db_path)
+    admin = admin_store.create_bootstrap_admin(
+        "synthetic-full-admin", "Synthetic-admin-password-2026!", "stage23-secret", "stage23-secret",
+    )
+    session, token = admin_store.authenticate(admin["username"], "Synthetic-admin-password-2026!")
+    cookies = {"cir_session": token, "cir_csrf": session["csrf_token"]}
+    path = review_url()
+
+    assert call(app, "GET", path).status_code == 401
+    assert call(app, "PATCH", path, cookies=cookies, csrf=False,
+                payload={"review_status": "in_review"}).status_code == 403
+    assert call(app, "POST", path + "/outcome", cookies=cookies, csrf=False,
+                payload={"review_outcome": "signal_supported"}).status_code == 403
+    assert call(app, "GET", path, cookies=cookies).status_code == 200
+    status = call(app, "PATCH", path, cookies=cookies,
+                  payload={"review_status": "in_review", "note": "Synthetic admin workflow."})
+    assert status.status_code == 200
+    outcome = call(app, "POST", path + "/outcome", cookies=cookies,
+                   payload={"review_outcome": "signal_supported", "note": "Synthetic review only."})
+    assert outcome.status_code == 200
+    assert outcome.json()["review_status"] == "in_review"
+    assert outcome.json()["review_outcome"] == "signal_supported"
+    assert len(outcome.json()["history"]) == 2
+    assert all(event["actor_user_id"] == admin["user_id"] for event in outcome.json()["history"])
+
+
 @pytest.mark.parametrize("method,path,payload", [
     ("PATCH", review_url(), {"review_status": "closed", "actor_user_id": "forged"}),
     ("PATCH", review_url(), {"review_status": "closed", "review_outcome": "signal_supported"}),

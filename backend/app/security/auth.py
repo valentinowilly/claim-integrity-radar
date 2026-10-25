@@ -30,7 +30,15 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._@+-]{2,79}$")
 ROLES = ("platform_admin", "data_operator", "verifikator", "audit_lead")
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
-    "platform_admin": frozenset({"dashboard:read", "users:manage", "security_audit:read", "batches:read"}),
+    # The local synthetic-demo administrator is intentionally the sole full-workflow
+    # role. This does not expand access to real BPJS data or add any route bypass.
+    "platform_admin": frozenset({
+        "dashboard:read", "analytics:read", "cases:read",
+        "batches:read", "batches:write",
+        "runs:read", "runs:write", "runs:results:read",
+        "review:read", "review:write", "review:manage",
+        "users:manage", "security_audit:read",
+    }),
     "data_operator": frozenset({"dashboard:read", "analytics:read", "batches:read", "batches:write", "runs:read", "runs:write"}),
     "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "batches:read", "runs:read", "runs:results:read"}),
     "audit_lead": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
@@ -80,8 +88,14 @@ def validate_password(password: str) -> None:
         raise ValueError("Password mengandung karakter yang tidak valid.")
 
 
-def hash_password(password: str) -> str:
-    validate_password(password)
+def hash_password(password: str, *, allow_local_demo: bool = False) -> str:
+    if allow_local_demo:
+        if os.environ.get("CIR_ENV", "").strip().lower() != "development":
+            raise ValueError("Password demo hanya dapat digunakan pada CIR_ENV=development.")
+        if password != "admin123":
+            raise ValueError("Password demo lokal tidak sesuai konfigurasi.")
+    else:
+        validate_password(password)
     salt = secrets.token_bytes(16)
     digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32)
     return "scrypt$16384$8$1${}${}".format(salt.hex(), digest.hex())
@@ -177,11 +191,11 @@ class AuthStore:
         )
 
     def create_bootstrap_admin(self, username: str, password: str, supplied_secret: str,
-                               configured_secret: str | None) -> dict:
+                               configured_secret: str | None, *, allow_local_demo_password: bool = False) -> dict:
         if not configured_secret or not supplied_secret or not hmac.compare_digest(supplied_secret, configured_secret):
             raise AuthenticationError("Bootstrap tidak diizinkan.")
         normalized = validate_username(username)
-        password_hash = hash_password(password)
+        password_hash = hash_password(password, allow_local_demo=allow_local_demo_password)
         now = utc_now().isoformat()
         with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")

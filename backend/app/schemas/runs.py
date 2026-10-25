@@ -13,6 +13,7 @@ class RunCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     batch_id: str | None = Field(default=None, min_length=1, max_length=80)
+    source_type: str = Field(default="synthetic_csv", min_length=1, max_length=40)
     retry_of_run_id: str | None = Field(default=None, min_length=1, max_length=80)
     action_policy_version: str | None = Field(
         default=None, min_length=1, max_length=80,
@@ -32,6 +33,7 @@ class RunManifest(BaseModel):
     batch_version: int
     content_checksum: str
     source_type: Literal["synthetic_csv"]
+    source_classification: Literal["synthetic_only_declared"]
     source_schema_version: str
     source_mapping_version: str
     creator_user_id: str

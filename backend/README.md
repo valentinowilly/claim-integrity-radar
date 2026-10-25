@@ -47,6 +47,18 @@ python -m app.security.bootstrap_admin
 Remove-Item Env:CIR_ADMIN_BOOTSTRAP_SECRET
 ```
 
+Untuk demonstrasi lokal saja, tersedia jalur eksplisit dengan akun tetap `admin` / `admin123`. Jalur ini tidak aktif otomatis, tetap membutuhkan bootstrap secret, dan hanya berjalan jika `CIR_ENV=development`:
+
+```powershell
+$env:CIR_ENV = "development"
+$env:CIR_ADMIN_BOOTSTRAP_SECRET = Read-Host "Buat secret bootstrap sementara yang kuat"
+python -m app.security.bootstrap_admin --local-demo
+Remove-Item Env:CIR_ADMIN_BOOTSTRAP_SECRET
+Remove-Item Env:CIR_ENV
+```
+
+Password pendek tersebut hanya diizinkan oleh flag `--local-demo` pada environment development dan tetap di-hash dengan scrypt. Jalur bootstrap normal dan endpoint provisioning akun tetap menerapkan password minimal 12 karakter. Jika akun administrator sudah ada, command gagal dan tidak mereset atau menimpanya.
+
 CLI meminta username, secret bootstrap, dan password baru melalui prompt (password tidak diecho). Prosedur hanya berhasil sekali per database. Simpan SQLite lokal di lokasi yang diabaikan Git dan lindungi akses filesystem. Jangan gunakan untuk akun atau data operasional nyata sebelum kebijakan sesi, distribusi secret, backup, audit, dan kontrol akses disetujui security/pemilik proses.
 
 Role sementara: `platform_admin`, `data_operator`, `verifikator`, `audit_lead`. Backend menegakkan permission pada setiap endpoint; frontend hanya menyembunyikan navigasi sebagai bantuan UX. Scope assignment untuk cases/runs belum tersedia; metadata batch sintetis bersifat shared sesuai permission. Event yang ada mencakup bootstrap, autentikasi, pencabutan/expiry sesi, perubahan akun/review, impor batch, dan AnalysisRun; belum ada endpoint pembacaan security audit.
@@ -58,6 +70,12 @@ Importer menerima hanya CSV fitur skema `synthetic-claims-v1` dengan mapping `sy
 Database terpisah: default `backend/outputs/data_batches.sqlite3`, override dengan `CIR_BATCH_DB_PATH`. Ukuran default maksimum 50 MiB dan 120.000 baris; override tervalidasi: `CIR_BATCH_MAX_BYTES` (1 KiB–512 MiB) dan `CIR_BATCH_MAX_ROWS` (1–1.000.000). Tidak ada byte CSV yang disimpan. Hanya record sintetis tervalidasi disimpan sebagai record anak; API mengembalikan metadata dan ringkasan error agregat tanpa record, participant token, checksum, atau nilai baris. `ready`/`ready_with_warnings` immutable. Import identik pada batch key/schema/mapping yang sama memakai versi yang sama; perubahan konten membuat versi baru. Validasi gagal menghasilkan `rejected` tanpa baris normalized parsial.
 
 `GET /health` tetap tidak membuka database apa pun. Akses metadata batch bersifat shared untuk role yang diberi `batches:read`; assignment/scope belum ada. Ini hanya baseline prototipe synthetic-only dan bukan kontrol akses operasional. Eksekusi AnalysisRun batch sintetis dijelaskan pada bagian berikut.
+
+### Provider analitik dan adapter FKRTL lokal
+
+`app.data_sources.providers.FeatureSourceProvider` menyediakan batas eksplisit untuk canonical feature records. `SyntheticDemoProvider` tetap menjadi default untuk jalur demo; `SyntheticBatchProvider` digunakan oleh AnalysisRun dari batch `synthetic_csv`. `build_analytics_snapshot_from_provider()` menjalankan pipeline terkoordinasi pada provider yang dipilih caller tepercaya. Tidak ada route API yang menerima nama/path provider.
+
+Adapter `.dta` berada di `scripts/fkrtl_dta_provider.py`, bukan sebagai sumber API/runtime aktif. Ia hanya dapat dibuat melalui pemanggilan lokal eksplisit dengan path dan key pseudonim lokal, dan harus diberi klasifikasi sumber eksplisit. Tes memberi label `synthetic_fixture`; tidak ada dataset BPJS aktual yang dibuka. Reader menggunakan SQLite sementara berisi digest HMAC case reference untuk pemeriksaan duplikasi lintas chunk dan menghapus scratch pada akhir/error. Reader masih memuat chunk sekarang, sedangkan provider `.dta` menahan seluruh fitur untuk menjalankan pemeriksa; pengukuran ini belum membuktikan kelayakan pipeline penuh skala target. Sampai otorisasi dan kontrak DataBatch/AnalysisRun untuk sumber ini disetujui, `.dta` tidak dapat diimpor melalui API atau disimpan sebagai run.
 
 ## AnalysisRun persisten (P0 Stage 4)
 

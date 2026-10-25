@@ -84,6 +84,45 @@ Risk score mungkin dihitung hanya jika indikator dapat dinilai; null bukan zero-
 
 ## 7. Sumber
 
+## 8. Status implementasi adapter lokal
+
+Adapter mapping `bpjs-fkrtl-sample-map-v1` tersedia di `backend/app/data_sources/bpjs_fkrtl_adapter.py`; reader chunk `.dta` terpisah di `backend/scripts/fkrtl_dta_reader.py` agar package aplikasi dan health path tidak mengimpor pandas. Tes memakai fixture buatan. Reader tidak aktif pada API/runtime, tidak mengasumsikan `FKL05_NEW`, tidak memilih FKL47/48, dan tidak membentuk facility ID. `PSTV01` dan `FKL02` di-HMAC bersama menjadi case reference stabil (karena ID kunjungan didefinisikan per peserta) menggunakan key lokal yang dipasok caller; ID mentah tidak menjadi record keluaran. Token peserta internal juga di-HMAC dengan konteks terpisah. `PSTV01` hanya digunakan untuk pembatas peserta sama/berbeda dan pseudonimisasi tersebut, bukan sebagai atribut kemiripan lintas peserta. Kehadiran adapter bukan persetujuan penggunaan data.
+
+Signature eksploratif berversi dijelaskan di `docs/analytics-spec.md`. Angka dari populasi/definisi berbeda tidak dapat dibandingkan sebagai rekonsiliasi sampai keduanya dijalankan pada populasi eligible yang sama dengan unit hitung seragam. Tidak ada pemrosesan dataset aktual yang dilakukan dalam tahap ini.
+
 - panduan-data-sample-bpjs.pdf: hlm. 6–7 dataset/relasi; 18–25 FKRTL; 30–31 diagnosis sekunder. Tabel penting diekstrak dalam mode table. Format `.dta` dirujuk terpisah oleh AGENTS.md, bukan dipastikan dari kamus/isi dataset.
 - proposal-healthkathon.pdf: hlm. 11–12 data sintetis, checker, dan batasan; 17–19 izin, modularitas, privasi, validasi.
 - Repository: backend/app/analytics/{repeat_billing,similar_claim_pattern,near_duplicate_claims,capacity,temporal_patterns,evidence_completeness,normalization,risk_scoring,audit_priority}.py; backend/app/data_sources/{synthetic,synthetic_generator,synthetic_benchmark_generator}.py; docs/analytics-spec.md.
+
+## 9. Local reader/provider contract (fixture-tested; not enabled in API)
+
+The canonical feature-provider interface is `app.data_sources.providers.FeatureSourceProvider`, returning records, facility metadata, and source metadata. `SyntheticDemoProvider` remains the default for legacy analytics calls; `SyntheticBatchProvider` is the provider used by persistent synthetic-batch runs. `build_analytics_snapshot_from_provider()` coordinates a caller-selected provider with the existing six-detector/scoring/priority service. API parameters do not select providers.
+
+`scripts.fkrtl_dta_provider.LocalFkrtlDtaProvider` is an explicit local-only bridge from the versioned mapping to that service. Its constructor requires an explicit source classification (`synthetic_fixture` or `bpjs_sample`), input path, and caller-provided local pseudonym key. It is not registered in routes, is not connected to DataBatch/AnalysisRun persistence, and does not make BPJS processing authorized. Tests use only generated synthetic `.dta` files and classify them `synthetic_fixture`. If later enabled for an authorized sample, metadata includes `bpjs_sample`, mapping/profile version, aggregate mapping coverage, and limitations; private paths are not included.
+
+The chunk reader in `backend/scripts/fkrtl_dta_reader.py` checks duplicate case references across chunks using a temporary SQLite scratch table containing only SHA-256 digests of the already-HMAC-pseudonymized case references. Raw participant/visit values and the HMAC secret are not written to scratch storage. The scratch directory is removed on complete iteration and exceptions; callers that stop early must close the iterator. Each current chunk is still held in memory. The local provider currently accumulates all mapped rows because the coordinated detectors require a population; target-scale provider memory is not established by the reader benchmark below.
+
+### Synthetic-only verification
+
+- `python -m pytest tests/test_fkrtl_signatures_and_adapter.py -q`: 17 passed in the verified run. Tests cover within/across-chunk duplicates, stable references across chunk sizes, invalid required references, scratch cleanup, output minimization, and provider-to-analytics execution. All `.dta` values are generated fixtures.
+- `python -m scripts.benchmark_fkrtl_reader_synthetic --rows 25000 --chunk-size 2000`: read 25,000 synthetic rows in 4.987 seconds; `.dta` fixture 4,527,703 bytes; `tracemalloc` peak 10,782,460 bytes. This is Python-traced allocation peak and excludes some native pandas/NumPy allocations; it is not process RSS and does not establish full-detector/provider memory at 120,000 rows.
+- `python -m scripts.fkrtl_signature_sensitivity`: same four-row synthetic population per definition. Baseline group aggregates: `repeat_service_v1` 1 group / 3 rows / 2 excess; same-amount 1 / 3 / 2; legacy signature 1 / 3 / 2; cross-participant exact 1 / 4 / 3. Changing one FKL04 reduces legacy repeated rows to 2 while repeat-service remains 3. Changing FKL47 leaves repeat-service at 3 and reduces same-amount rows to 2. Normalized date/text variants retain the baseline counts; one missing required diagnosis yields one ineligible row. These synthetic observations do not reconcile earlier 20-versus-81 counts, which remain unresolved until identical eligible real-data populations are authorized and compared.
+
+No actual BPJS data was opened or processed. `FKL47` remains excluded from the canonical feature map and amount-based signatures remain blocked by default. Facility priority, capacity, and evidence checks remain unavailable without their verified prerequisites.
+
+### Orchestrator dan benchmark pipeline penuh (sintetis)
+
+`app.data_sources.providers.CANONICAL_FEATURE_CONTRACT_VERSION` menetapkan `canonical-analytic-features-v1`: `case_id` aplikasi wajib; token peserta pseudonim hanya internal; nama fitur yang diizinkan ialah `participant_token`, `service_date`, `discharge_date`, `service_timestamp`, `facility_id`, `service_type`, `service_units`, `facility_daily_capacity`, `facility_daily_claim_count`, `billed_amount`, `province_code`, `municipality_code`, `facility_ownership`, `facility_type`, `facility_class`, `admission_diagnosis`, `primary_diagnosis`, `claim_group`, `procedure_code`, `supporting_evidence_required`, `supporting_evidence_types`, `supporting_evidence_present`, dan `supporting_evidence_recording_status`. Prasyarat selain `case_id` opsional bagi profil yang tidak menyediakannya. `claim_id` batch diterima sebagai metadata input lalu dihilangkan dari fitur. Field sumber mentah dan label ground truth ditolak. Field yang hilang diproyeksikan sebagai `None`, agar detektor menyatakan tidak berlaku/tidak dinilai sesuai prasyarat, bukan menganggap negatif. Provider `.dta` mengeluarkan canonical shape; `run_provider_analysis()` menjalankan pipeline yang sama dan memberi metadata source, mapping, coverage, signal/reason, score type, priority, action policy, dan limitations. Provider ini tetap tidak terhubung ke route atau penyimpanan AnalysisRun.
+
+Benchmark penuh menghasilkan `.dta` sintetis di temporary directory, memanggil reader, provider, enam detektor, scoring, audit priority, dan action policy. Semua temp file dibersihkan setelah run sukses. Pengukuran final dengan chunk 2.000:
+
+| Klaim sintetis | Waktu pipeline | Peak Python allocation (`tracemalloc`) | Baseline RSS | Peak RSS sampled | Seluruh signal | Skor tidak dapat dinilai | Near-duplicate |
+|---:|---:|---:|---:|---:|---:|---:|---|
+| 25.000 | 22,874 s | 193.962.832 byte | 67.072.000 byte | 439.345.152 byte | 2.718 | 22.282 | 2.718 kandidat; truncated |
+| 120.000 | 102,865 s | 863.524.873 byte | 68.354.048 byte | 1.737.408.512 byte | 0 | 120.000 | 0 kandidat; truncated |
+
+RSS diambil dari working set proses dengan sampler 20 ms, sehingga peak singkat dapat terlewat. `tracemalloc` tidak mencakup sebagian alokasi native pandas/NumPy. Angka ini hanya benchmark fixture, bukan jaminan kinerja untuk input lain. Adapter tidak memiliki amount/facility/capacity/evidence/timestamp yang diperlukan; karena itu 120.000 skor null berarti tidak dapat dinilai, bukan tanpa risiko. Lima indikator berstatus partial dan satu not_applicable pada kedua ukuran.
+
+Perbedaan 2.718 kandidat pada 25.000 dan nol kandidat pada 120.000 terjadi sementara `search_truncated=true` pada kedua ukuran. Pada data lebih besar, block melewati batas dan pencarian beralih ke perbandingan chain deterministik; pasangan yang dibandingkan dapat berbeda sehingga tidak ada kandidat pada fixture 120.000. Ini bukti bahwa cakupan dan hasil near-duplicate bergantung pada batas/blocking, bukan bukti pola tidak ada. Batas pencarian tidak dilonggarkan dalam benchmark. Evaluasi lebih lanjut perlu mengukur strategi blocking pada distribusi yang beragam sebelum hasil tersebut dipakai untuk audit.
+
+Pipeline AnalysisRun persisten sekarang juga melewati provider batch dan validasi canonical yang sama, tetapi DataBatch/AnalysisRun tetap dibatasi `synthetic_csv`. Mengaktifkan sumber lokal `.dta` ke run tersimpan membutuhkan desain eksplisit untuk source type, batch identity/checksum, penyimpanan hasil dan retensi key pseudonim; belum dilakukan.

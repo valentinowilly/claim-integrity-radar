@@ -12,7 +12,9 @@ from app.analytics.repeat_billing import LIMITATIONS as REPEAT_LIMITATIONS
 from app.analytics.risk_scoring import DETECTOR_ORDER, run_detector_suite, score_claims
 from app.analytics.similar_claim_pattern import LIMITATIONS as SIMILAR_LIMITATIONS
 from app.analytics.temporal_patterns import LIMITATIONS as TEMPORAL_LIMITATIONS
-from app.data_sources.synthetic import get_synthetic_records
+from app.data_sources.providers import (
+    FeatureDataset, FeatureSourceProvider, SyntheticDemoProvider, load_feature_dataset,
+)
 
 
 DATA_SOURCE = {"kind": "synthetic", "label": "synthetic_demo"}
@@ -91,6 +93,17 @@ def _entries(result: Mapping[str, Any], key: str) -> list[Mapping[str, Any]]:
     return [item for item in raw if isinstance(item, Mapping)] if isinstance(raw, (list, tuple)) else []
 
 
+def _entry_index(result: Mapping[str, Any], *keys: str) -> dict[str, Mapping[str, Any]]:
+    """Index detector case metadata once instead of rescanning it per case."""
+    indexed: dict[str, Mapping[str, Any]] = {}
+    for key in keys:
+        for item in _entries(result, key):
+            case_id = item.get("case_id")
+            if isinstance(case_id, str):
+                indexed.setdefault(case_id, item)
+    return indexed
+
+
 def _candidate_group_count(result: Mapping[str, Any]) -> int:
     candidates = result.get("candidate_groups", result.get("candidates", []))
     if isinstance(candidates, (list, tuple)):
@@ -101,29 +114,21 @@ def _candidate_group_count(result: Mapping[str, Any]) -> int:
 def _coverage_for_indicator(
     indicator: str,
     result: Mapping[str, Any],
-    scored_cases: Sequence[Mapping[str, Any]],
+    scoring_coverage: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    states = {
-        item.get("case_id"): next((
-            coverage.get("status") for coverage in item.get("indicator_coverage", [])
-            if isinstance(coverage, Mapping) and coverage.get("indicator") == indicator
-        ), "not_assessed")
-        for item in scored_cases
-    }
-    not_applicable_ids = {
-        item.get("case_id") for item in _entries(result, "not_applicable_cases")
-        if isinstance(item.get("case_id"), str)
-    }
+    aggregate = next((item for item in scoring_coverage
+                      if item.get("indicator") == indicator), {})
     unavailable = result.get("status") == "unavailable"
     truncated = result.get("search_truncated") is True or any(
         item.get("case_ids_truncated") is True
         for item in _entries(result, "candidate_groups") + _entries(result, "candidates")
     )
-    assessed_count = sum(state in {"triggered", "not_triggered"} for state in states.values())
-    not_assessed_count = sum(state == "not_assessed" for state in states.values())
+    assessed_count = int(aggregate.get("assessed_case_count", 0))
+    not_assessed_count = int(aggregate.get("not_assessed_case_count", 0))
+    not_applicable_count = int(aggregate.get("not_applicable_case_count", 0))
     if unavailable:
         status = "unavailable"
-    elif not assessed_count and not not_assessed_count and not_applicable_ids and states:
+    elif not assessed_count and not not_assessed_count and not_applicable_count:
         status = "not_applicable"
     else:
         status = "partial" if truncated or not_assessed_count else "complete"
@@ -131,7 +136,7 @@ def _coverage_for_indicator(
         "indicator": indicator,
         "status": status,
         "records_assessed": assessed_count,
-        "records_not_applicable": sum(state == "not_applicable" for state in states.values()),
+        "records_not_applicable": not_applicable_count,
         "records_unassessed": not_assessed_count,
         "search_truncated": truncated,
         "candidate_group_count": _candidate_group_count(result) if not unavailable else None,
@@ -172,10 +177,19 @@ def build_analytics_snapshot(
     period_from: date | None = None,
     period_to: date | None = None,
     facilities: Sequence[Mapping[str, Any]] | None = None,
-    data_source: Mapping[str, str | None] | None = None,
+    data_source: Mapping[str, Any] | None = None,
+    stage_observer=None,
 ) -> dict[str, Any]:
     """Run one coordinated detector, scoring, and priority pass on features only."""
-    source_records = list(records if records is not None else get_synthetic_records())
+    if records is None:
+        dataset = SyntheticDemoProvider().load()
+        source_records = list(dataset.records)
+        if facilities is None:
+            facilities = dataset.facilities
+        if data_source is None:
+            data_source = dataset.source_metadata
+    else:
+        source_records = list(records)
     if period_from is not None or period_to is not None:
         selected = []
         for record in source_records:
@@ -192,13 +206,23 @@ def build_analytics_snapshot(
         source_records = selected
 
     facility_metadata = list(facilities or [])
+    if stage_observer:
+        stage_observer("input_materialized")
     detector_results = run_detector_suite(source_records, facility_metadata)
-    scoring = score_claims(source_records, detector_results)
+    if stage_observer:
+        stage_observer("detectors_complete")
+    # The snapshot and priority queue only expose signaled claims. Avoid
+    # retaining a full six-indicator detail object for every untriggered row;
+    # aggregate coverage remains computed over the complete population.
+    scoring = score_claims(source_records, detector_results, include_untriggered_cases=False)
+    if stage_observer:
+        stage_observer("scoring_complete")
     priority = build_audit_priority_queue(source_records, scoring)
+    if stage_observer:
+        stage_observer("priority_complete")
     scored_cases = scoring["cases"]
-    scored_by_id = {item["case_id"]: item for item in scored_cases}
     coverage = {
-        code: _coverage_for_indicator(code, detector_results[code], scored_cases)
+        code: _coverage_for_indicator(code, detector_results[code], scoring["detector_coverage"])
         for code in DETECTOR_ORDER
     }
     execution_statuses = [item["status"] for item in coverage.values()]
@@ -227,10 +251,25 @@ def build_analytics_snapshot(
             "not_applicable_count": detector_coverage["records_not_applicable"],
             "unassessed_count": detector_coverage["records_unassessed"],
             "search_truncated": detector_coverage["search_truncated"],
+            "search_diagnostics": {
+                "pair_comparisons": result.get("pair_comparisons"),
+                **({key: value for key, value in result.get("search_diagnostics", {}).items()
+                    if isinstance(value, (int, bool, str))}
+                   if isinstance(result.get("search_diagnostics"), Mapping) else {}),
+            },
         })
 
     candidates: dict[str, dict[str, Any]] = {}
-    for case_id, scored in scored_by_id.items():
+    detector_case_indexes = {
+        indicator: {
+            "ineligible": _entry_index(result, "ineligible_cases"),
+            "not_applicable": _entry_index(result, "not_applicable_cases"),
+            "unassessed": _entry_index(result, "unassessed_cases", "unassessed_time_cases"),
+        }
+        for indicator, result in detector_results.items()
+    }
+    for scored in scored_cases:
+        case_id = scored["case_id"]
         triggered = list(scored.get("triggered_indicators", []))
         if not triggered:
             continue
@@ -239,21 +278,15 @@ def build_analytics_snapshot(
         not_assessed = []
         for indicator in DETECTOR_ORDER:
             result = detector_results[indicator]
+            entry_indexes = detector_case_indexes[indicator]
             state = next((
                 item.get("status") for item in scored.get("indicator_coverage", [])
                 if item.get("indicator") == indicator
             ), "not_assessed")
             state_reason = None
-            ineligible_entry = next((
-                item for item in _entries(result, "ineligible_cases") if item.get("case_id") == case_id
-            ), None)
-            not_applicable_entry = next((
-                item for item in _entries(result, "not_applicable_cases") if item.get("case_id") == case_id
-            ), None)
-            unassessed_items = _entries(result, "unassessed_cases") + _entries(result, "unassessed_time_cases")
-            matching_unassessed = next((
-                item for item in unassessed_items if item.get("case_id") == case_id
-            ), None)
+            ineligible_entry = entry_indexes["ineligible"].get(case_id)
+            not_applicable_entry = entry_indexes["not_applicable"].get(case_id)
+            matching_unassessed = entry_indexes["unassessed"].get(case_id)
             if state == "triggered":
                 api_state = "triggered"
             elif state == "not_triggered":
@@ -309,14 +342,12 @@ def build_analytics_snapshot(
     active_statuses = [item["status"] for item in coverage.values()]
     available_count = sum(status != "unavailable" for status in active_statuses)
     availability = "unavailable" if not available_count else ("insufficient_data" if not source_records else "available")
-    return {
+    snapshot = {
         "availability": availability,
         "execution_status": execution_status,
         "data_source": dict(data_source or DATA_SOURCE),
         "records_considered": len(source_records),
-        "records_eligible": len({
-            item["case_id"] for item in scored_cases if item.get("assessed_indicators")
-        }),
+        "records_eligible": scoring["assessable_case_count"],
         "indicators": indicator_summaries,
         "indicator_coverage": [coverage[code] for code in DETECTOR_ORDER],
         "risk_scoring": {
@@ -343,3 +374,40 @@ def build_analytics_snapshot(
         },
         "cases": candidates,
     }
+    if stage_observer:
+        stage_observer("snapshot_complete")
+    return snapshot
+
+
+def build_analytics_snapshot_from_provider(
+    provider: FeatureSourceProvider,
+    period_from: date | None = None,
+    period_to: date | None = None,
+    stage_observer=None,
+) -> dict[str, Any]:
+    """Run the coordinated pipeline from an explicitly selected feature source.
+
+    API routes do not accept provider names. Callers must construct the provider
+    in trusted service code; the default API path remains ``synthetic_demo``.
+    """
+    dataset = load_feature_dataset(provider)
+    if stage_observer:
+        stage_observer("provider_loaded")
+    return build_analytics_snapshot_from_dataset(dataset, period_from, period_to, stage_observer)
+
+
+def build_analytics_snapshot_from_dataset(
+    dataset: FeatureDataset,
+    period_from: date | None = None,
+    period_to: date | None = None,
+    stage_observer=None,
+) -> dict[str, Any]:
+    """Run the pipeline on a validated, source-independent canonical dataset."""
+    return build_analytics_snapshot(
+        records=dataset.records,
+        facilities=dataset.facilities,
+        data_source=dataset.source_metadata,
+        period_from=period_from,
+        period_to=period_to,
+        stage_observer=stage_observer,
+    )

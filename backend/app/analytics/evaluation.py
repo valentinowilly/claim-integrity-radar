@@ -122,6 +122,20 @@ def _detector_coverage(
                 item["case_id"] for item in values
                 if isinstance(item, Mapping) and isinstance(item.get("case_id"), str)
             )
+    # Some bounded pair detectors expose omitted records directly as IDs
+    # rather than as {case_id, reason} objects. Respect that scoped contract
+    # even when the global hard-cap flag is false: stratified sampling can
+    # leave explicit records unassessed without exhausting the comparison cap.
+    explicit_unassessed_ids = result.get("unassessed_case_ids", [])
+    if isinstance(explicit_unassessed_ids, (list, tuple)) and all(
+        isinstance(case_id, str) for case_id in explicit_unassessed_ids
+    ):
+        declared_unassessed.update(
+            explicit_unassessed_ids
+        )
+    elif "unassessed_case_ids" in result:
+        # Malformed coverage metadata must fail closed for negative findings.
+        declared_unassessed.update(scope_ids - predicted)
     declared_unassessed &= scope_ids
     truncated_groups = any(
         isinstance(item, Mapping) and item.get("case_ids_truncated") is True

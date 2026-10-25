@@ -1,145 +1,44 @@
-import { useCallback } from "react";
-import { ArrowUpRight, ClipboardCheck, FileSearch, ShieldCheck, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, ClipboardCheck, Database, FileSearch, ShieldCheck } from "lucide-react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { getDashboardSummary } from "../api/client";
-import {
-  EmptyState,
-  ErrorState,
-  formatNumber,
-  LoadingState,
-  PageHeading,
-  indicatorLabel,
-} from "../components/DataStates";
-import { useApiResource } from "../hooks/useApiResource";
+import { EmptyState, formatNumber, PageHeading, SourceBadge } from "../components/DataStates";
+import { RunCandidateLink, RunSelector, RunStateMessage } from "../components/PersistedRunWorkspace";
+import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { useAuth } from "../auth/AuthContext";
 
 export default function OverviewPage() {
-  const loadSummary = useCallback((signal: AbortSignal) => getDashboardSummary({}, signal), []);
-  const { state, reload } = useApiResource(loadSummary);
+  const { state, selectRun, reload } = usePersistedRunSnapshot();
   const { state: auth } = useAuth();
-  const permissions = new Set("session" in auth ? (auth.session?.permissions ?? []) : []);
-  const canReadAnalysis = permissions.has("analytics:read");
-  const canReadCases = permissions.has("cases:read");
-
-  return (
-    <>
-      <PageHeading
-        title="Ringkasan pemeriksaan"
-        description="Tinjau indikator aktif dan kandidat klaim yang perlu diperiksa lebih lanjut."
-      />
-      {state.status === "loading" && <LoadingState label="Mengambil ringkasan dashboard…" />}
-      {state.status === "error" && (
-        <ErrorState message={state.message} httpStatus={state.httpStatus} onRetry={reload} />
-      )}
-      {state.status === "success" && state.data.availability !== "available" && (
-        <EmptyState title="Ringkasan belum tersedia" message={state.data.notice} />
-      )}
-      {state.status === "success" && state.data.availability === "available" && (
-        <>
-          <section className="metric-grid" aria-label="Ringkasan dari API">
-            <MetricCard
-              label="Klaim diperiksa"
-              value={formatNumber(state.data.summary.claims_reviewed)}
-              detail="Berdasarkan sumber data aktif"
-              icon={FileSearch}
-            />
-            <MetricCard
-              label="Kasus unik di antrean"
-              value={formatNumber(state.data.summary.cases_in_queue)}
-              detail="Kandidat dari indikator aktif"
-              icon={ClipboardCheck}
-            />
-            <MetricCard
-              label="Level risiko"
-              value="Belum ditetapkan"
-              detail="Distribusi risiko belum tersedia"
-              icon={ShieldCheck}
-              compact
-            />
-          </section>
-
-          <section className="surface-panel section-block">
-            <div className="panel-heading-row">
-              <div>
-                <span className="eyebrow muted-eyebrow">HASIL ANALITIK</span>
-                <h2>Kandidat berdasarkan indikator</h2>
-              </div>
-              {canReadAnalysis && (
-                <Link className="inline-link" to="/analysis">
-                  Detail analisis <ArrowUpRight size={14} />
-                </Link>
-              )}
-            </div>
-            {state.data.summary.indicator_counts.length === 0 ? (
-              <EmptyState
-                title="Belum ada kandidat"
-                message="API mengembalikan daftar indikator tanpa kandidat untuk cakupan ini."
-              />
-            ) : (
-              <div className="indicator-summary-list">
-                {state.data.summary.indicator_counts.map((item) => (
-                  <div className="indicator-summary-row" key={item.indicator}>
-                    <div className="indicator-summary-title">
-                      <span className="indicator-mark" />
-                      <strong>{indicatorLabel(item.indicator)}</strong>
-                    </div>
-                    <div className="indicator-summary-stats">
-                      <span>
-                        <strong>{formatNumber(item.candidate_groups)}</strong> kelompok
-                      </span>
-                      <span>
-                        <strong>{formatNumber(item.candidate_records)}</strong> kandidat
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="integrity-note">
-            <div className="integrity-mark">
-              <ShieldCheck size={19} />
-            </div>
-            <div>
-              <strong>Kandidat adalah sinyal, bukan kesimpulan.</strong>
-              <p>Setiap temuan memerlukan konteks serta tinjauan auditor.</p>
-            </div>
-            {canReadCases && (
-              <Link className="integrity-action" to="/cases">
-                Buka antrean <ArrowUpRight size={15} />
-              </Link>
-            )}
-          </section>
-        </>
-      )}
-    </>
-  );
+  const permissions = "session" in auth ? auth.session?.permissions ?? [] : [];
+  return <>
+    <PageHeading title="Ringkasan pemeriksaan" description="Ringkasan hanya dari satu AnalysisRun tersimpan; hasil tidak dihitung ulang saat halaman dibuka." action={state.status === "success" && state.detail.result ? <SourceBadge source={state.detail.result.data_source}/> : undefined} />
+    {state.status === "forbidden" ? <section className="surface-panel section-block access-guidance" data-testid="overview-access-restricted">
+      <div className="integrity-mark"><ShieldCheck size={20}/></div>
+      <span className="eyebrow muted-eyebrow">AKSES TERBATAS</span>
+      <h2>Hasil analisis tersedia untuk peran yang berwenang</h2>
+      <p>Akun ini tidak dapat membaca snapshot analisis tersimpan. Hasil tetap terlindungi; halaman ini tidak menggantinya dengan ringkasan dari sumber lain.</p>
+      {permissions.includes("batches:read") && <Link className="button button-secondary" to={`/workflow${window.location.search}`}><Database size={15}/>Buka Data Klaim</Link>}
+    </section> : state.status !== "success" && <RunStateMessage state={state} retry={reload} />}
+    {state.status === "success" && <>
+      <RunSelector runs={state.runs} detail={state.detail} onChange={selectRun} />
+      {!state.detail.result ? <EmptyState title="Hasil run tidak tersedia" message="Manifest run tersedia, tetapi server tidak menyimpan snapshot hasil." /> : state.detail.result.availability !== "available" ? <EmptyState title="Hasil run belum dapat disajikan" message={`Status ketersediaan: ${state.detail.result.availability}. Ringkasan operasional tidak dibentuk dari hasil yang tidak tersedia.`}/> : <>
+        <p className="run-result-meta">{state.detail.notice}</p>
+        <section className="metric-grid" aria-label="Ringkasan AnalysisRun tersimpan">
+          <Metric label="Klaim dipertimbangkan" value={formatNumber(state.detail.result.records_considered)} icon={<FileSearch size={17} />} />
+          <Metric label="Klaim memenuhi syarat" value={formatNumber(state.detail.result.records_eligible)} icon={<ClipboardCheck size={17} />} />
+          <Metric label="Kandidat tersimpan" value={formatNumber(Object.keys(state.detail.result.cases).length)} icon={<ShieldCheck size={17} />} />
+        </section>
+        <section className="surface-panel section-block">
+          <div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">CAKUPAN INDIKATOR</span><h2>Hasil pada snapshot terpilih</h2></div><Link className="inline-link" to={`/analysis?run_id=${encodeURIComponent(state.detail.run.run_id)}`}>Analisis run ini <ArrowUpRight size={14}/></Link></div>
+          <div className="indicator-summary-list">{state.detail.result.indicators.map(item => <div className="indicator-summary-row" key={item.code}><div className="indicator-summary-title"><span className="indicator-mark"/><strong>{item.name}</strong></div><div className="indicator-summary-stats"><span><strong>{formatNumber(item.candidate_count)}</strong> kandidat</span><span><strong>{item.status}</strong>{item.search_truncated ? " · pencarian terpotong" : ""}</span></div></div>)}</div>
+          {Object.keys(state.detail.result.cases).length === 0 ? <EmptyState title="Snapshot tidak memiliki kandidat" message="Tidak ada kandidat pada hasil run ini. Ketiadaan kandidat bukan penetapan bahwa klaim bebas risiko."/> : <div className="reason-block"><strong>Kandidat pada snapshot yang sama</strong><ul>{Object.values(state.detail.result.cases).slice(0, 5).map(item => <li key={item.case_id}><RunCandidateLink runId={state.detail.run.run_id} caseId={item.case_id}>{item.case_id} · {item.indicators.join(", ") || "alasan pemeriksaan tersedia"}</RunCandidateLink></li>)}</ul></div>}
+        </section>
+        <div className="notice-panel"><ShieldCheck size={17}/><p>Indeks aturan dan action lane, bila tersedia, bersifat provisional. Hasil sintetis bukan bukti fraud dan bukan validasi pada data JKN nyata.</p></div>
+      </>}
+    </>}
+  </>;
 }
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  icon: Icon,
-  compact = false,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  icon: LucideIcon;
-  compact?: boolean;
-}) {
-  return (
-    <article className="metric-card">
-      <div className="metric-card-top">
-        <span>{label}</span>
-        <span className="metric-icon">
-          <Icon size={17} />
-        </span>
-      </div>
-      <strong className={compact ? "metric-compact" : "metric-value"}>{value}</strong>
-      <small>{detail}</small>
-    </article>
-  );
+function Metric({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
+  return <article className="metric-card"><div className="metric-card-top"><span>{label}</span><span className="metric-icon">{icon}</span></div><strong className="metric-value">{value}</strong><small>Dari snapshot run tersimpan</small></article>;
 }

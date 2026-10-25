@@ -1,6 +1,6 @@
 # Matriks Role dan Permission Claim Integrity Radar
 
-**Status:** empat role dan permission adalah baseline prototipe lokal yang belum disetujui organisasi. Auth/RBAC tersedia pada source; permission batch sintetis ditambahkan pada P0 Stage 3. Proposal menyebut RBAC dan pengguna berwenang, tetapi tidak menetapkan nama role atau permission detail.
+**Status:** empat role dan permission adalah baseline prototipe lokal yang belum disetujui organisasi. Untuk demo E2E sintetis, `platform_admin` memiliki semua permission aplikasi yang saat ini terimplementasi. Perluasan ini tidak memberikan akses atau klaim kompatibilitas terhadap data BPJS asli.
 
 ## 1. Fakta implementasi saat ini
 
@@ -15,7 +15,7 @@ Gunakan **empat role aplikasi** untuk fase pertama. Role lebih rinci tidak perlu
 
 | Role | Tanggung jawab | Batas utama |
 |---|---|---|
-| `platform_admin` | Membuat/menonaktifkan akun, menetapkan role, dan mengelola konfigurasi akses. | Tidak otomatis mendapat akses row-level klaim atau kewenangan menetapkan outcome review. |
+| `platform_admin` | Menjalankan seluruh workflow yang sudah tersedia pada demo sintetis, termasuk administrasi akun, impor batch, run, hasil, kasus, dan review/outcome. | Full access berlaku hanya dalam shared synthetic prototype; tidak ada assignment scope dan bukan otorisasi untuk data BPJS atau data operasional. |
 | `data_operator` | Membuat batch, mengimpor data, memperbaiki mapping/validasi sesuai izin, menjalankan AnalysisRun, dan melihat status serta ringkasan proses. | Tidak mengubah hasil detektor, label ground truth, bobot scoring, atau outcome review. |
 | `verifikator` | Membaca kasus sesuai scope, memeriksa alasan/cakupan, mengubah status review, mencatat catatan minimal, dan menandai kebutuhan bukti tambahan. | Tidak mengubah batch/run, konfigurasi detektor, atau outcome akhir di luar kewenangannya. |
 | `audit_lead` | Meninjau eskalasi, menugaskan/menutup review, mencatat outcome manusia yang diizinkan kebijakan, serta membaca riwayat terkait. | Tidak mengubah skor historis; tindakan tetap harus beralasan dan tercatat. |
@@ -39,20 +39,20 @@ R = baca; W = buat/ubah dalam scope; A = menyetujui/menugaskan; — = tidak diiz
 | Baca/ubah konfigurasi akses | W | — | — | — |
 | Mengusulkan mapping untuk profil sintetis | A | W | — | R |
 | Menyetujui mapping yang dapat dipakai pada profil sumber | A sesuai otorisasi | W hanya pada mapping yang diizinkan | — | R/konfirmasi domain |
-| Buat batch dan validasi input sintetis v1 | — | W (`batches:write`) | — | — |
-| Jalankan/mantau AnalysisRun | — secara default | W | R status | R status/A sesuai kebijakan |
+| Buat batch dan validasi input sintetis v1 | W (`batches:write`) | W (`batches:write`) | — | — |
+| Jalankan/mantau AnalysisRun | W (`runs:write`) | W (`runs:write`) | R status | R status |
 | Baca metadata/ringkasan batch | R metadata sintetis | R seluruh batch sintetis | R metadata sintetis | R metadata sintetis |
-| Baca metadata/status run (runs:read) | - | R metadata/coverage | R metadata/coverage | R metadata/coverage |
-| Baca hasil run (runs:results:read) | - | - | R hasil sintetis bersama | R hasil sintetis bersama |
-| Baca detail alasan/coverage kasus | — secara default | Metadata minimum | R assigned | R assigned |
-| Ubah status/catatan review | — | — | W assigned | W assigned/A |
-| Mencatat outcome review | — | — | — secara default | W sementara (`review:manage`) |
-| Membaca review history | Log administrasi saja | Aktivitas batch sendiri | Review yang ditugaskan | Review dalam scope |
-| Membaca security audit events | Akses administrasi sesuai policy | Aktivitas yang perlu untuk operasi | Aktivitas review sendiri | Aktivitas dalam scope |
+| Baca metadata/status run (`runs:read`) | R metadata/coverage | R metadata/coverage | R metadata/coverage | R metadata/coverage |
+| Baca hasil run (`runs:results:read`) | R hasil sintetis bersama | — | R hasil sintetis bersama | R hasil sintetis bersama |
+| Baca detail alasan/coverage kasus | R sintetis | — | R hasil sintetis bersama | R hasil sintetis bersama |
+| Ubah status/catatan review | W (`review:write`) | — | W (`review:write`) | W (`review:write`) |
+| Mencatat outcome review | W sementara (`review:manage`) | — | — secara default | W sementara (`review:manage`) |
+| Membaca review history | R review sintetis | — | R review sintetis | R review sintetis |
+| Membaca security audit events | Permission ada; API baca belum tersedia | — | — | — |
 | Mengubah threshold/weights/action policy | Tidak boleh langsung mengubah production; harus melalui approval dan versioning | — | — | Mengusulkan/menyetujui hanya bila diberi kewenangan |
 | Mengakses ground truth evaluasi | — | — | — | — |
 
-Akses detail klaim tidak otomatis diberikan kepada administrator hanya karena ia dapat mengelola akun. Akses row-level hanya diberikan jika memang diperlukan untuk tugas dan disetujui.
+`platform_admin` menerima akses operasional penuh agar satu akun dapat menjalankan demo E2E sintetis secara mandiri. Ini asumsi prototipe yang perlu ditinjau pemilik proses/security. Semua permission tetap ditegakkan backend melalui dependency permission yang sama; tidak ada bypass per endpoint. Batch/run/review sintetis tetap shared tanpa assignment scope. Jangan gunakan konfigurasi ini untuk data BPJS atau data operasional.
 
 ## 4. Kontrol autentikasi dan provisioning
 
@@ -70,7 +70,7 @@ Akses detail klaim tidak otomatis diberikan kepada administrator hanya karena ia
 Tahap kerja dan kesimpulan manusia harus terpisah.
 
 - Target `review_status`: `pending_review`, `in_review`, `awaiting_evidence`, `escalated`, `closed`.
-- API run-scoped memisahkan status `pending_review`, `in_review`, `awaiting_evidence`, `escalated`, `closed` dari outcome sementara `signal_supported`, `signal_not_supported`, `inconclusive`. Outcome hanya dapat dicatat oleh `audit_lead` melalui `review:manage`; verifikator hanya dapat mengubah status/catatan dengan `review:write`. Ini baseline prototipe, bukan delegasi kewenangan yang disahkan.
+- API run-scoped memisahkan status `pending_review`, `in_review`, `awaiting_evidence`, `escalated`, `closed` dari outcome sementara `signal_supported`, `signal_not_supported`, `inconclusive`. Dalam demo sintetis, outcome dapat dicatat `platform_admin` dan `audit_lead` melalui `review:manage`; verifikator hanya dapat mengubah status/catatan dengan `review:write`. Ini baseline prototipe, bukan delegasi kewenangan yang disahkan.
 - Run-scoped review menggunakan `(run_id, case_id)` dan status awal `pending_review`; legacy status/history tidak dipetakan atau ditulis ulang. Scope tetap `shared_synthetic`, tanpa assignment.
 - Status API lama saat ini meliputi `pending_review`, `needs_more_evidence`, `not_substantiated`, `escalated`. `not_substantiated` semantik hasil, bukan status proses yang ideal. Saat perubahan dilakukan, tentukan migrasi/compatibility mapping dan pertahankan history; jangan melakukan migrasi otomatis tanpa tes.
 - Eskalasi adalah status/proses tindak lanjut, bukan bukti fraud atau outcome final.
@@ -87,11 +87,11 @@ Tahap kerja dan kesimpulan manusia harus terpisah.
 |---|---|
 | Login/logout/session dan provisioning akun | Tersedia sebagai prototipe lokal: password scrypt, sesi cookie dengan token hanya tersimpan sebagai hash, expiry/revocation, endpoint login/logout/me, dan provisioning admin terproteksi. |
 | Tidak ada register publik / bootstrap administrator aman | Tersedia: tidak ada register publik; bootstrap CLI memerlukan secret dari environment dan berhasil satu kali per database. Kebijakan delivery secret masih perlu persetujuan. |
-| Enforcement role/permission pada API | Tersedia untuk analytics/review/auth provisioning, batch, dan AnalysisRun. `runs:write` untuk data_operator; `runs:read` untuk data_operator/verifikator/audit_lead; `runs:results:read` untuk verifikator/audit_lead. Baseline sementara. |
-| Scope batch/run/assignment dan akses row-level | Belum ada. Batch sintetis bersama; hasil run dapat dibaca verifikator/audit_lead tanpa assignment. Run-scoped review memastikan case ada pada run, tetapi bukan kontrol assignment atau akses data operasional. |
+| Enforcement role/permission pada API | Tersedia untuk analytics/review/auth provisioning, batch, dan AnalysisRun. `platform_admin` memiliki semua permission terimplementasi untuk demo sintetis; `data_operator` tetap dapat menulis batch/run tetapi tidak membaca hasil; verifikator/audit lead dapat membaca hasil; outcome memerlukan `review:manage`. Baseline sementara. |
+| Scope batch/run/assignment dan akses row-level | Belum ada. Batch sintetis bersama; hasil run dapat dibaca platform_admin/verifikator/audit lead tanpa assignment. Run-scoped review memastikan case ada pada run, tetapi bukan kontrol assignment atau akses data operasional. |
 | Aktor review dari sesi tervalidasi | Tersedia: actor ID dan reviewer label diambil dari principal server; payload aktor ditolak. |
 | Review status/history lokal | Legacy snapshot workflow tetap tersedia. Run-scoped review dan event history persisten berada terpisah pada SQLite batch/run; security audit event disimpan pada tabel berbeda tanpa note. |
-| Outcome review terpisah | Tersedia pada API run-scoped untuk `audit_lead` (`review:manage`), dengan kosakata sementara `signal_supported`, `signal_not_supported`, `inconclusive`; belum disahkan. Tidak ada migrasi dari status legacy. |
+| Outcome review terpisah | Tersedia pada API run-scoped untuk `platform_admin` dan `audit_lead` (`review:manage`), dengan kosakata sementara `signal_supported`, `signal_not_supported`, `inconclusive`; belum disahkan. Tidak ada migrasi dari status legacy. |
 | Security audit events | Auth, legacy/run-scoped review, impor batch, serta pembuatan dan status terminal AnalysisRun dicatat pada tabel SQLite terpisah sesuai store. Belum ada API baca audit log. |
 | Ground truth terisolasi dari aplikasi operasional | Evaluator offline terpisah; belum berarti ada kontrol akun/role operasional. |
 

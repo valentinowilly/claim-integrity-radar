@@ -324,7 +324,8 @@ def test_batch_api_rbac_csrf_metadata_and_health_isolation(tmp_path):
     })
     admin_cookies = dict(admin_login.cookies.items())
     assert call(app, "GET", "/api/v1/batches", cookies=admin_cookies).status_code == 200
-    assert import_request(app, admin_cookies, export_synthetic_csv([synthetic_record(3)])).status_code == 403
+    assert import_request(app, admin_cookies, export_synthetic_csv([synthetic_record(30)]), csrf=False).status_code == 403
+    assert import_request(app, admin_cookies, export_synthetic_csv([synthetic_record(3)])).status_code == 201
     lead = AuthStore(app.state.auth_db_path).create_user(
         "synthetic-audit-lead", "Synthetic-audit-lead-password-2026!", "audit_lead", operator_user["user_id"]
     )

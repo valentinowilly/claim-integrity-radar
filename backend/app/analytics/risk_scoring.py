@@ -3,7 +3,7 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Callable
 
 from app.analytics.capacity import detect_capacity_candidates
 from app.analytics.detector_utils import date_value, text_value, valid_records
@@ -73,6 +73,9 @@ def _effective_weights(config: RiskScoringConfig) -> dict[str, Decimal]:
 def run_detector_suite(
     records: Sequence[Mapping[str, Any]],
     facilities: Sequence[Mapping[str, Any]],
+    *,
+    near_duplicate_candidate_pair_observer: Callable[[str, str], None] | None = None,
+    near_duplicate_similarity_observer: Callable[[str, str, bool], None] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run the six rule detectors on feature records only.
 
@@ -82,7 +85,11 @@ def run_detector_suite(
     calls = (
         ("repeat_billing_candidate", lambda: detect_repeat_billing_candidates(records)),
         ("similar_claim_pattern_candidate", lambda: detect_similar_claim_patterns(records)),
-        ("near_duplicate_claim_candidate", lambda: detect_near_duplicate_claims(records)),
+        ("near_duplicate_claim_candidate", lambda: detect_near_duplicate_claims(
+            records,
+            candidate_pair_observer=near_duplicate_candidate_pair_observer,
+            similarity_observer=near_duplicate_similarity_observer,
+        )),
         ("synthetic_capacity_candidate", lambda: detect_capacity_candidates(records, facilities)),
         ("temporal_pattern_candidate", lambda: detect_temporal_patterns(records)),
         ("supporting_evidence_completeness_candidate", lambda: detect_evidence_completeness(records)),
@@ -142,6 +149,8 @@ def score_claims(
     records: Sequence[Mapping[str, Any]],
     detector_results: Mapping[str, Mapping[str, Any]] | None,
     config: RiskScoringConfig | None = None,
+    *,
+    include_untriggered_cases: bool = True,
 ) -> dict[str, Any]:
     """Map six detector outputs to claims and compute a normalized weighted index.
 
@@ -155,9 +164,10 @@ def score_claims(
     case_ids = {case_id for case_id, _ in validated}
     status_by_indicator: dict[str, str] = {}
     search_truncated_by_indicator: dict[str, bool] = {indicator: False for indicator in DETECTOR_ORDER}
-    reasons_by_case: dict[str, dict[str, list[dict[str, Any]]]] = {
-        case_id: {indicator: [] for indicator in DETECTOR_ORDER} for case_id in case_ids
-    }
+    # Keep reasons sparse. The former case × indicator × empty-list matrix
+    # dominated memory on large inputs even though only a small fraction of
+    # claims had detector findings.
+    reasons_by_case: dict[str, dict[str, list[dict[str, Any]]]] = {}
     unassessed_by_indicator: dict[str, set[str]] = {indicator: set() for indicator in DETECTOR_ORDER}
     not_applicable_by_indicator: dict[str, set[str]] = {indicator: set() for indicator in DETECTOR_ORDER}
     partial_group_notes: list[dict[str, Any]] = []
@@ -202,6 +212,13 @@ def score_claims(
                 break
             ids = {item["case_id"] for item in items}
             (ineligible if collection_key == "ineligible_cases" else unassessed).update(ids)
+        explicit_unassessed_ids = result.get("unassessed_case_ids", [])
+        if not isinstance(explicit_unassessed_ids, (list, tuple)) or any(
+            not isinstance(case_id, str) for case_id in explicit_unassessed_ids
+        ):
+            malformed = True
+        else:
+            unassessed.update(explicit_unassessed_ids)
         applicable_items = result.get("not_applicable_cases", [])
         if not isinstance(applicable_items, (list, tuple)):
             malformed = True
@@ -225,7 +242,10 @@ def score_claims(
             unassessed_by_indicator[indicator] = set(case_ids)
             continue
         partial = truncated_value or declared_status == "partial"
-        search_truncated_by_indicator[indicator] = partial
+        # Keep the hard-search flag separate from assessment completeness.
+        # Explicit unassessed cases can exist even when a bounded sampler did
+        # not exhaust a hard comparison/candidate limit.
+        search_truncated_by_indicator[indicator] = truncated_value
         for candidate in candidates:
             ids = _capacity_membership(candidate, validated) if indicator == "synthetic_capacity_candidate" else _candidate_ids(candidate)
             if ids is None:
@@ -245,9 +265,10 @@ def score_claims(
                 "limitations": list(candidate.get("limitations", [])) if isinstance(candidate.get("limitations"), list) else [],
             }
             for case_id in sorted(set(ids)):
-                reasons_by_case[case_id][indicator].append(reason_entry)
+                reasons_by_case.setdefault(case_id, {}).setdefault(indicator, []).append(reason_entry)
             if candidate.get("case_ids_truncated") is True and indicator != "synthetic_capacity_candidate":
                 partial = True
+                search_truncated_by_indicator[indicator] = True
                 explicit_ids = _candidate_ids(candidate) or []
                 unresolved = max(0, int(candidate.get("case_count", len(explicit_ids))) - len(explicit_ids))
                 known_facilities = sorted({
@@ -263,30 +284,43 @@ def score_claims(
         if malformed:
             status_by_indicator[indicator] = "unavailable"
             unassessed_by_indicator[indicator] = set(case_ids)
-            for case_id in case_ids:
-                reasons_by_case[case_id][indicator].clear()
+            for case_id in list(reasons_by_case):
+                reasons_by_case[case_id].pop(indicator, None)
+                if not reasons_by_case[case_id]:
+                    del reasons_by_case[case_id]
             continue
-        if declared_status == "not_applicable" and any(reasons_by_case[case_id][indicator] for case_id in case_ids):
+        if declared_status == "not_applicable" and any(
+            reasons_by_case.get(case_id, {}).get(indicator) for case_id in case_ids
+        ):
             malformed = True
         if malformed:
             status_by_indicator[indicator] = "unavailable"
             unassessed_by_indicator[indicator] = set(case_ids)
             not_applicable_by_indicator[indicator].clear()
-            for case_id in case_ids:
-                reasons_by_case[case_id][indicator].clear()
+            for case_id in list(reasons_by_case):
+                reasons_by_case[case_id].pop(indicator, None)
+                if not reasons_by_case[case_id]:
+                    del reasons_by_case[case_id]
             continue
         if declared_status == "not_applicable":
             not_applicable = set(case_ids)
         not_applicable_by_indicator[indicator] = not_applicable
-        unassessed_by_indicator[indicator] = ineligible | unassessed | {
-            case_id for case_id in case_ids if partial and case_id not in not_applicable
-        }
+        if partial and result.get("truncation_scope") != "explicit_unassessed_cases":
+            # Legacy detectors expose only a global truncation flag. In that
+            # case, conservatively withhold negative findings for the full
+            # applicable population. Detectors with explicit per-case scope
+            # can retain completed assessments outside skipped search regions.
+            unassessed.update(case_id for case_id in case_ids if case_id not in not_applicable)
+        unassessed_by_indicator[indicator] = ineligible | unassessed
         status_by_indicator[indicator] = (
             "not_applicable" if not_applicable == case_ids and not case_ids.intersection(ineligible)
-            else "partial" if partial or ineligible else "available"
+            else "partial" if partial or ineligible or unassessed else "available"
         )
 
     scored_cases: list[dict[str, Any]] = []
+    unassessable_case_count = 0
+    assessable_case_count = 0
+    triggered_case_count = 0
     for case_id, row in validated:
         trigger_states: list[str] = []
         assessed: list[str] = []
@@ -296,7 +330,7 @@ def score_claims(
         denominator = Decimal(0)
         for indicator in DETECTOR_ORDER:
             matches = sorted(
-                reasons_by_case[case_id][indicator],
+                reasons_by_case.get(case_id, {}).get(indicator, []),
                 key=lambda item: (item["candidate_id"] or "", item["reason"]),
             )
             state = "triggered" if matches else (
@@ -322,42 +356,64 @@ def score_claims(
         if denominator == 0:
             score = None
             score_status = "not_assessable"
+            unassessable_case_count += 1
         else:
             score = round(float(numerator / denominator), 6)
+            assessable_case_count += 1
             score_status = "assessed_no_signal" if numerator == 0 and not unassessed else (
                 "partial_coverage" if unassessed else "assessed"
             )
             if numerator == 0 and unassessed:
                 score_status = "partial_coverage"
-        scored_cases.append({
-            "case_id": case_id,
-            "facility_id": text_value(row.get("facility_id")),
-            "risk_score": score,
-            "score_status": score_status,
-            "score_formula": "sum(weights of distinct triggered indicators) / sum(weights of assessable indicators)",
-            "score_version": config.version,
-            "triggered_indicators": [indicator for indicator, state in zip(DETECTOR_ORDER, trigger_states) if state == "triggered"],
-            "assessed_indicators": assessed,
-            "not_assessed_indicators": unassessed,
-            "not_applicable_indicators": [
-                indicator for indicator, state in zip(DETECTOR_ORDER, trigger_states)
-                if state == "not_applicable"
-            ],
-            "indicator_coverage": [
-                {"indicator": indicator, "status": state} for indicator, state in zip(DETECTOR_ORDER, trigger_states)
-            ],
-            "indicator_reasons": reasons,
-            "limitations": LIMITATIONS.copy() + (["Sebagian pemeriksaan tidak tersedia untuk klaim ini; skor dapat berubah ketika cakupan bertambah."] if unassessed else []),
-        })
+        if trigger_states and "triggered" in trigger_states:
+            triggered_case_count += 1
+        if include_untriggered_cases or (trigger_states and "triggered" in trigger_states):
+            scored_cases.append({
+                "case_id": case_id,
+                "facility_id": text_value(row.get("facility_id")),
+                "risk_score": score,
+                "score_status": score_status,
+                "score_formula": "sum(weights of distinct triggered indicators) / sum(weights of assessable indicators)",
+                "score_version": config.version,
+                "triggered_indicators": [
+                    indicator for indicator, state in zip(DETECTOR_ORDER, trigger_states)
+                    if state == "triggered"
+                ],
+                "assessed_indicators": assessed,
+                "not_assessed_indicators": unassessed,
+                "not_applicable_indicators": [
+                    indicator for indicator, state in zip(DETECTOR_ORDER, trigger_states)
+                    if state == "not_applicable"
+                ],
+                "indicator_coverage": [
+                    {"indicator": indicator, "status": state}
+                    for indicator, state in zip(DETECTOR_ORDER, trigger_states)
+                ],
+                "indicator_reasons": reasons,
+                "limitations": LIMITATIONS.copy() + ([
+                    "Sebagian pemeriksaan tidak tersedia untuk klaim ini; skor dapat berubah ketika cakupan bertambah."
+                ] if unassessed else []),
+            })
 
     detector_coverage = []
     for indicator in DETECTOR_ORDER:
+        not_applicable_count = len(not_applicable_by_indicator[indicator])
+        triggered_ids = {
+            case_id for case_id, case_reasons in reasons_by_case.items()
+            if indicator in case_reasons
+        }
+        # A positive finding remains an assessed result even when the detector
+        # also marks that case's wider search neighborhood incomplete.
+        unassessed_ids = unassessed_by_indicator[indicator] - triggered_ids - not_applicable_by_indicator[indicator]
+        unassessed_count = len(unassessed_ids)
+        assessed_count = max(0, len(case_ids) - not_applicable_count - unassessed_count)
         detector_coverage.append({
             "indicator": indicator,
             "status": status_by_indicator[indicator],
-            "assessed_case_count": sum(1 for case in scored_cases for item in case["indicator_coverage"] if item["indicator"] == indicator and item["status"] in {"triggered", "not_triggered"}),
-            "triggered_case_count": sum(1 for case in scored_cases if indicator in case["triggered_indicators"]),
-            "not_assessed_case_count": sum(1 for case in scored_cases if indicator in case["not_assessed_indicators"]),
+            "assessed_case_count": assessed_count,
+            "triggered_case_count": len(triggered_ids),
+            "not_applicable_case_count": not_applicable_count,
+            "not_assessed_case_count": unassessed_count,
             "search_truncated": search_truncated_by_indicator[indicator],
         })
     scored_cases.sort(key=lambda item: item["case_id"])
@@ -368,7 +424,10 @@ def score_claims(
         "weight_basis": "Bobot awal sama besar; dapat diubah lewat konfigurasi; belum dikalibrasi atau disahkan ahli domain.",
         "detector_coverage": detector_coverage,
         "cases": scored_cases,
+        "case_detail_scope": "all_cases" if include_untriggered_cases else "triggered_cases_only",
+        "assessable_case_count": assessable_case_count,
+        "triggered_case_count": triggered_case_count,
         "partial_group_membership": partial_group_notes,
-        "unassessable_case_count": sum(1 for case in scored_cases if case["risk_score"] is None),
+        "unassessable_case_count": unassessable_case_count,
         "limitations": LIMITATIONS.copy(),
     }

@@ -46,6 +46,9 @@ def test_complete_assessment_has_explicit_positive_or_negative_result():
 
     assert _state(scored, records[0]["case_id"], indicator) == "triggered"
     assert _state(scored, records[0]["case_id"], DETECTOR_ORDER[1]) == "not_triggered"
+    coverage = next(item for item in scored["detector_coverage"] if item["indicator"] == indicator)
+    assert coverage["status"] == "available"
+    assert coverage["not_assessed_case_count"] == 0
     assert scored["cases"][0]["risk_score"] is not None
 
 
@@ -97,6 +100,43 @@ def test_partial_unavailable_and_truncated_results_do_not_create_false_negatives
     assert scored["cases"][1]["score_status"] == "partial_coverage"
 
 
+def test_truncated_detector_can_report_case_scoped_unassessed_population():
+    records = _records(3)
+    results = _results(records)
+    indicator = DETECTOR_ORDER[2]
+    results[indicator].update({
+        "search_truncated": True,
+        "truncation_scope": "explicit_unassessed_cases",
+        "unassessed_case_ids": [records[2]["case_id"]],
+    })
+
+    scored = score_claims(records, results)
+
+    assert _state(scored, records[0]["case_id"], indicator) == "not_triggered"
+    assert _state(scored, records[1]["case_id"], indicator) == "not_triggered"
+    assert _state(scored, records[2]["case_id"], indicator) == "not_assessed"
+
+
+def test_explicit_unassessed_without_hard_truncation_makes_global_coverage_partial():
+    records = _records(3)
+    results = _results(records)
+    indicator = DETECTOR_ORDER[2]
+    results[indicator].update({
+        "truncation_scope": "explicit_unassessed_cases",
+        "search_truncated": False,
+        "unassessed_case_ids": [records[2]["case_id"]],
+    })
+
+    scored = score_claims(records, results)
+    coverage = next(item for item in scored["detector_coverage"] if item["indicator"] == indicator)
+
+    assert coverage["status"] == "partial"
+    assert coverage["not_assessed_case_count"] == 1
+    assert coverage["search_truncated"] is False
+    assert _state(scored, records[0]["case_id"], indicator) == "not_triggered"
+    assert _state(scored, records[2]["case_id"], indicator) == "not_assessed"
+
+
 def test_no_assessable_indicators_preserves_null_score():
     records = _records()
     results = _results(records)
@@ -106,6 +146,27 @@ def test_no_assessable_indicators_preserves_null_score():
 
     assert scored["cases"][0]["risk_score"] is None
     assert scored["cases"][0]["score_status"] == "not_assessable"
+    assert all(item["status"] == "not_applicable" for item in scored["detector_coverage"])
+
+
+def test_compact_scoring_retains_full_population_coverage_and_triggered_details():
+    records = _records(3)
+    results = _results(records)
+    indicator = DETECTOR_ORDER[0]
+    results[indicator]["candidate_groups"] = [{
+        "group_id": "syn-group-compact", "case_ids": [records[1]["case_id"]],
+        "reason": "Synthetic trigger.",
+    }]
+
+    full = score_claims(records, results)
+    compact = score_claims(records, results, include_untriggered_cases=False)
+
+    assert compact["case_detail_scope"] == "triggered_cases_only"
+    assert [item["case_id"] for item in compact["cases"]] == [records[1]["case_id"]]
+    assert compact["detector_coverage"] == full["detector_coverage"]
+    assert compact["assessable_case_count"] == full["assessable_case_count"] == 3
+    assert compact["triggered_case_count"] == full["triggered_case_count"] == 1
+    assert compact["unassessable_case_count"] == full["unassessable_case_count"]
 
 
 def test_runtime_snapshot_exposes_independent_execution_and_coverage_dimensions():
