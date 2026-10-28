@@ -100,6 +100,8 @@ def get_clinical_note(run_id: str, case_id: str, request: Request,
             "ai_configured": clinical_ai.configured(), "ai_provider": clinical_ai.provider(),
             "ai_model": clinical_ai.model_name(), "fallback_model": clinical_ai.FALLBACK_MODEL,
             "claim": _claim_summary(record) if note else None,
+            # Where the note's wording contradicts the claim (positions in the note), shown as highlights.
+            "highlights": clinical_ai.note_highlights({**record, "stay_days": _stay(record)}) if note else [],
             "analysis": _with_name(request, latest)}
 
 

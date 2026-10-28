@@ -362,8 +362,8 @@ Perubahan dari versi awal setelah melihat catatan tulisan tangan: (1) selisih la
 
 | Cara memeriksa | Berkas diperiksa | Kecurangan per 100 berkas pertama | Kecurangan tertangkap | Klaim sah ikut diperiksa |
 |---|---|---|---|---|
-| Audit acak (beban sama dengan Radar) | 951 | 1,6 | 3,3% | 3,3% |
-| Aturan sederhana (satu aturan mana pun, tanpa AI/urutan) | 8.748 | 4,7 | 86,6% | 29,3% |
-| Claim Integrity Radar (risiko tinggi + sedang) | 951 | 63 | 85,5% | 1,93% |
+| Audit acak (beban sama dengan Radar) | 924 | 1,7 | 3,2% | 3,2% |
+| Aturan sederhana (satu aturan mana pun, tanpa AI/urutan) | 7.834 | 5,6 | 88,1% | 26,0% |
+| Claim Integrity Radar (risiko tinggi + sedang) | 924 | 63 | 87,1% | 1,73% |
 
-Populasi 28.918 klaim, 470 curang (1,6%) dalam enam modus di 10 dari 40 RS; tiap provinsi punya beberapa RS sekelas (pembanding wilayah). Per modus (aturan saja): klaim salinan 100%, pemecahan rawat inap 100%, tambahan khusus fiktif 100%, lama rawat diperpanjang 79%, tagihan ganda 76%, *upcoding* 42% (sebagian pelaku sengaja ikut memalsukan diagnosis sekunder). Ketepatan risiko tinggi 47% (29× acak); 8 dari 8 faskes di 20% teratas adalah faskes curang. Pembanding wilayah menandai satu kelompok: RS penambah kode khusus (7,4% vs 1,4% faskes sekelas di provinsinya). Data sintetis berpola jelas; bukan kinerja pada data JKN.
+Populasi 28.932 klaim, 495 curang (1,7%) dalam enam modus di 10 dari 40 RS yang tersebar di 17 provinsi; 15 RS pertama berbagi lima provinsi sehingga ada RS sekelas sebagai pembanding wilayah. Per modus (aturan saja): klaim salinan 100%, pemecahan rawat inap 100%, tambahan khusus fiktif 100%, tagihan ganda 77%, lama rawat diperpanjang 75%, *upcoding* 60% (sebagian pelaku sengaja ikut memalsukan diagnosis sekunder). Ketepatan risiko tinggi 48,6% (28× acak); 8 dari 8 faskes di 20% teratas adalah faskes curang. Pembanding wilayah menandai satu kelompok: RS penambah kode khusus (7,7% vs 1,3% faskes sekelas di provinsinya). Peta Risiko: dua provinsi di atas 2× rata-rata nasional (porsi berisiko nasional 3,2%). Data sintetis berpola jelas; bukan kinerja pada data JKN.

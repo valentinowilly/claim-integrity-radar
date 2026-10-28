@@ -160,12 +160,16 @@ class World:
         self.next_visit = id_base * 100_000_000 + 1
         self.last_visit: dict[str, date] = {}
         provinces = [code for code in sorted(vocabulary.municipalities) if len(vocabulary.municipalities[code]) >= 4]
-        chosen = self.rng.sample(provinces, 5)
+        # The first 15 hospitals share five provinces (several hospitals of one class per province, so the
+        # regional comparison has class peers); the others spread over twelve more provinces, as a national
+        # claim file would.
+        chosen = self.rng.sample(provinces, min(17, len(provinces)))
+        anchors, spread = chosen[:5], chosen[5:] or chosen[:5]
         classes = sorted(vocabulary.cbg_by_class)
         self.hospitals: list[dict[str, Any]] = []
         used: set[str] = set()
         for index in range(hospitals):
-            province = chosen[index % len(chosen)]
+            province = anchors[index % len(anchors)] if index < 15 else spread[(index - 15) % len(spread)]
             municipality = self.rng.choice([code for code in vocabulary.municipalities[province] if code not in used])
             used.add(municipality)
             # Several hospitals of one class per province (as in the sample), so a hospital has class peers nearby.

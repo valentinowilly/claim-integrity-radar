@@ -10,9 +10,11 @@ import {
   LayoutDashboard,
   ListFilter,
   LogOut,
+  MapPinned,
   Menu,
   MessageSquareText,
   ScanSearch,
+  TrendingUp,
   X,
   Upload,
 } from "lucide-react";
@@ -21,16 +23,22 @@ import AnalysisPage from "./pages/AnalysisPage";
 import CasesPage from "./pages/CasesPage";
 import FacilitiesPage, { EvidencePackPage, FacilityDetailPage } from "./pages/FacilitiesPage";
 import OverviewPage from "./pages/OverviewPage";
+import RiskMapPage from "./pages/RiskMapPage";
+import TrendPage from "./pages/TrendPage";
 import WorkflowPage from "./pages/WorkflowPage";
 import { useAuth } from "./auth/AuthContext";
 import { ApiClientError } from "./api/client";
 import { NotificationCenter } from "./notifications/NotificationCenter";
+import { ThemeToggle } from "./components/ThemeToggle";
+import { CommandPalette, PaletteButton } from "./components/CommandPalette";
 
 type NavItem = { label: string; to: string; icon: typeof LayoutDashboard; group: string; allowed: (permissions: Set<string>) => boolean };
 // Two groups: daily review work first, then where data comes in (upload, automatic intake, history).
 const navigation: NavItem[] = [
   { label: "Beranda", to: "/", icon: LayoutDashboard, group: "Pemeriksaan", allowed: p => p.has("runs:results:read") },
   { label: "Antrean Tinjauan", to: "/cases", icon: ClipboardCheck, group: "Pemeriksaan", allowed: p => p.has("cases:read") && p.has("runs:results:read") },
+  { label: "Peta Risiko", to: "/map", icon: MapPinned, group: "Pemeriksaan", allowed: p => p.has("runs:results:read") },
+  { label: "Tren", to: "/trend", icon: TrendingUp, group: "Pemeriksaan", allowed: p => p.has("runs:results:read") },
   { label: "Faskes", to: "/facilities", icon: Building2, group: "Pemeriksaan", allowed: p => p.has("runs:results:read") },
   { label: "Data & Analisis", to: "/workflow", icon: Database, group: "Data klaim", allowed: p => p.has("batches:read") || p.has("runs:read") },
 ];
@@ -113,6 +121,8 @@ export default function App() {
               <Upload size={15} aria-hidden="true" /><span>Unggah data</span>
             </Link>
           )}
+          <PaletteButton />
+          <ThemeToggle />
           <div className="topbar-user-menu">
             <button
               className="profile-trigger"
@@ -146,6 +156,8 @@ export default function App() {
             )}
           </div>
         </header>
+        <CommandPalette pages={visibleNavigation.map(({ label, to, icon }) => ({ label, to, icon }))}
+          canUpload={permissions.has("batches:write")} canSearchClaims={permissions.has("runs:results:read")} />
         <main className="main-panel">
           {/* Keyed by section, so moving between claims of the queue (/runs/…/cases/…) never remounts it. */}
           <div className="page-content page-enter" key={location.pathname.startsWith("/runs/") ? "cases" : location.pathname.split("/")[1] || "home"}>
@@ -157,6 +169,8 @@ export default function App() {
               <Route path="/cases/:caseId" element={<Navigate to="/cases" replace />} />
               <Route path="/case-detail" element={<Navigate to="/cases" replace />} />
               <Route path="/performance" element={<Navigate to="/" replace />} />
+              <Route path="/trend" element={<Protected permission="runs:results:read"><TrendPage /></Protected>} />
+              <Route path="/map" element={<Protected permission="runs:results:read"><RiskMapPage /></Protected>} />
               <Route path="/facilities" element={<Protected permission="runs:results:read"><FacilitiesPage /></Protected>} />
               <Route path="/facilities/:groupId" element={<Protected permission="runs:results:read"><FacilityDetailPage /></Protected>} />
               <Route path="/facilities/:groupId/paket" element={<Protected permission="runs:results:read"><EvidencePackPage /></Protected>} />
@@ -250,6 +264,7 @@ function LoginPage({
       </section>
 
       <section className="login-panel">
+        <ThemeToggle className="login-theme-toggle" />
         <div className="login-institution">
           <img src="/assets/brand/bpjs-kesehatan.svg" alt="BPJS Kesehatan" />
         </div>

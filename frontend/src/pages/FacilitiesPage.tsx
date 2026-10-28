@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, FileText, Printer } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { ArrowLeft, ArrowRight, FileText, MapPinned, Printer, X } from "lucide-react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { getRunCase, type FacilityGroup, type RunCase, type RunResult } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { EmptyState } from "../components/DataStates";
@@ -8,6 +8,7 @@ import {
   LANES, LEVELS, LaneDot, MoreInfo, formatCount, formatDateTime, indicatorLabel, mlLevel, runTitle, shortRef,
 } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
+import { provinceName } from "../components/provinces";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { FacilityTable } from "./OverviewPage";
 
@@ -42,8 +43,12 @@ export default function FacilitiesPage() {
   const snapshot = useGroups();
   const { state, result, runQuery, reload } = snapshot;
   const [level, setLevel] = useState<Level | "">("");
+  const [params, setParams] = useSearchParams();
+  // A province chosen on the risk map (?provinsi=BPS code).
+  const province = params.get("provinsi");
+  const clearProvince = () => { const next = new URLSearchParams(params); next.delete("provinsi"); setParams(next, { replace: true }); };
   const groups = result?.facility_groups;
-  const shown = (groups?.groups ?? []).filter(group => !level || group.level === level);
+  const shown = (groups?.groups ?? []).filter(group => (!level || group.level === level) && (!province || group.province_code === province));
   return <>
     <Head title="Faskes" text="Kelompok faskes diurutkan dari yang paling layak diperiksa lebih dulu." snapshot={snapshot} />
     {state.status !== "success" && <RunStateMessage state={state} retry={reload} />}
@@ -66,7 +71,12 @@ export default function FacilitiesPage() {
             {LEVEL_FILTERS.map(([value, label]) => <button key={value || "all"} type="button" className="queue-tab" aria-pressed={level === value} onClick={() => setLevel(value)}>{label}</button>)}
           </div>
         </div>
-        {shown.length === 0 ? <EmptyState title="Tidak ada kelompok faskes" message="Tidak ada kelompok pada tingkat ini." />
+        {province && <div className="filter-chip-row">
+          <span className="filter-chip"><MapPinned size={14} aria-hidden="true" />Provinsi: {provinceName(province)}
+            <button type="button" onClick={clearProvince} aria-label="Hapus saringan provinsi"><X size={13} /></button></span>
+          <Link className="fine-link" to={`/map${runQuery}&provinsi=${encodeURIComponent(province)}`}>Kembali ke peta</Link>
+        </div>}
+        {shown.length === 0 ? <EmptyState title="Tidak ada kelompok faskes" message={province ? "Tidak ada kelompok faskes yang cukup besar di provinsi ini pada tingkat yang dipilih." : "Tidak ada kelompok pada tingkat ini."} />
           : <FacilityTable groups={shown} runQuery={runQuery} />}
         {groups.groups_truncated && <p className="fine-print" style={{ marginTop: 10 }}>Ditampilkan {formatCount(groups.groups.length)} kelompok teratas dari {formatCount(groups.group_count)}.</p>}
         <MoreInfo title="Cara membaca daftar ini">

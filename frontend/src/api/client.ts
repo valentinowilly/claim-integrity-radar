@@ -209,6 +209,8 @@ export interface RunResult {
   length_of_stay?: DurationScreen;
   /** Flagged claims rolled up per facility group (facility-group-v1); absent on older runs. */
   facility_groups?: FacilityGroups;
+  /** Claims per service date with high/medium counts (absent on runs saved before it was added). */
+  daily_activity?: DailyActivity;
   /**
    * Set when the server returned a partial view of the stored result. In a "summary" view `cases`
    * is empty on purpose: use `case_count` and the paged case list, never treat it as "no flagged claims".
@@ -220,6 +222,8 @@ export type LaneEntry = RunResult["action_policy"]["cases"][string];
 export type Lane = "red" | "yellow" | "green";
 export interface FacilityGroup {
   group_id: string; rank: number; title: string; region: string; facility_type: string;
+  /** BPS province code (absent on older runs). */
+  province_code?: string;
   claim_count: number; flagged_count: number; lane_counts: Record<Lane, number>;
   indicator_counts: Record<string, number>; records_to_request: number; findings_per_record: number;
   max_ml_percentile: number; sample_case_ids: string[]; sample_lanes: Record<string, string>;
@@ -229,6 +233,10 @@ export interface FacilityGroup {
   /** Display only: billed value of the group's high/medium-risk claims (absent on older runs). */
   billed_high_or_medium?: number;
   level: "high" | "medium" | "low"; verdict: string;
+}
+export interface DailyActivity {
+  version: string; status: "available" | "unavailable"; days_truncated: boolean; undated_claims: number; note: string;
+  days: Array<{ date: string; claims: number; high: number; medium: number; billed_high_or_medium: number | null }>;
 }
 export interface FacilityGroups {
   status: string; version: string; min_claims: number; group_count: number;
@@ -255,7 +263,11 @@ function isCalibrationResponse(value: unknown): value is CalibrationResponse {
 export function getRunCalibration(runId: string, signal?: AbortSignal): Promise<CalibrationResponse> {
   return getJson(`/api/v1/runs/${encodeURIComponent(runId)}/calibration`, isCalibrationResponse, signal);
 }
-export interface FairnessRow { label: string; claims: number; high: number; medium: number; share: number; ratio_to_overall: number | null }
+export interface FairnessRow {
+  label: string; claims: number; high: number; medium: number; share: number; ratio_to_overall: number | null;
+  /** Category code (BPS code for provinces), facility groups in it, and display-only billed value; absent on older runs. */
+  code?: string; facility_groups?: number; billed_high_or_medium?: number | null;
+}
 export interface Fairness {
   overall_share: number; claims: number; high_or_medium: number; min_claims: number; note: string;
   dimensions: Array<{ field: string; title: string; rows: FairnessRow[]; hidden_categories: number }>;
@@ -1058,6 +1070,31 @@ export async function importSyntheticCsv(file: File, batchKey: string): Promise<
 export function getRuns(limit = 50, offset = 0, batchId?: string, signal?: AbortSignal, archived = false): Promise<RunListResponse> {
   return getJson(`/api/v1/runs${queryString({ limit, offset, batch_id: batchId, ...(archived ? { archived: "true" } : {}) })}`, isRunListResponse, signal);
 }
+/** Headline numbers of the latest listed runs, oldest first (counts only; null for runs saved before summaries). */
+export interface RunTrendItem {
+  run_id: string; created_at: string; source_type: string; records_considered: number | null;
+  lane_counts: Record<Lane, number> | null; billed_high_or_medium: number | null;
+}
+export interface RunTrendResponse { items: RunTrendItem[]; availability: "available" }
+function isRunTrendResponse(value: unknown): value is RunTrendResponse {
+  return isRecord(value) && value.availability === "available" && Array.isArray(value.items)
+    && value.items.every(item => isRecord(item) && isString(item.run_id) && isString(item.created_at));
+}
+/** Verifiers' decisions per week across analyses (each claim once, at its latest decision). */
+export interface ReviewAccuracyResponse {
+  availability: "available";
+  weeks: Array<{ week_start: string; decided: number; supported: number; not_supported: number; inconclusive: number;
+    lanes: Partial<Record<Lane | "unknown", { decided: number; supported: number }>> }>;
+  policy_changes: Array<{ date: string; version: string }>;
+  totals: { decided: number; supported: number; share: number | null };
+}
+export function getReviewAccuracy(weeks = 12, signal?: AbortSignal): Promise<ReviewAccuracyResponse> {
+  return getJson(`/api/v1/runs/review-accuracy${queryString({ weeks })}`,
+    (value): value is ReviewAccuracyResponse => isRecord(value) && value.availability === "available" && Array.isArray(value.weeks), signal);
+}
+export function getRunTrend(limit = 8, signal?: AbortSignal): Promise<RunTrendResponse> {
+  return getJson(`/api/v1/runs/trend${queryString({ limit })}`, isRunTrendResponse, signal);
+}
 function isFkrtlSourceStatus(value: unknown): value is FkrtlSourceStatus {
   return isRecord(value) && value.source_type === "bpjs_fkrtl_local" && isString(value.label)
     && value.classification === "bpjs_sample_local" && isString(value.schema_profile) && isString(value.mapping_version)
@@ -1258,7 +1295,33 @@ export interface ClinicalNoteResponse {
     primary_diagnosis: string | null; primary_diagnosis_name: string | null;
     claim_group: string | null; claim_group_name: string | null; stay_days: number | null;
   } | null;
+  /** Where the note's wording contradicts the claim: positions in clinical_note (absent before this was added). */
+  highlights?: NoteHighlight[];
   analysis: ClinicalAnalysis | null;
+}
+export interface NoteHighlight {
+  start: number; end: number; text: string; kind: "stay" | "severity" | "continuation"; reason: string; claim_value: string;
+}
+/** Another claim of the same uploaded file, named by its case id only. */
+export interface RelatedClaim {
+  case_id: string; service_date: string | null; discharge_date: string | null; claim_group: string | null;
+  primary_diagnosis: string | null; lane: Lane;
+}
+export interface NoteMatchesResponse {
+  available: boolean; reason: string | null; total_claims: number; distinct_participants: number; numbers: string[];
+  matches: RelatedClaim[]; matches_truncated: boolean;
+}
+export interface VisitsResponse {
+  available: boolean; reason: string | null; total_visits: number;
+  visits: Array<RelatedClaim & { current: boolean; inpatient: boolean }>;
+}
+export function getNoteMatches(runId: string, caseId: string, signal?: AbortSignal): Promise<NoteMatchesResponse> {
+  return getJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/note-matches`,
+    (value): value is NoteMatchesResponse => isRecord(value) && typeof value.available === "boolean" && Array.isArray(value.matches), signal);
+}
+export function getVisits(runId: string, caseId: string, signal?: AbortSignal): Promise<VisitsResponse> {
+  return getJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/visits`,
+    (value): value is VisitsResponse => isRecord(value) && typeof value.available === "boolean" && Array.isArray(value.visits), signal);
 }
 function isClinicalAnalysis(value: unknown): value is ClinicalAnalysis {
   return isRecord(value) && (value.verdict === "sesuai" || value.verdict === "perlu_dicek" || value.verdict === "mencurigakan")

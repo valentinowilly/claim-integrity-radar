@@ -89,6 +89,27 @@ class RunCaseListResponse(BaseModel):
     sort: str
 
 
+class RunTrendLanes(BaseModel):
+    red: int
+    yellow: int
+    green: int
+
+
+class RunTrendItem(BaseModel):
+    run_id: str
+    created_at: str
+    source_type: str
+    records_considered: int | None
+    lane_counts: RunTrendLanes | None
+    billed_high_or_medium: float | None
+
+
+class RunTrendResponse(BaseModel):
+    """Headline numbers of the latest listed runs (oldest first); counts only, no claim data."""
+    items: list[RunTrendItem]
+    availability: Literal["available"]
+
+
 class RunListResponse(BaseModel):
     items: list[RunManifest]
     total_items: int

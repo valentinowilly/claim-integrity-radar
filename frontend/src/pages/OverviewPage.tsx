@@ -1,19 +1,36 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, ArrowUpRight, Building2, ClipboardCheck, FileText, Sparkles, Upload } from "lucide-react";
+import {
+  ArrowRight, ArrowUpRight, BarChart3, Building2, CalendarDays, ClipboardCheck, FileStack, FileText, ShieldAlert, Sparkles,
+  TriangleAlert, Upload, Wallet,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 import { Bar, BarChart, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  flaggedCaseCount, getRunReviews, runReviewStatusLabels, ruleFlaggedListedIds,
-  type FacilityGroup, type RunResult, type RunReviewStatus, type RunReviewSummaryItem,
+  flaggedCaseCount, getRunReviews, getRunTrend, runReviewStatusLabels, ruleFlaggedListedIds,
+  type FacilityGroup, type RunResult, type RunReviewStatus, type RunReviewSummaryItem, type RunTrendItem,
 } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { CountUp, LEVELS, LaneDot, formatCount, formatRupiah, mlFeatureLabel, shortRef } from "../components/Display";
 import { RunCandidateLink, RunSelector, RunStateMessage, RunTechnicalDetails, SourcePill } from "../components/PersistedRunWorkspace";
+import { KpiCard } from "../components/KpiCard";
+import { TodayBrief } from "../components/TodayBrief";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
+import { useThemeColors } from "../theme/theme";
 
-const STATUS_COLORS: Record<string, string> = {
-  not_started: "#cbd5e1", in_review: "#0284c7", awaiting_evidence: "#d97706", escalated: "#dc2626", closed: "#047857",
-};
+// Colour tokens, resolved per theme for the charts.
+const STATUS_TOKENS = {
+  not_started: "--border-medium", in_review: "--chart-6", awaiting_evidence: "--chart-4", escalated: "--chart-5", closed: "--chart-1",
+} as const;
+const CHART_TOKENS = { peak: "--chart-1", bar: "--chart-3", axis: "--text-muted", axisFaint: "--text-faint", onPeak: "--surface-bg",
+  tooltipBg: "--surface-bg", tooltipBorder: "--border-subtle", tooltipText: "--text-primary" } as const;
+const TODAY = new Intl.DateTimeFormat("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+/** The selected analysis and the ones before it (oldest first), so comparisons never use a newer analysis. */
+function historyUpTo(trend: RunTrendItem[] | null, runId: string): RunTrendItem[] {
+  if (!trend) return [];
+  const index = trend.findIndex(item => item.run_id === runId);
+  return index < 0 ? [] : trend.slice(0, index + 1);
+}
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -35,6 +52,14 @@ export default function OverviewPage() {
 
   // Review progress comes from its own small read, never from the full result.
   const [reviews, setReviews] = useState<{ runId: string; items: RunReviewSummaryItem[] } | null>(null);
+  // Headline numbers of recent analyses, for the comparisons and small trend lines.
+  const [trend, setTrend] = useState<RunTrendItem[] | null>(null);
+  useEffect(() => {
+    if (!runId) return;
+    const controller = new AbortController();
+    getRunTrend(8, controller.signal).then(response => setTrend(response.items)).catch(() => setTrend(null));
+    return () => controller.abort();
+  }, [runId]);
   useEffect(() => {
     if (!runId || !available) return;
     const controller = new AbortController();
@@ -46,6 +71,7 @@ export default function OverviewPage() {
   return <>
     <header className="page-head">
       <div>
+        <span className="page-eyebrow"><CalendarDays size={14} aria-hidden="true" />{TODAY.format(new Date())}</span>
         <h1>Prioritas <span className="muted">hari ini</span></h1>
         <p>{greeting()}, {username}. {state.status === "empty" ? "Belum ada data klaim yang dianalisis." : "Berikut klaim dan faskes yang paling perlu diperiksa hari ini."}</p>
       </div>
@@ -55,11 +81,14 @@ export default function OverviewPage() {
       </div>}
     </header>
     {state.status === "empty" ? <FirstRunGuide canUpload={permissions.includes("batches:write")} />
+      : state.status === "loading" ? <DashboardSkeleton />
       : state.status !== "success" && <RunStateMessage state={state} retry={reload} />}
     {state.status === "success" && result && available && <Dashboard
       result={result}
       runId={runId}
       reviews={reviews && reviews.runId === runId ? reviews.items : null}
+      history={historyUpTo(trend, runId)}
+      createdAt={state.detail.run.created_at}
     />}
     {state.status === "success" && (!result || !available) && <div className="card">
       <p className="fine-print">Analisis ini belum memiliki hasil. Pilih analisis lain atau jalankan analisis baru di menu Data & Analisis.</p>
@@ -68,9 +97,11 @@ export default function OverviewPage() {
   </>;
 }
 
-function Dashboard({ result, runId, reviews }: {
-  result: RunResult; runId: string; reviews: RunReviewSummaryItem[] | null;
+function Dashboard({ result, runId, reviews, history, createdAt }: {
+  result: RunResult; runId: string; reviews: RunReviewSummaryItem[] | null; history: RunTrendItem[]; createdAt: string;
 }) {
+  const statusColors = useThemeColors(STATUS_TOKENS);
+  const chart = useThemeColors(CHART_TOKENS);
   const runQuery = `?run_id=${encodeURIComponent(runId)}`;
   const lanes = result.action_policy.lane_counts ?? {};
   const red = lanes.red ?? 0;
@@ -112,7 +143,30 @@ function Dashboard({ result, runId, reviews }: {
     .map(group => ({ name: `#${group.rank}`, title: group.title, value: group.lane_counts[chartLane] }));
   const peak = Math.max(0, ...bars.map(bar => bar.value));
 
+  // Each comparison ends with this analysis; without a stored history only this analysis's number is known.
+  const series = (pick: (item: RunTrendItem) => number | null | undefined, current: number) =>
+    history.length ? [...history.slice(0, -1).map(item => pick(item) ?? null), current] : [current];
+  const exposure = groups?.exposure?.status === "available" ? groups.exposure : null;
+
   return <>
+    <TodayBrief result={result} runQuery={runQuery} createdAt={createdAt} history={history}
+      unreviewed={reviews === null ? null : Math.max(0, flagged - reviewed)} />
+    <section className="kpi-strip" aria-label="Ringkasan angka">
+      <KpiCard icon={FileStack} label="Klaim dianalisis" value={result.records_considered}
+        history={series(item => item.records_considered, result.records_considered)}
+        footer={<Link className="kpi2-sub" to={`/cases${runQuery}&lane=green`} data-testid="lane-card-green">
+          <LaneDot lane="green" />{formatCount(green)} risiko rendah, proses seperti biasa</Link>} />
+      <KpiCard icon={ShieldAlert} label="Risiko tinggi" value={red} tone="red" direction="up-is-bad"
+        history={series(item => item.lane_counts?.red, red)} to={`/cases${runQuery}&lane=red`} testId="kpi-red" />
+      <KpiCard icon={TriangleAlert} label="Risiko sedang" value={yellow} tone="yellow" direction="up-is-bad"
+        history={series(item => item.lane_counts?.yellow, yellow)} to={`/cases${runQuery}&lane=yellow`} testId="kpi-yellow" />
+      {exposure ? <KpiCard icon={Wallet} label="Nilai tagihan perlu diverifikasi ulang" value={exposure.billed_high_or_medium}
+        format={formatRupiah} direction="up-is-bad" history={series(item => item.billed_high_or_medium, exposure.billed_high_or_medium)}
+        footer={<span className="kpi2-sub" data-testid="hero-amount">Klaim risiko tinggi dan sedang; bukan nilai kerugian</span>} />
+        : <KpiCard icon={Sparkles} label="Temuan tambahan AI" value={aiOnly.length} history={[aiOnly.length]}
+          to={`/cases${runQuery}&lane=ai`} />}
+    </section>
+
     <section className="dash-grid">
       <div className="span-4 stack" style={{ gap: 18 }}>
         <Link className="hero-card" to={`/cases${runQuery}&lane=red`}>
@@ -122,21 +176,14 @@ function Dashboard({ result, runId, reviews }: {
             <span data-testid="lane-card-red"><LaneDot lane="red" />Risiko tinggi {formatCount(red)}</span>
             <span data-testid="lane-card-yellow"><LaneDot lane="yellow" />Risiko sedang {formatCount(yellow)}</span>
           </span>
-          {groups?.exposure?.status === "available" && <span className="hero-amount" data-testid="hero-amount">
-            Nilai tagihan perlu diverifikasi ulang <strong><CountUp value={groups.exposure.billed_high_or_medium} format={formatRupiah} /></strong></span>}
+          <LaneShare red={red} yellow={yellow} green={green} />
           <span className="hero-cta">Buka antrean <ArrowRight size={13} style={{ verticalAlign: "-2px" }} /></span>
-        </Link>
-        <Link className="card" to={`/cases${runQuery}&lane=green`} style={{ color: "inherit", textDecoration: "none" }} data-testid="lane-card-green">
-          <div className="card-head" style={{ marginBottom: 6 }}><div><h2>Risiko rendah</h2><p>Proses seperti biasa</p></div>
-            <span className="card-link" aria-hidden="true"><ArrowUpRight size={16} /></span></div>
-          <div className="cell-flex"><span className="stat-big"><CountUp value={green} /></span>
-            <span className="chip-green">{formatCount(result.records_considered)} dianalisis</span></div>
         </Link>
       </div>
 
       <article className="card span-5">
         <div className="card-head">
-          <div><h2>Klaim per kelompok faskes</h2><p>Enam kelompok dengan klaim risiko {chartLane === "red" ? "tinggi" : "sedang"} terbanyak</p></div>
+          <div><h2><BarChart3 size={16} className="head-icon" aria-hidden="true" />Klaim per kelompok faskes</h2><p>Enam kelompok dengan klaim risiko {chartLane === "red" ? "tinggi" : "sedang"} terbanyak</p></div>
           <div className="segmented-pill" role="group" aria-label="Pilih tingkat risiko grafik">
             <button type="button" aria-pressed={chartLane === "red"} onClick={() => setChartLane("red")}>Tinggi</button>
             <button type="button" aria-pressed={chartLane === "yellow"} onClick={() => setChartLane("yellow")}>Sedang</button>
@@ -146,15 +193,15 @@ function Dashboard({ result, runId, reviews }: {
           role="img" aria-label={bars.map(bar => `${bar.title}: ${bar.value}`).join(", ")}>
           <ResponsiveContainer>
             <BarChart data={bars} margin={{ top: 28, right: 4, bottom: 0, left: -24 }}>
-              <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#8b95a1" }} axisLine={false} tickLine={false} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#b6bdc6" }} axisLine={false} tickLine={false} />
-              <Tooltip cursor={false} formatter={(value: number) => [formatCount(value), "klaim"]}
+              <XAxis dataKey="name" tick={{ fontSize: 12, fill: chart.axis }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: chart.axisFaint }} axisLine={false} tickLine={false} />
+              <Tooltip cursor={false} formatter={(value: number) => [formatCount(value), "klaim"]} {...tooltipStyle(chart)}
                 labelFormatter={(_label, payload) => payload?.[0]?.payload?.title ?? ""} />
               <Bar isAnimationActive animationDuration={650} dataKey="value" radius={[999, 999, 999, 999]} barSize={40}>
-                {bars.map(bar => <Cell key={bar.name} fill={bar.value === peak && peak > 0 ? "#047857" : "#a7d8c1"} />)}
+                {bars.map(bar => <Cell key={bar.name} fill={bar.value === peak && peak > 0 ? chart.peak : chart.bar} />)}
                 <LabelList dataKey="value" position="top" content={({ x, y, width, value }) => Number(value) === peak && peak > 0
-                  ? <g><rect x={Number(x) + Number(width) / 2 - 20} y={Number(y) - 26} width={40} height={20} rx={10} fill="#047857" />
-                    <text x={Number(x) + Number(width) / 2} y={Number(y) - 12} textAnchor="middle" fill="#fff" fontSize={11} fontWeight={700}>{String(value)}</text></g>
+                  ? <g><rect x={Number(x) + Number(width) / 2 - 20} y={Number(y) - 26} width={40} height={20} rx={10} fill={chart.peak} />
+                    <text x={Number(x) + Number(width) / 2} y={Number(y) - 12} textAnchor="middle" fill={chart.onPeak} fontSize={11} fontWeight={700}>{String(value)}</text></g>
                   : null} />
               </Bar>
             </BarChart>
@@ -163,7 +210,7 @@ function Dashboard({ result, runId, reviews }: {
       </article>
 
       <article className="card span-3">
-        <div className="card-head"><div><h2>Status tinjauan</h2><p>Klaim ditandai yang sudah ditangani</p></div></div>
+        <div className="card-head"><div><h2><ClipboardCheck size={16} className="head-icon" aria-hidden="true" />Status tinjauan</h2><p>Klaim ditandai yang sudah ditangani</p></div></div>
         {reviews === null ? <p className="fine-print">Hanya terlihat oleh peninjau.</p> : reviewed === 0 ? <div className="review-empty">
           <div className="stat-big">0<small> / {formatCount(flagged)}</small></div>
           <p>Belum ada klaim yang ditinjau pada analisis ini.</p>
@@ -174,14 +221,14 @@ function Dashboard({ result, runId, reviews }: {
             <ResponsiveContainer>
               <PieChart>
                 <Pie isAnimationActive animationDuration={650} data={donut} dataKey="value" nameKey="name" innerRadius={44} outerRadius={66} paddingAngle={donut.length > 1 ? 2 : 0} stroke="none">
-                  {donut.map(item => <Cell key={item.key} fill={STATUS_COLORS[item.key]} />)}
+                  {donut.map(item => <Cell key={item.key} fill={statusColors[item.key as keyof typeof STATUS_TOKENS]} />)}
                 </Pie>
-                <Tooltip formatter={(value: number) => formatCount(value)} />
+                <Tooltip formatter={(value: number) => formatCount(value)} {...tooltipStyle(chart)} />
               </PieChart>
             </ResponsiveContainer>
           </div>
           <ul className="chart-legend">
-            {donut.map(item => <li key={item.key}><i className="dot" style={{ background: STATUS_COLORS[item.key] }} />{item.name}<strong>{formatCount(item.value)}</strong></li>)}
+            {donut.map(item => <li key={item.key}><i className="dot" style={{ background: statusColors[item.key as keyof typeof STATUS_TOKENS] }} />{item.name}<strong>{formatCount(item.value)}</strong></li>)}
           </ul>
           {decided > 0 && <p className="review-accuracy" data-testid="review-accuracy">
             Dari <strong>{formatCount(decided)}</strong> klaim yang sudah diputuskan, <strong>{formatCount(confirmed)}</strong> ({Math.round(100 * confirmed / decided)}%) memang perlu ditindaklanjuti.
@@ -191,7 +238,7 @@ function Dashboard({ result, runId, reviews }: {
 
       <article className="card span-8">
         <div className="card-head">
-          <div><h2>Faskes paling mendesak</h2><p>Faskes dengan temuan terbanyak</p></div>
+          <div><h2><Building2 size={16} className="head-icon" aria-hidden="true" />Faskes paling mendesak</h2><p>Faskes dengan temuan terbanyak</p></div>
           {groups && <Link className="card-link" to={`/facilities${runQuery}`} aria-label="Semua faskes"><ArrowUpRight size={16} /></Link>}
         </div>
         {!groups ? <p className="fine-print">Jalankan ulang analisis di menu Data & Analisis untuk melihat data per faskes.</p>
@@ -201,7 +248,7 @@ function Dashboard({ result, runId, reviews }: {
 
       <article className="card span-4" aria-label="Analisis AI">
         <div className="card-head">
-          <div><h2><Sparkles size={16} style={{ verticalAlign: "-2px", color: "var(--brand)" }} /> Analisis AI</h2>
+          <div><h2><Sparkles size={16} className="head-icon" aria-hidden="true" />Analisis AI</h2>
             <p>Mendeteksi pola klaim yang tidak biasa</p></div>
           {aiOnly.length > 0 && <Link className="card-link" to={`/cases${runQuery}&lane=ai`} aria-label="Lihat temuan tambahan AI"><ArrowUpRight size={16} /></Link>}
         </div>
@@ -264,4 +311,40 @@ function FirstRunGuide({ canUpload }: { canUpload: boolean }) {
         : <p className="fine-print">Data klaim dimasukkan oleh operator data. Hasilnya akan tampil di sini.</p>}
     </div>
   </section>;
+}
+
+/** Recharts tooltips follow the theme. */
+function tooltipStyle(chart: Record<"tooltipBg" | "tooltipBorder" | "tooltipText", string>) {
+  return {
+    contentStyle: { background: chart.tooltipBg, border: `1px solid ${chart.tooltipBorder}`, borderRadius: 12, color: chart.tooltipText,
+      boxShadow: "0 12px 28px -14px rgb(0 0 0 / 0.35)", fontSize: 12.5 },
+    labelStyle: { color: chart.tooltipText, fontWeight: 700 },
+    itemStyle: { color: chart.tooltipText },
+  };
+}
+
+/** Share of the analysed claims per risk level, as one bar on the action card. */
+function LaneShare({ red, yellow, green }: { red: number; yellow: number; green: number }) {
+  const total = red + yellow + green;
+  if (!total) return null;
+  const percent = (value: number) => `${(value / total * 100).toFixed(value / total < 0.01 && value > 0 ? 1 : 0)}%`;
+  return <span className="hero-share" title={`Tinggi ${percent(red)} · Sedang ${percent(yellow)} · Rendah ${percent(green)}`}>
+    <span className="hero-share-bar" aria-hidden="true">
+      <i className="r" style={{ width: `${Math.max(red ? 1.5 : 0, red / total * 100)}%` }} />
+      <i className="y" style={{ width: `${Math.max(yellow ? 1.5 : 0, yellow / total * 100)}%` }} />
+    </span>
+    <span className="hero-share-text">{percent(red + yellow)} dari klaim yang dianalisis perlu tindakan</span>
+  </span>;
+}
+
+/** Placeholder shapes while the analysis loads, so the page keeps its layout. */
+function DashboardSkeleton() {
+  return <div className="dash-skeleton" role="status" aria-label="Memuat hasil analisis…">
+    <div className="kpi-strip">{[0, 1, 2, 3].map(index => <div key={index} className="card skeleton-block" style={{ height: 150 }} />)}</div>
+    <div className="dash-grid">
+      <div className="card skeleton-block span-4" style={{ height: 300 }} />
+      <div className="card skeleton-block span-5" style={{ height: 300 }} />
+      <div className="card skeleton-block span-3" style={{ height: 300 }} />
+    </div>
+  </div>;
 }

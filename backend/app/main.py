@@ -11,6 +11,7 @@ from app.api.routes.analytics import router as analytics_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.inbox import router as inbox_router
 from app.api.routes.assignments import router as assignments_router
+from app.api.routes.case_context import router as case_context_router
 from app.api.routes.clinical_ai import router as clinical_ai_router
 from app.services.inbox import start_scheduler as start_inbox_scheduler
 from app.services.retention import start_maintenance as start_retention
@@ -83,6 +84,7 @@ def create_app(review_db_path: str | Path | None = None, auth_db_path: str | Pat
     application.include_router(auth_router)
     application.include_router(batches_router)
     application.include_router(runs_router)
+    application.include_router(case_context_router)
     application.include_router(sources_router)
     application.include_router(analytics_router)
     application.include_router(reviews_router)

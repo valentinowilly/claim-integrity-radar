@@ -310,7 +310,7 @@ export default function WorkflowPage() {
         <div className="stack" style={{ gap: 18 }}>
           <section className="card upload-section" aria-label="Tambah data klaim" id="unggah" data-open={openUpload || undefined}>
             <div className="card-head">
-              <div><h2><FileUp size={17} style={{ verticalAlign: "-3px", color: "var(--brand)" }} /> Tambah data klaim</h2>
+              <div><h2><FileUp size={17} style={{ verticalAlign: "-3px", color: "var(--brand-ink)" }} /> Tambah data klaim</h2>
                 <p>Unggah berkas CSV berformat kolom data klaim FKRTL (PSTV01, FKL02, FKL03, …). Berkas diperiksa lalu langsung dianalisis.</p></div>
             </div>
             {canWriteBatches ? (
@@ -569,7 +569,7 @@ function InboxCard({ canPull, onFinished }: { canPull: boolean; onFinished: () =
     <section className="card" aria-label="Sambungan otomatis">
       <div className="card-head">
         <div>
-          <h2><Inbox size={17} style={{ verticalAlign: "-3px", color: "var(--brand)" }} /> Sambungan otomatis</h2>
+          <h2><Inbox size={17} style={{ verticalAlign: "-3px", color: "var(--brand-ink)" }} /> Sambungan otomatis</h2>
           <p>Sistem klaim mengirim file harian ke folder kiriman di server; file itu diperiksa dan dianalisis otomatis sesuai jadwal.</p>
         </div>
         {state && <StatusPill value={state.configured ? "ready" : "unavailable"} label={state.configured ? "Aktif" : "Belum diatur"} />}

@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sqlite3
-from typing import Iterator
+from typing import Any, Iterator
 from uuid import uuid4
 
 from app.db import DatabaseError, UndefinedTable, connect_operational, is_missing_table, is_postgres, sqlite_script
-from app.services.run_results import has_case_rows, is_missing, stored_case_is_listed, stored_result
+from app.services.run_results import has_case_rows, is_missing, stored_case_is_listed, stored_lanes, stored_result
 
 
 
@@ -38,6 +38,10 @@ class AuditConfirmationRequiresReview(Exception):
 
 class RunNotReviewable(Exception):
     """Run exists but has no eligible persisted result to review."""
+
+
+# Decisions copied from an earlier analysis start their note with this (and are not new decisions).
+CARRIED_NOTE = "Dibawa dari analisis sebelumnya"
 
 
 class RunReviewStore:
@@ -226,6 +230,70 @@ class RunReviewStore:
             "updated_by_user_id": review["updated_by_user_id"] if review else None,
             "history": events,
         }
+
+    def accuracy_by_week(self, weeks: int, today: date | None = None) -> dict[str, Any]:
+        """Verifiers' decisions per week: how many decided claims they found worth following up, per lane.
+
+        A claim counts once, in the week of its latest decision. Decisions carried over from an earlier analysis
+        are not counted again. "Belum bisa disimpulkan" is reported apart and is not a decision. Rules-version
+        changes are the dates the first analysis with a new action-policy version was created.
+        """
+        today = today or datetime.now(timezone.utc).date()
+        first_week = today - timedelta(days=today.weekday()) - timedelta(weeks=weeks - 1)
+        with self._connection() as connection:
+            events = connection.execute(
+                "SELECT run_id, case_id, occurred_at, new_outcome, note FROM run_case_review_events "
+                "WHERE event_type IN ('outcome_recorded','outcome_changed') ORDER BY occurred_at").fetchall()
+            latest: dict[tuple[str, str], tuple[str, str]] = {}
+            for row in events:
+                if (row["note"] or "").startswith(CARRIED_NOTE):
+                    continue
+                latest[(row["run_id"], row["case_id"])] = (row["occurred_at"], row["new_outcome"])
+            by_run: dict[str, list[str]] = {}
+            for run_id, case_id in latest:
+                by_run.setdefault(run_id, []).append(case_id)
+            lanes: dict[tuple[str, str], str] = {}
+            for run_id, case_ids in by_run.items():
+                try:
+                    found = stored_lanes(connection, run_id, case_ids)
+                except DatabaseError as exc:
+                    if not is_missing_table(exc):  # runs saved before case rows have no lanes to read
+                        raise
+                    found = {}
+                lanes.update({(run_id, case_id): lane for case_id, lane in found.items()})
+            try:
+                versions = connection.execute(
+                    "SELECT action_policy_version, MIN(created_at) AS first_seen FROM analysis_runs "
+                    "WHERE action_policy_version IS NOT NULL GROUP BY action_policy_version ORDER BY first_seen").fetchall()
+            except DatabaseError as exc:  # minimal legacy run tables carry no policy version: no change markers
+                if "action_policy_version" not in str(exc) and "created_at" not in str(exc):
+                    raise
+                connection.rollback()
+                versions = []
+        empty = {"decided": 0, "supported": 0, "not_supported": 0, "inconclusive": 0}
+        buckets = {(first_week + timedelta(weeks=index)).isoformat(): {**empty, "lanes": {}} for index in range(weeks)}
+        for key, (occurred_at, outcome) in latest.items():
+            day = date.fromisoformat(occurred_at[:10])
+            week = (day - timedelta(days=day.weekday())).isoformat()
+            if week not in buckets:
+                continue
+            bucket = buckets[week]
+            if outcome == "inconclusive":
+                bucket["inconclusive"] += 1
+                continue
+            supported = outcome == "signal_supported"
+            bucket["decided"] += 1
+            bucket["supported" if supported else "not_supported"] += 1
+            lane = bucket["lanes"].setdefault(lanes.get(key, "unknown"), {"decided": 0, "supported": 0})
+            lane["decided"] += 1
+            lane["supported"] += int(supported)
+        decided = sum(item["decided"] for item in buckets.values())
+        supported = sum(item["supported"] for item in buckets.values())
+        changes = [{"date": row["first_seen"][:10], "version": row["action_policy_version"]} for row in versions[1:]
+                   if row["first_seen"][:10] >= first_week.isoformat()]
+        return {"weeks": [{"week_start": week, **values} for week, values in buckets.items()],
+                "policy_changes": changes,
+                "totals": {"decided": decided, "supported": supported, "share": round(supported / decided, 4) if decided else None}}
 
     def list_reviews(self, run_id: str) -> list[dict]:
         """Current review state of every reviewed case in one run (cases without a row are pending)."""

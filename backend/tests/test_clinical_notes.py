@@ -342,3 +342,57 @@ def test_the_operator_cannot_ask_and_other_sources_are_never_read(noted_run, mon
                    headers={"X-CSRF-Token": ctx.verifier["cir_csrf"]})
     assert refused.status_code == 409 and refused.json()["error"]["code"] == "CLINICAL_AI_SAMPLE_DATA_NOT_ALLOWED"
     assert fake.calls == []
+
+
+# ---- explaining the claim: highlights, identical notes, the participant's visits
+
+def test_highlights_mark_only_wording_that_contradicts_the_claim():
+    note = "Pasien demam dengue, observasi 2x24 jam lalu pulang. Tanpa penyulit. Masuk kembali setelah pulang dari rawat inap."
+    spans = clinical_ai.note_highlights({"clinical_note": note, "claim_group": "A-4-10-III", "stay_days": 9})
+    # "masuk kembali" and "setelah pulang dari rawat" are two marks of the same kind.
+    assert list(dict.fromkeys(item["kind"] for item in spans)) == ["stay", "severity", "continuation"]
+    for item in spans:  # positions index the note as stored
+        assert note[item["start"]:item["end"]] == item["text"]
+    assert spans[0]["claim_value"] == "Data klaim: 9 hari" and spans[1]["claim_value"] == "INA-CBG keparahan III"
+    # Agreeing wording is not marked: two days billed as two days, a mild note under severity I.
+    assert clinical_ai.note_highlights({"clinical_note": "Observasi 2x24 jam. Tanpa penyulit.", "claim_group": "A-4-10-I",
+                                        "stay_days": 2}) == []
+
+
+def test_the_note_response_carries_highlights_for_the_stored_note(noted_run):
+    ctx = noted_run
+    body = call(ctx.app, "GET", _note_url(ctx, ctx.rows[10]), cookies=ctx.verifier).json()
+    assert isinstance(body["highlights"], list)
+    for item in body["highlights"]:
+        assert body["clinical_note"][item["start"]:item["end"]] == item["text"]
+
+
+def test_identical_notes_list_the_other_claims_without_participant_identity(noted_run):
+    ctx = noted_run
+    response = call(ctx.app, "GET", _note_url(ctx, ctx.rows[10], "note-matches"), cookies=ctx.verifier)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["available"] and body["total_claims"] == 3 and body["distinct_participants"] == 3
+    assert {item["case_id"] for item in body["matches"]} == {_case(ctx.rows[11]), _case(ctx.rows[12])}
+    assert all(item["lane"] in ("red", "yellow", "green") for item in body["matches"])
+    assert "150/90" in body["numbers"] and "36.8" in body["numbers"]
+    assert "participant_" not in response.text and "SYN00002" not in response.text  # no tokens, no participant numbers
+    # A claim with its own note has no matches.
+    alone = call(ctx.app, "GET", _note_url(ctx, ctx.rows[0], "note-matches"), cookies=ctx.verifier).json()
+    assert alone["total_claims"] == 0 and alone["matches"] == []
+
+
+def test_visits_list_the_participants_claims_in_order_without_identity(noted_run):
+    ctx = noted_run
+    owner = ctx.rows[0]["PSTV01"]
+    expected = sorted((row for row in ctx.rows if row["PSTV01"] == owner), key=lambda row: (row["FKL03"], row["FKL04"], _case(row)))
+    response = call(ctx.app, "GET", _note_url(ctx, ctx.rows[0], "visits"), cookies=ctx.verifier)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total_visits"] == len(expected) >= 2
+    assert [item["service_date"] for item in body["visits"]] == [row["FKL03"] for row in expected]
+    assert [item["current"] for item in body["visits"]].count(True) == 1
+    assert all(item["inpatient"] == (item["service_date"] != item["discharge_date"]) for item in body["visits"])
+    assert owner not in response.text and "participant_" not in response.text
+    # Reading needs the review permission.
+    assert call(ctx.app, "GET", _note_url(ctx, ctx.rows[0], "visits"), cookies=ctx.operator).status_code == 403

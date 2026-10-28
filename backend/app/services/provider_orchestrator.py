@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.analytics.action_policy import ActionPolicyConfig, evaluate_action_policy, get_action_policy_config
+from app.analytics.daily_activity import build_daily_activity
 from app.analytics.facility_groups import build_facility_groups
 from app.data_sources.providers import (
     CANONICAL_FEATURE_CONTRACT_VERSION,
@@ -29,6 +30,7 @@ def execute_provider_snapshot(
     snapshot["facility_groups"] = build_facility_groups(
         list(dataset.records), snapshot.get("cases") or {}, snapshot["action_policy"].get("cases") or {},
         dataset.source_metadata.get("category_labels") or {})
+    snapshot["daily_activity"] = build_daily_activity(list(dataset.records), snapshot["action_policy"].get("cases") or {})
     if stage_observer:
         stage_observer("action_policy_complete")
     return dataset, snapshot

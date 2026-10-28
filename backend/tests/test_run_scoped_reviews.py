@@ -272,3 +272,28 @@ def test_a_single_verifier_can_fill_every_review_step(review_env):
     body = audit.json()
     assert body["audit_details_visible"] is True
     assert body["audit_confirmations"][-1]["recorded_by_user_id"] == users["verifier"][0]["user_id"]
+
+
+def test_review_accuracy_counts_each_latest_decision_once_per_week(review_env):
+    app, run_db, _, users = review_env
+    lead = users["lead"][1]
+    for run_id, outcome in (("run-a", "signal_not_supported"), ("run-a", "signal_supported"), ("run-b", "signal_not_supported")):
+        response = call(app, "POST", review_url(run_id) + "/outcome", cookies=lead, payload={"review_outcome": outcome, "note": "Sintetis."})
+        assert response.status_code == 200, response.text
+    # A decision carried over from an earlier analysis is the same decision, not a new one.
+    with db_connection(run_db) as connection:
+        connection.execute(
+            "INSERT INTO run_case_review_events(event_id,review_id,run_id,case_id,actor_user_id,occurred_at,event_type,"
+            "previous_status,new_status,previous_outcome,new_outcome,note) SELECT 'evt-carried',review_id,'run-b',case_id,"
+            "'system',updated_at,'outcome_changed',NULL,NULL,NULL,'signal_supported','Dibawa dari analisis sebelumnya (uji).' "
+            "FROM run_case_reviews WHERE run_id='run-b'")
+    response = call(app, "GET", "/api/v1/runs/review-accuracy?weeks=4", cookies=users["verifier"][1])
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["weeks"]) == 4
+    this_week = body["weeks"][-1]
+    # run-a: the latest decision (supported) counts once; run-b: not supported (the carried event is ignored).
+    assert (this_week["decided"], this_week["supported"], this_week["not_supported"]) == (2, 1, 1)
+    assert body["totals"] == {"decided": 2, "supported": 1, "share": 0.5}
+    assert call(app, "GET", "/api/v1/runs/review-accuracy?weeks=2", cookies=lead).status_code == 400
+    assert call(app, "GET", "/api/v1/runs/review-accuracy", cookies=users["operator"][1]).status_code == 403

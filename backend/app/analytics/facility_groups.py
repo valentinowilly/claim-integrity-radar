@@ -48,6 +48,7 @@ def _label(key: tuple[str, ...], labels: Mapping[str, Mapping[str, str]]) -> dic
         "title": f"{named['facility_class']} · {named['facility_ownership']}",
         "region": f"{named['municipality_code']}, {named['province_code']}",
         "facility_type": named["facility_type"],
+        "province_code": key[GROUP_FIELDS.index("province_code")],  # for the province filter and the map
     }
 
 
@@ -212,25 +213,33 @@ def build_fairness(records: list[Mapping[str, Any]], lanes: Mapping[str, Mapping
         claims: Counter[str] = Counter()
         high: Counter[str] = Counter()
         medium: Counter[str] = Counter()
+        billed: dict[str, Decimal] = {}  # display only, as in build_exposure
+        groups: dict[str, set[tuple[str, ...]]] = {}
         for record in records:
             value = record.get(field)
             if value in (None, ""):
                 continue
             key = str(value)
             claims[key] += 1
+            groups.setdefault(key, set()).add(tuple(str(record.get(name) or "") for name in GROUP_FIELDS))
             lane = lane_of.get(record.get("case_id"))
             if lane == "red":
                 high[key] += 1
             elif lane == "yellow":
                 medium[key] += 1
+            amount = _amount(record)
+            if amount is not None:
+                billed[key] = billed.get(key, Decimal(0)) + (amount if lane in ("red", "yellow") else Decimal(0))
         rows = []
         for key, count in claims.items():
             if count < min_claims:
                 continue
             share = (high[key] + medium[key]) / count
-            rows.append({"label": (labels.get(field) or {}).get(key, key), "claims": count, "high": high[key],
+            rows.append({"label": (labels.get(field) or {}).get(key, key), "code": key, "claims": count, "high": high[key],
                          "medium": medium[key], "share": round(share, 5),
-                         "ratio_to_overall": round(share / overall, 2) if overall else None})
+                         "ratio_to_overall": round(share / overall, 2) if overall else None,
+                         "facility_groups": len(groups[key]),
+                         "billed_high_or_medium": int(billed[key]) if key in billed else None})
         rows.sort(key=lambda row: (-(row["ratio_to_overall"] or 0), -row["claims"], row["label"]))
         dimensions.append({"field": field, "title": title, "rows": rows,
                            "hidden_categories": sum(1 for count in claims.values() if count < min_claims)})

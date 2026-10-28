@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { MousePointerClick, Search } from "lucide-react";
+import { Clock3, MousePointerClick, Search } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/DataStates";
 import { Callout, LANES, LaneDot, formatCount, indicatorLabel, mlFeatureLabel, mlLevel, shortRef } from "../components/Display";
@@ -7,6 +7,8 @@ import { RunSelector, RunStateMessage, SourcePill } from "../components/Persiste
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { useAuth } from "../auth/AuthContext";
 import { CaseReviewPanel } from "./RunCaseReviewPage";
+import { ageText, ageTone, analysisAgeDays } from "../components/TodayBrief";
+import { ReviewShortcuts } from "../components/ReviewShortcuts";
 import {
   auditResultLabels, getRunAssignments, type CaseAssignment, getRunCases, getRunReviews, reviewOutcomeLabels, ruleFlaggedListedIds, runReviewStatusLabels,
   type Lane, type MlAnomaly, type RunCaseListResponse, type RunCaseQuery, type RunCaseSort, type RunReviewStatus, type RunReviewSummaryItem,
@@ -163,6 +165,7 @@ export default function CasesPage() {
               <div>
                 <h2>{laneTab === "ai" ? `${formatCount(aiOnly.length)} klaim` : pageData ? `${formatCount(pageData.total_matching)} klaim` : "Klaim ditandai"}</h2>
                 {reviewedCount !== null && <p data-testid="queue-review-progress">{formatCount(reviewedCount)} dari {formatCount(pageData?.total_cases ?? 0)} klaim sudah ditinjau</p>}
+                {reviewedCount !== null && <QueueAge createdAt={state.detail.run.created_at} unreviewed={(pageData?.total_cases ?? 0) - reviewedCount} />}
                 {reviewsFailed && <p>Status tinjauan tidak dapat dimuat; daftar klaim tetap ditampilkan.</p>}
               </div>
             </div>
@@ -231,13 +234,14 @@ export default function CasesPage() {
                 <button className="button button-secondary button-compact" disabled={page >= pageCount} onClick={() => updateList({ page: String(page + 1) })}>Berikutnya</button>
               </div>
             </div>}
+            <ReviewShortcuts />
             </>}
           </section>
           <div className="queue-detail">
             {selected && routeRunId && routeCaseId
               ? <CaseReviewPanel key={`${routeRunId}/${routeCaseId}`} runId={routeRunId} caseId={routeCaseId} backTo={`/cases${listSearch}`} onSaved={() => setReviewVersion(value => value + 1)} />
               : <section className="card detail-placeholder">
-                <MousePointerClick size={30} color="var(--brand)" style={{ justifySelf: "center" }} />
+                <MousePointerClick size={30} color="var(--brand-ink)" style={{ justifySelf: "center" }} />
                 <strong>Pilih klaim di kiri</strong>
                 <span>Rincian alasan dan formulir tinjauan akan tampil di sini.</span>
               </section>}
@@ -294,3 +298,12 @@ const QueueSearch = memo(function QueueSearch({ value, onSearch }: { value: stri
       placeholder="Cari nomor referensi klaim" autoComplete="off" spellCheck={false} />
   </label>;
 });
+
+/** How long this analysis's claims have waited: amber after a week, red after two weeks while claims are still unreviewed. */
+function QueueAge({ createdAt, unreviewed }: { createdAt: string; unreviewed: number }) {
+  const days = analysisAgeDays(createdAt);
+  const tone = ageTone(days, unreviewed);
+  return <span className={`queue-age tone-${tone}`} data-testid="queue-age" title="Klaim masuk antrean saat analisis dibuat.">
+    <Clock3 size={12} aria-hidden="true" />Antrean dibuat {ageText(days)}{unreviewed > 0 && days > 7 ? ` · ${formatCount(unreviewed)} belum ditinjau` : ""}
+  </span>;
+}

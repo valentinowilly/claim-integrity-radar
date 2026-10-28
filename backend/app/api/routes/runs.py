@@ -6,7 +6,7 @@ from app.analytics.action_policy import get_action_policy_config
 from app.api.errors import ApiError
 from app.api.routes.sources import job_supersedes, latest_fkrtl_validation, latest_fkrtl_validation_job
 from app.data_sources.fkrtl_local_source import FKRTL_SOURCE_TYPE, FkrtlSourceUnavailable, current_source_fingerprint
-from app.schemas.runs import RunCaseListResponse, RunCreateRequest, RunCreateResponse, RunDetailResponse, RunListResponse
+from app.schemas.runs import RunCaseListResponse, RunCreateRequest, RunCreateResponse, RunDetailResponse, RunListResponse, RunTrendResponse
 from app.security.auth import Principal
 from app.security.dependencies import require_csrf, require_permission
 from app.services.run_results import MAX_PAGE_SIZE, SORT_KEYS
@@ -150,6 +150,32 @@ def list_runs(request: Request, limit: int = 50, offset: int = 0, batch_id: str 
         raise ApiError(503, "RUN_STORAGE_UNAVAILABLE", str(exc), {}) from exc
     return {"items": [_manifest(item) for item in data["items"]], "total_items": data["total_items"],
             "limit": limit, "offset": offset, "availability": "available"}
+
+
+@router.get("/trend", response_model=RunTrendResponse)
+def run_trend(request: Request, limit: int = 8,
+              _principal: Principal = Depends(require_permission("runs:results:read"))):
+    """Lane counts and billed value of the latest listed runs, for comparisons on the overview."""
+    if not 2 <= limit <= 30:
+        raise ApiError(400, "INVALID_FILTER", "limit harus 2-30.", {})
+    try:
+        items = AnalysisRunStore(request.app.state.run_db_path).run_trend(limit)
+    except RunStorageError as exc:
+        raise ApiError(503, "RUN_STORAGE_UNAVAILABLE", str(exc), {}) from exc
+    return {"items": items, "availability": "available"}
+
+
+@router.get("/review-accuracy")
+def review_accuracy(request: Request, weeks: int = 12,
+                    _principal: Principal = Depends(require_permission("review:read"))):
+    """Weekly share of decided claims that verifiers found worth following up, with rules-version changes."""
+    if not 4 <= weeks <= 52:
+        raise ApiError(400, "INVALID_FILTER", "weeks harus 4-52.", {})
+    try:
+        data = RunReviewStore(request.app.state.run_db_path).accuracy_by_week(weeks)
+    except RunReviewStorageError as exc:
+        raise ApiError(503, "REVIEW_STORAGE_UNAVAILABLE", str(exc), {}) from exc
+    return {"availability": "available", **data}
 
 
 def _stored_run(request: Request, run_id: str) -> dict:

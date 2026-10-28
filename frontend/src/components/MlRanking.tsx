@@ -23,7 +23,7 @@ export function MlRankingSection({ runId, ml, ruleCaseIds }: { runId: string; ml
     <section className="card ml-ranking">
       <div className="card-head">
         <div>
-          <h2><Sparkles size={16} style={{ verticalAlign: "-2px", color: "var(--brand)" }} /> Urutan klaim paling tidak biasa menurut AI</h2>
+          <h2><Sparkles size={16} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> Urutan klaim paling tidak biasa menurut AI</h2>
           <p>
             {ml.records_scored > 0
               ? `AI mengurutkan ${formatCount(ml.records_scored)} klaim dari yang paling tidak biasa sampai yang paling wajar.`

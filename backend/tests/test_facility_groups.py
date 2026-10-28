@@ -62,6 +62,18 @@ def test_fairness_compares_each_region_with_the_overall_share():
     assert province["rows"][0]["ratio_to_overall"] == 2.0 and province["rows"][1]["ratio_to_overall"] == 0.0
 
 
+def test_province_rows_carry_the_code_billed_value_and_group_count_for_the_map():
+    records = ([{**_record(f"a{i}"), "provider_billed_amount_unverified": "1000"} for i in range(40)]
+               + [{**_record(f"b{i}"), "province_code": "11", "facility_class": "8"} for i in range(40)])
+    lanes = {"a0": {"lane": "red"}, "a1": {"lane": "yellow"}, "a2": {"lane": "green"}}
+    fairness = build_facility_groups(records, {}, lanes, {})["fairness"]
+    rows = {row["code"]: row for row in next(item for item in fairness["dimensions"] if item["field"] == "province_code")["rows"]}
+    assert rows["33"]["billed_high_or_medium"] == 2000  # only the high and medium-risk claims
+    assert rows["11"]["billed_high_or_medium"] is None  # no amounts in that province
+    assert rows["33"]["facility_groups"] == 1 and rows["11"]["facility_groups"] == 1
+    assert {group["province_code"] for group in build_facility_groups(records, {}, lanes, {}, min_claims=1)["groups"]} == {"33", "11"}
+
+
 
 def test_exposure_sums_billed_value_per_risk_level_without_touching_lanes():
     records = [{**_record("a"), "provider_billed_amount_unverified": "1000000"},

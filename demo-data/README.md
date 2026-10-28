@@ -20,9 +20,9 @@ Dibuat oleh `backend/scripts/make_bpjs_demo_datasets.py` dengan seed tetap.
 
 | File | Klaim | Cerita yang dibuktikan |
 |---|---|---|
-| `demo-1-faskes-jujur.csv` | 11.698 (24 RS) | Tanpa kecurangan, termasuk klaim jujur yang mirip pola curang (layanan rutin bervolume tinggi, terapi mingguan). Tidak ada RS berisiko tinggi. |
-| `demo-2-kasus-kpk.csv` | 11.752 (24 RS) | Satu RS menagih kunjungan dua kali, menaikkan keparahan INA-CBG klaim yang sama, dan memperpanjang lama rawat. RS itu langsung di peringkat 1. |
-| `demo-3-operasional.csv` | 28.918 (40 RS) | Sebulan operasional, sekitar 1,6% klaim curang (470 klaim di 10 RS) dalam enam modus (tagihan ganda, *upcoding*, lama rawat diperpanjang, pemecahan rawat inap, klaim salinan, tambahan khusus fiktif), ditambah klaim jujur yang mirip. Dipakai juga untuk halaman Kinerja Sistem. |
+| `demo-1-faskes-jujur.csv` | 11.698 (24 RS, 14 provinsi) | Tanpa kecurangan, termasuk klaim jujur yang mirip pola curang (layanan rutin bervolume tinggi, terapi mingguan). Tidak ada RS berisiko tinggi. |
+| `demo-2-kasus-kpk.csv` | 11.752 (24 RS, 14 provinsi) | Satu RS menagih kunjungan dua kali, menaikkan keparahan INA-CBG klaim yang sama, dan memperpanjang lama rawat. RS itu langsung di peringkat 1. |
+| `demo-3-operasional.csv` | 28.932 (40 RS, 17 provinsi) | Sebulan operasional, sekitar 1,7% klaim curang (495 klaim di 10 RS) dalam enam modus (tagihan ganda, *upcoding*, lama rawat diperpanjang, pemecahan rawat inap, klaim salinan, tambahan khusus fiktif), ditambah klaim jujur yang mirip. Dua provinsi tampil di atas 2× rata-rata nasional pada Peta Risiko. |
 | `harian/klaim-YYYY-MM-DD.csv` | 37 file | demo-3 dipecah per tanggal masuk, untuk peragaan pengambilan otomatis dari folder kiriman. |
 
 Cara pakai: Data & Analisis → Unggah file CSV → pilih file → sistem memeriksa lalu menganalisis.

@@ -319,13 +319,19 @@ STAY_PATTERNS = (
 )
 
 
-def stay_in_note(note: str) -> int | None:
+def _stay_match(note: str) -> tuple[int, int, int] | None:
+    """(days, start, end) of the first phrase about the stay in a lower-case note."""
     for pattern in STAY_PATTERNS:
         match = pattern.search(note)
         if match:
             token = match.group(1)
-            return int(token) if token.isdigit() else NUMBER_WORDS[token]
+            return (int(token) if token.isdigit() else NUMBER_WORDS[token]), match.start(), match.end()
     return None
+
+
+def stay_in_note(note: str) -> int | None:
+    found = _stay_match(note)
+    return found[0] if found else None
 
 
 def _severity(claim_group: str | None) -> str | None:
@@ -349,6 +355,40 @@ def text_contradictions(claim: dict[str, Any]) -> list[tuple[str, str, str]]:
         found.append(("continuation", "Catatan menyebut lanjutan perawatan sebelumnya: mungkin satu episode yang ditagih terpisah.",
                       "Resume medis episode sebelumnya."))
     return found
+
+
+def note_highlights(claim: dict[str, Any]) -> list[dict[str, Any]]:
+    """Where the note's own wording contradicts the claim, as positions in the note for the reviewer to see.
+
+    The same checks as ``text_contradictions``; positions index the note exactly as stored. Only contradictions are
+    marked: wording that agrees with the claim is not highlighted.
+    """
+    original = claim.get("clinical_note") or ""
+    note = original.lower()
+    if len(note) != len(original):  # positions would shift (rare Unicode case folding)
+        return []
+    severity = _severity(claim.get("claim_group"))
+    stay = claim.get("stay_days")
+    spans: list[dict[str, Any]] = []
+
+    def add(start: int, end: int, kind: str, reason: str, claim_value: str) -> None:
+        if not any(start < item["end"] and item["start"] < end for item in spans):
+            spans.append({"start": start, "end": end, "text": original[start:end], "kind": kind,
+                          "reason": reason, "claim_value": claim_value})
+
+    found = _stay_match(note)
+    if found and stay is not None and abs(found[0] - stay) >= STAY_TOLERANCE_DAYS:
+        add(found[1], found[2], "stay", f"Catatan menyebut {found[0]} hari dirawat.", f"Data klaim: {stay} hari")
+    if severity in ("II", "III"):
+        for phrase in MILD_PHRASES:
+            for match in re.finditer(re.escape(phrase), note):
+                add(match.start(), match.end(), "severity", "Catatan menggambarkan kondisi ringan atau tanpa penyerta.",
+                    f"INA-CBG keparahan {severity}")
+    for phrase in CONTINUATION_PHRASES:
+        for match in re.finditer(re.escape(phrase), note):
+            add(match.start(), match.end(), "continuation", "Catatan menyebut lanjutan dari perawatan sebelumnya.",
+                "Ditagih sebagai episode baru")
+    return sorted(spans, key=lambda item: item["start"])
 
 
 def fallback_reading(claim: dict[str, Any]) -> ClinicalVerdict:

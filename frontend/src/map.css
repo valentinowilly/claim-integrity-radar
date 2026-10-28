@@ -1,0 +1,139 @@
+/* ==========================================================================
+   Peta Risiko: peta provinsi (satu hue hangat, terang ke pekat), panel provinsi,
+   tabel semua provinsi. Tema gelap memakai langkah sendiri dari hue yang sama.
+   ========================================================================== */
+:root {
+  --map-0: #fde8d4; --map-1: #fbc596; --map-2: #f39a5b; --map-3: #df6a30; --map-4: #b2401c;
+  --map-none: #e4e9e6; --map-edge: #ffffff; --map-hover: #0f172a;
+}
+:root[data-theme="dark"] {
+  --map-0: #3a2619; --map-1: #6b3a1f; --map-2: #a34f22; --map-3: #d96a2b; --map-4: #f8a05e;
+  --map-none: #1c2724; --map-edge: #121c19; --map-hover: #e6edea;
+}
+
+.map-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; }
+@media (max-width: 760px) { .map-stats { grid-template-columns: minmax(0, 1fr); } }
+.map-stat { display: flex; gap: 14px; align-items: center; padding: 16px 18px; }
+.map-stat span:not(.map-stat-icon) { display: block; color: var(--text-muted); font-size: 13px; font-weight: 600; }
+.map-stat strong { display: block; margin-top: 2px; color: var(--text-primary); font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+.map-stat strong small { color: var(--text-faint); font-size: 14px; font-weight: 500; }
+.map-stat-icon { display: inline-grid; flex: none; width: 40px; height: 40px; place-items: center; border-radius: 12px;
+  color: var(--brand-ink); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-ring); }
+.map-stat-icon.tone-warn { color: var(--lane-yellow); background: var(--lane-yellow-soft); box-shadow: inset 0 0 0 1px var(--lane-yellow-line); }
+
+.map-card .card-head { flex-wrap: wrap; gap: 10px; }
+.risk-map { display: grid; gap: 14px; }
+.risk-map-canvas { position: relative; }
+.risk-map-canvas svg { display: block; width: 100%; height: auto; overflow: visible; }
+.risk-map-province { stroke: var(--map-edge); stroke-width: 1px; vector-effect: non-scaling-stroke; cursor: pointer;
+  transition: fill 200ms ease, opacity 150ms ease; outline: none; }
+.risk-map-province.step-0 { fill: var(--map-0); } .risk-map-province.step-1 { fill: var(--map-1); }
+.risk-map-province.step-2 { fill: var(--map-2); } .risk-map-province.step-3 { fill: var(--map-3); }
+.risk-map-province.step-4 { fill: var(--map-4); } .risk-map-province.no-data { fill: var(--map-none); }
+.risk-map-province:hover, .risk-map-province:focus-visible { stroke: var(--map-hover); stroke-width: 1.5px; }
+.risk-map-province.selected { stroke: var(--map-hover); stroke-width: 2.5px; }
+.risk-map-canvas svg:has(.selected) .risk-map-province:not(.selected) { opacity: 0.55; }
+
+.risk-map-tip { position: absolute; z-index: 5; display: grid; gap: 6px; min-width: 210px; max-width: 260px; padding: 12px 14px;
+  border: 1px solid var(--border-subtle); border-radius: 14px; color: var(--text-primary); background: var(--glass-surface);
+  backdrop-filter: blur(8px); box-shadow: 0 18px 36px -18px rgb(0 0 0 / 0.45); pointer-events: none; font-size: 12.5px; }
+.risk-map-tip strong { font-size: 14px; }
+.risk-map-tip-value { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.risk-map-tip-value small { margin-left: 6px; color: var(--text-muted); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+.risk-map-tip dl { display: grid; gap: 3px; margin: 0; }
+.risk-map-tip dl div { display: flex; justify-content: space-between; gap: 12px; }
+.risk-map-tip dt { color: var(--text-muted); }
+.risk-map-tip dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.risk-map-tip-hint, .risk-map-tip-empty { color: var(--text-muted); }
+
+.risk-map-legend { display: grid; gap: 8px; }
+.risk-map-legend-title { color: var(--text-muted); font-size: 12.5px; font-weight: 600; }
+.risk-map-legend-scale { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.risk-map-legend-step { display: inline-flex; gap: 6px; align-items: center; color: var(--text-secondary); }
+.risk-map-legend-step small { font-size: 12px; font-variant-numeric: tabular-nums; }
+.risk-map-legend-step i { display: block; width: 22px; height: 12px; border-radius: 4px; }
+.risk-map-legend-step i.step-0 { background: var(--map-0); } .risk-map-legend-step i.step-1 { background: var(--map-1); }
+.risk-map-legend-step i.step-2 { background: var(--map-2); } .risk-map-legend-step i.step-3 { background: var(--map-3); }
+.risk-map-legend-step i.step-4 { background: var(--map-4); }
+.risk-map-legend-step i.no-data { background: var(--map-none); box-shadow: inset 0 0 0 1px var(--border-medium); }
+
+/* Side panel: the top provinces, or the chosen province. */
+.map-side { display: flex; flex-direction: column; }
+.map-top { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.map-top button { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%;
+  padding: 10px 12px; border: 0; border-radius: 12px; color: inherit; background: var(--surface-muted); font: inherit; text-align: left; cursor: pointer;
+  transition: background 150ms ease; }
+.map-top button:hover { background: var(--accent-soft); }
+.map-top button:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.map-top-rank { display: inline-grid; width: 26px; height: 26px; place-items: center; border-radius: 8px; color: var(--text-muted);
+  background: var(--surface-bg); font-size: 12px; font-weight: 700; }
+.map-top-main { display: grid; gap: 6px; min-width: 0; }
+.map-top-main strong { overflow: hidden; font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
+.map-top-bar { display: block; height: 6px; overflow: hidden; border-radius: 999px; background: var(--border-subtle); }
+.map-top-bar i { display: block; height: 100%; border-radius: 999px; background: var(--map-3); }
+.map-top-value { color: var(--text-primary); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.map-province { display: flex; flex-direction: column; gap: 14px; height: 100%; }
+.map-province-head { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
+.map-province-head h2 { margin: 2px 0 0; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.icon-close { display: inline-grid; flex: none; width: 32px; height: 32px; place-items: center; padding: 0; border: 1px solid var(--border-subtle);
+  border-radius: 999px; color: var(--text-muted); background: var(--surface-bg); cursor: pointer; }
+.icon-close:hover { color: var(--text-primary); }
+.map-province-share { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; padding: 14px; border-radius: 14px; background: var(--surface-muted); }
+.map-province-share strong { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; }
+.map-province-share > span:not(.status-pill) { color: var(--text-muted); font-size: 12.5px; }
+.map-province-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.map-province-facts div { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 12px; }
+.map-province-facts div.wide { grid-column: 1 / -1; }
+.map-province-facts dt { color: var(--text-muted); font-size: 12px; }
+.map-province-facts dd { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.map-province-sub { margin: 4px 0 0; font-size: 14px; font-weight: 700; }
+.map-province-groups { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.map-province-groups a { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 12px;
+  border: 1px solid var(--border-subtle); border-radius: 12px; color: inherit; text-decoration: none; transition: border-color 150ms ease; }
+.map-province-groups a:hover { border-color: var(--brand-line); }
+.map-province-groups a > span:first-child { display: grid; gap: 2px; min-width: 0; }
+.map-province-groups strong { font-size: 13.5px; }
+.map-province-groups small { color: var(--text-muted); font-size: 12px; }
+.map-province-cta { justify-content: center; margin-top: auto; }
+
+.map-table tr.is-selected td { background: var(--accent-soft) !important; }
+.link-button { padding: 0; border: 0; color: var(--brand-ink); background: none; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.link-button:hover { text-decoration: underline; }
+.map-attribution { margin: 10px 0 0; color: var(--text-faint); font-size: 11.5px; }
+
+/* Faskes: the province filter that comes from the map. */
+.filter-chip-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+.filter-chip { display: inline-flex; gap: 6px; align-items: center; padding: 5px 6px 5px 12px; border: 1px solid var(--brand-line);
+  border-radius: 999px; color: var(--brand-ink-strong); background: var(--accent-soft); font-size: 13px; font-weight: 600; }
+.filter-chip button { display: inline-grid; width: 22px; height: 22px; place-items: center; padding: 0; border: 0; border-radius: 999px;
+  color: inherit; background: transparent; cursor: pointer; }
+.filter-chip button:hover { background: var(--accent-ring); }
+.fine-link { color: var(--brand-ink); font-size: 13px; font-weight: 600; }
+
+/* Dark: provinces without data stay visible as land; legend swatches get an outline. */
+:root[data-theme="dark"] { --map-none: #26332e; --map-edge: #0f1815; }
+:root[data-theme="dark"] .risk-map-legend-step i { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12); }
+/* The map keeps its own height when the province panel is taller. */
+.dash-grid > .map-card { align-self: start; }
+
+/* Controls: the measure and the view side by side, wrapping on narrow screens. */
+.map-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.view-switch button { display: inline-flex; gap: 6px; align-items: center; }
+
+/* Map labels: names of the darkest provinces, with a halo so they read over any fill. */
+.risk-map-labels text { fill: var(--text-primary); font-size: 17px; font-weight: 700; paint-order: stroke; stroke: var(--surface-bg);
+  stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+
+/* Tiles: one rounded square per province, name and value inside. */
+.risk-map-canvas.view-tile svg { max-height: 520px; }
+.risk-map-tile rect.risk-map-province { stroke-width: 0; }
+.risk-map-tile rect.risk-map-province:hover, .risk-map-tile rect.risk-map-province:focus-visible { stroke-width: 2px; }
+.risk-map-tile rect.risk-map-province.selected { stroke-width: 3px; }
+.risk-map-tile text { pointer-events: none; fill: var(--text-primary); }
+/* Text on the fills: white only on the darkest light-theme step; dark text on the brightest dark-theme steps (all >= 4.5:1). */
+:root:not([data-theme="dark"]) .risk-map-tile.tile-step-4 text { fill: #ffffff; }
+:root[data-theme="dark"] .risk-map-tile.tile-step-3 text, :root[data-theme="dark"] .risk-map-tile.tile-step-4 text { fill: #1a0f08; }
+.risk-map-tile-name { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; }
+.risk-map-tile-value { font-size: 14px; font-weight: 600; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.risk-map-canvas svg:has(.selected) .risk-map-tile:not(:has(.selected)) text { opacity: 0.55; }

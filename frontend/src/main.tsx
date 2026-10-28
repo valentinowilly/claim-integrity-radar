@@ -10,6 +10,10 @@ import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import "./styles.css";
 import "./ui.css";
+import "./theme.css";
+import "./map.css";
+import "./explain.css";
+import "./theme/theme";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

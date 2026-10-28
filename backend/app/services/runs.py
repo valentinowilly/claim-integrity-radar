@@ -35,7 +35,7 @@ from app.services.provider_orchestrator import execute_provider_snapshot
 from app.services.batches import BatchStorageError, BatchStore
 from app.services.run_results import (
     CASE_ROWS_SCHEMA, case_page, case_view, has_case_rows, is_missing, stored_case_page, stored_case_view, stored_result,
-    stored_summary, summary_view, write_case_rows,
+    stored_lanes, stored_summary, summary_view, write_case_rows,
 )
 
 
@@ -214,6 +214,20 @@ def _execution_configuration(snapshot: Mapping[str, Any], action_policy: ActionP
         "length_of_stay": {
             key: (snapshot.get("length_of_stay") or {}).get(key) for key in ("version", "method")
         },
+    }
+
+
+def _trend_numbers(summary: Any) -> dict[str, Any]:
+    empty = {"records_considered": None, "lane_counts": None, "billed_high_or_medium": None}
+    if not isinstance(summary, Mapping):
+        return empty
+    lanes = (summary.get("action_policy") or {}).get("lane_counts")
+    exposure = (summary.get("facility_groups") or {}).get("exposure") or {}
+    records = summary.get("records_considered")
+    return {
+        "records_considered": records if isinstance(records, int) else None,
+        "lane_counts": {lane: int(lanes.get(lane) or 0) for lane in ("red", "yellow", "green")} if isinstance(lanes, Mapping) else None,
+        "billed_high_or_medium": exposure.get("billed_high_or_medium") if exposure.get("status") == "available" else None,
     }
 
 
@@ -567,6 +581,31 @@ class AnalysisRunStore:
                 (*args, limit, offset),
             ).fetchall()
         return {"items": [self._manifest(row) for row in rows], "total_items": total}
+
+    def case_lanes(self, run_id: str, case_ids: list[str]) -> dict[str, str]:
+        """Lanes of some flagged claims of a run (empty for runs saved before case rows were stored)."""
+        if not case_ids:
+            return {}
+        with self._connection() as connection:
+            return stored_lanes(connection, run_id, case_ids)
+
+    def run_trend(self, limit: int) -> list[dict[str, Any]]:
+        """Headline numbers of the latest listed runs, oldest first, read from the stored summaries.
+
+        Runs saved before summaries were stored (or without a result) carry no counts; they are listed with
+        ``null`` values instead of being parsed in full.
+        """
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT run_id, created_at, source_type FROM analysis_runs WHERE execution_status IN ('completed','partial')"
+                " AND run_id NOT IN (SELECT run_id FROM analysis_run_archives) ORDER BY created_at DESC, run_id DESC LIMIT ?",
+                (limit,)).fetchall()
+            items = []
+            for row in rows:
+                summary = stored_summary(connection, row["run_id"])
+                items.append({"run_id": row["run_id"], "created_at": row["created_at"], "source_type": row["source_type"],
+                              **_trend_numbers(summary)})
+        return list(reversed(items))
 
     def archive_run(self, run_id: str, actor_user_id: str) -> None:
         """Hide a finished run from the history; its result, reviews and audit records stay intact."""

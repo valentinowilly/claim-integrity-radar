@@ -301,6 +301,21 @@ def has_case_rows(connection: sqlite3.Connection, run_id: str) -> bool:
         raise
 
 
+def stored_lanes(connection: sqlite3.Connection, run_id: str, case_ids: list[str]) -> dict[str, str]:
+    """Lanes of the given flagged claims of a run, read from its case rows (claims without a row are absent)."""
+    lanes: dict[str, str] = {}
+    for start in range(0, len(case_ids), 200):
+        chunk = case_ids[start:start + 200]
+        rows = connection.execute(
+            f"SELECT case_id, lane_json FROM analysis_run_cases WHERE run_id=? AND case_id IN ({','.join('?' * len(chunk))})",
+            (run_id, *chunk)).fetchall()
+        for row in rows:
+            lane = (json.loads(row[1]) or {}).get("lane") if row[1] else None
+            if isinstance(lane, str):
+                lanes[row[0]] = lane
+    return lanes
+
+
 def stored_summary(connection: sqlite3.Connection, run_id: str) -> Any:
     row = connection.execute("SELECT summary_json FROM analysis_run_result_views WHERE run_id=?", (run_id,)).fetchone()
     return json.loads(row[0]) if row else None

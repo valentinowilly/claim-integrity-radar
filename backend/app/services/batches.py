@@ -389,6 +389,12 @@ class BatchStore:
                                      (batch_id, case_id)).fetchone()
         return json.loads(row["record_json"]) if row is not None else None
 
+    def batch_records(self, batch_id: str) -> list[dict[str, Any]]:
+        """All stored canonical records of one uploaded file (internal use only; never serialized as is)."""
+        with self._connection() as connection:
+            rows = connection.execute("SELECT record_json FROM data_batch_records WHERE batch_id=?", (batch_id,)).fetchall()
+        return [json.loads(row["record_json"]) for row in rows]
+
     def get_execution_input(self, batch_id: str) -> dict[str, Any] | None:
         """Load a ready batch and its normalized feature rows for internal execution only.
 

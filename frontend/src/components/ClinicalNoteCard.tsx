@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, ClipboardCheck, FileText, Sparkles } from "lucide-react";
-import { getClinicalNote, requestClinicalAnalysis, type ClinicalAnalysis, type ClinicalNoteResponse, type ClinicalVerdictCode } from "../api/client";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowRight, CheckCircle2, ClipboardCheck, Copy, FileText, Sparkles, TriangleAlert } from "lucide-react";
+import {
+  getClinicalNote, getNoteMatches, requestClinicalAnalysis, type ClinicalAnalysis, type ClinicalNoteResponse, type ClinicalVerdictCode,
+  type NoteHighlight, type NoteMatchesResponse,
+} from "../api/client";
 import { useNotify } from "../notifications/NotificationCenter";
-import { formatDateTime, shortRef } from "./Display";
+import { LANES, LaneDot, formatCount, formatDate, formatDateTime, shortRef } from "./Display";
+import { RunCandidateLink } from "./PersistedRunWorkspace";
 
 const VERDICTS: Record<ClinicalVerdictCode, { label: string; headline: string; tone: string }> = {
   sesuai: { label: "Sesuai tagihan", headline: "Catatan klinis mendukung tagihan", tone: "good" },
@@ -61,6 +65,37 @@ export function noteRows(note: string): NoteRow[] {
   return rows.sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label));
 }
 
+// ---- highlights: wording that contradicts the claim ----------------------------------------------
+const MARK_KINDS: Record<NoteHighlight["kind"], string> = { stay: "Lama rawat", severity: "Keparahan", continuation: "Lanjutan perawatan" };
+
+/** Marks every occurrence of the highlighted phrases in a (re-spaced) piece of the note. */
+function markPhrases(text: string, marks: NoteHighlight[]): ReactNode {
+  if (!marks.length) return text;
+  const lower = text.toLowerCase();
+  const ranges: Array<{ start: number; end: number; mark: NoteHighlight }> = [];
+  for (const mark of marks) {
+    const needle = mark.text.replace(/\s+/g, " ").toLowerCase();
+    for (let at = lower.indexOf(needle); needle && at >= 0; at = lower.indexOf(needle, at + needle.length)) {
+      if (!ranges.some(range => at < range.end && range.start < at + needle.length)) ranges.push({ start: at, end: at + needle.length, mark });
+    }
+  }
+  return slices(text, ranges.sort((a, b) => a.start - b.start));
+}
+
+function slices(text: string, ranges: Array<{ start: number; end: number; mark: NoteHighlight }>): ReactNode {
+  if (!ranges.length) return text;
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  ranges.forEach((range, index) => {
+    if (range.start > cursor) parts.push(text.slice(cursor, range.start));
+    parts.push(<mark key={index} className={`note-mark kind-${range.mark.kind}`} title={`${range.mark.reason} ${range.mark.claim_value}.`}>
+      {text.slice(range.start, range.end)}</mark>);
+    cursor = range.end;
+  });
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
+}
+
 // ---- what the AI read, against the claim ---------------------------------------------------------
 type Fact = { label: string; note: string; claim?: string; mismatch?: boolean };
 
@@ -84,7 +119,8 @@ function readFacts(facts: NonNullable<ClinicalAnalysis["fakta_catatan"]>, claim:
       mismatch: severeBilled && facts.komplikasi_atau_komorbid === "tidak" },
     { label: "Lama rawat", note: stated === null ? "Tidak disebut" : `${stated} hari`,
       claim: stay === null ? undefined : stay === 0 ? "Rawat jalan" : `${stay} hari`,
-      mismatch: stated !== null && stay !== null && stay >= 1 && stated !== stay },
+      // One day apart is how days are counted (admission day or nights), as in the server's reading.
+      mismatch: stated !== null && stay !== null && stay >= 1 && Math.abs(stated - stay) >= 2 },
   ];
   if (facts.menyebut_lanjutan_perawatan_sebelumnya) list.push({ label: "Riwayat", note: "Lanjutan rawat inap sebelumnya", mismatch: true });
   return list;
@@ -96,13 +132,21 @@ function codeWithName(code: string | null, name: string | null): string {
 }
 
 /** The claim's clinical note and the AI's reading of it next to the billed codes. */
-export function ClinicalNoteCard({ runId, caseId, canAsk }: { runId: string; caseId: string; canAsk: boolean }) {
+export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded }: {
+  runId: string; caseId: string; canAsk: boolean; onLoaded?: (hasNote: boolean) => void;
+}) {
   const notify = useNotify();
   const [data, setData] = useState<ClinicalNoteResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const reported = useRef(onLoaded);
+  reported.current = onLoaded;
   const load = useCallback(async (signal?: AbortSignal) => {
-    try { setData(await getClinicalNote(runId, caseId, signal)); } catch { if (!signal?.aborted) setData(null); }
+    try {
+      const fresh = await getClinicalNote(runId, caseId, signal);
+      setData(fresh);
+      reported.current?.(Boolean(fresh.clinical_note));
+    } catch { if (!signal?.aborted) { setData(null); reported.current?.(false); } }
   }, [runId, caseId]);
   useEffect(() => {
     const controller = new AbortController();
@@ -115,6 +159,7 @@ export function ClinicalNoteCard({ runId, caseId, canAsk }: { runId: string; cas
   if (!data?.clinical_note) return null;
   const analysis = data.analysis;
   const rows = noteRows(data.clinical_note);
+  const marks = data.highlights ?? [];
 
   async function ask() {
     if (busy) return;
@@ -142,15 +187,26 @@ export function ClinicalNoteCard({ runId, caseId, canAsk }: { runId: string; cas
     <dl className="clinical-note-rows" data-testid="clinical-note-rows">
       {rows.map(row => <div key={row.label} className="clinical-note-row">
         <dt>{row.label}</dt>
-        <dd>{row.text && <span>{row.text}</span>}
+        <dd>{row.text && <span>{markPhrases(row.text, marks)}</span>}
           {row.chips && <span className="clinical-chips">{row.chips.map(chip => <span key={chip} className="clinical-chip">{chip}</span>)}</span>}</dd>
       </div>)}
     </dl>
-    <details className="clinical-note-raw"><summary>Lihat teks asli</summary><p className="clinical-note-text">{data.clinical_note}</p></details>
+    {marks.length > 0 && <div className="note-conflicts" data-testid="note-conflicts">
+      <strong><TriangleAlert size={15} aria-hidden="true" />Bertentangan dengan data klaim</strong>
+      <ul>{marks.map(mark => <li key={`${mark.start}-${mark.kind}`}>
+        <span className={`note-kind kind-${mark.kind}`}>{MARK_KINDS[mark.kind]}</span>
+        <q>{mark.text}</q>
+        <ArrowRight size={14} aria-hidden="true" />
+        <span className="note-claim-value">{mark.claim_value}</span>
+      </li>)}</ul>
+    </div>}
+    <details className="clinical-note-raw"><summary>Lihat teks asli</summary>
+      <p className="clinical-note-text">{slices(data.clinical_note, marks.map(mark => ({ start: mark.start, end: mark.end, mark })))}</p></details>
+    <NoteMatches runId={runId} caseId={caseId} />
 
     <div className="clinical-ai" data-testid="clinical-ai">
       <div className="clinical-ai-head">
-        <div><strong><Sparkles size={15} style={{ verticalAlign: "-2px", color: "var(--brand)" }} /> Pembacaan AI</strong>
+        <div><strong><Sparkles size={15} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> Pembacaan AI</strong>
           <span className="fine-print">{data.ai_configured
             ? "AI membaca catatan ini lalu mencocokkannya dengan diagnosis, tingkat keparahan, dan lama rawat yang ditagihkan."
             : "Layanan AI sedang tidak aktif; pembacaan memakai pemeriksaan teks otomatis."}</span></div>
@@ -191,4 +247,38 @@ export function ClinicalNoteCard({ runId, caseId, canAsk }: { runId: string; cas
       <p className="ai-meta">Hasil pembacaan adalah alat bantu. Keputusan tetap pada verifikator dan tidak mengubah tingkat risiko klaim.</p>
     </div>
   </section>;
+}
+
+/** Other claims of the same file whose note is identical word for word: different patients, one note. */
+function NoteMatches({ runId, caseId }: { runId: string; caseId: string }) {
+  const [data, setData] = useState<NoteMatchesResponse | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setData(null);
+    getNoteMatches(runId, caseId, controller.signal).then(setData).catch(() => undefined);
+    return () => controller.abort();
+  }, [runId, caseId]);
+  if (!data?.available || data.total_claims < 2) return null;
+  return <div className="note-matches" data-testid="note-matches">
+    <div className="note-matches-head">
+      <span className="note-matches-icon"><Copy size={16} aria-hidden="true" /></span>
+      <div><strong>Catatan ini sama persis dengan {formatCount(data.total_claims - 1)} klaim lain</strong>
+        <span>{formatCount(data.distinct_participants)} peserta berbeda, teks dan angka pemeriksaan identik kata demi kata.</span></div>
+    </div>
+    {data.numbers.length > 0 && <div className="note-matches-numbers">
+      <span>Angka yang sama persis</span>
+      {data.numbers.slice(0, 10).map(number => <code key={number}>{number}</code>)}
+    </div>}
+    <table className="note-matches-table">
+      <thead><tr><th>Klaim</th><th>Tanggal masuk</th><th>Diagnosis</th><th>INA-CBG</th><th>Tingkat</th></tr></thead>
+      <tbody>{data.matches.map(item => <tr key={item.case_id}>
+        <td><RunCandidateLink runId={runId} caseId={item.case_id} className="note-matches-link">Ref. {shortRef(item.case_id)}</RunCandidateLink></td>
+        <td>{formatDate(item.service_date)}</td>
+        <td>{item.primary_diagnosis ?? "—"}</td>
+        <td>{item.claim_group ?? "—"}</td>
+        <td><span className="status-dot-text"><LaneDot lane={item.lane} />{LANES[item.lane].name}</span></td>
+      </tr>)}</tbody>
+    </table>
+    {data.matches_truncated && <p className="fine-print">Ditampilkan {formatCount(data.matches.length)} klaim pertama.</p>}
+  </div>;
 }

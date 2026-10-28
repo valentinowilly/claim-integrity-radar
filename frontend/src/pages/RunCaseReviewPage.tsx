@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { UserRound, ArrowLeft, History, Lightbulb, Lock, Save, ShieldCheck, Sparkles } from "lucide-react";
+import { UserRound, ArrowDown, ArrowLeft, FileSearch, History, Lightbulb, Lock, Save, ShieldCheck, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useNotify } from "../notifications/NotificationCenter";
 import {
@@ -10,6 +10,7 @@ import {
   changeAssignment, getRunAssignments, type CaseAssignment,
 } from "../api/client";
 import { ClinicalNoteCard } from "../components/ClinicalNoteCard";
+import { VisitTimeline } from "../components/VisitTimeline";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import {
   EvidenceList, mlQualification, PatternOnlyNotice, TechnicalDetails, aiScore, formatCount, formatDate, formatDateTime, indicatorDefinition,
@@ -73,6 +74,9 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
   const [auditNote, setAuditNote] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
+  // What the evidence cards found for this claim, so each finding links only to evidence that exists.
+  const [evidence, setEvidence] = useState<Evidence>({ note: false, visits: 0 });
+  useEffect(() => { setEvidence({ note: false, visits: 0 }); }, [runId, caseId]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -260,9 +264,23 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
       </div>
     </section>
 
+    <section className="card run-case-reasons" aria-label="Alasan ditandai">
+      <div className="card-head"><div><h2>Mengapa klaim ini perlu diperiksa?</h2><p>Temuan dari pemeriksaan aturan.</p></div></div>
+      <div className="stack">
+        {candidate.reasons.length ? candidate.reasons.map((reason, i) => <article className="reason-card run-reason" key={`${reason.indicator}-${i}`}>
+          <h4>{indicatorLabel(reason.indicator)}</h4>
+          <PatternOnlyNotice evidence={reason.supporting_values?.billing_status_evidence} />
+          {indicatorDefinition(reason.indicator) && <p>{indicatorDefinition(reason.indicator)}</p>}
+          <EvidenceList evidence={reason.evidence} />
+          {(REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)) && <div className="guidance review-hint"><Lightbulb size={15} /><span><strong>Yang perlu diperiksa:</strong> {REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)}</span></div>}
+          <EvidenceLink indicator={reason.indicator} evidence={evidence} />
+        </article>) : <p className="fine-print">Lolos pemeriksaan aturan. Klaim ini masuk daftar karena penilaian AI di bawah.</p>}
+      </div>
+    </section>
+
     {(mlRank || mlNotAssessed) && <section className="card run-case-reasons" aria-label="Penilaian AI">
       <div className="card-head">
-        <div><h2><Sparkles size={16} style={{ verticalAlign: "-2px", color: "var(--brand)" }} /> Analisis AI</h2>
+        <div><h2><Sparkles size={16} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> Analisis AI</h2>
           <p>{trainingText}</p></div>
       </div>
       {mlNotAssessed && !mlRank && <p>AI tidak dapat menilai klaim ini karena data {mlNotAssessed.reason.replace(/^missing:/, "").split("+").map(field => attributeLabel(field)).join(", ")} kosong.</p>}
@@ -287,20 +305,17 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
       <p className="ai-meta" style={{ marginTop: 14 }}>{ruleCandidate ? "" : "Klaim ini lolos pemeriksaan aturan; AI menemukannya dari pola data. "}{mlQualification(result.ml_anomaly)}</p>
     </section>}
 
-    <section className="card run-case-reasons" aria-label="Alasan ditandai">
-      <div className="card-head"><div><h2>Mengapa klaim ini perlu diperiksa?</h2><p>Temuan dari pemeriksaan aturan.</p></div></div>
-      <div className="stack">
-        {candidate.reasons.length ? candidate.reasons.map((reason, i) => <article className="reason-card run-reason" key={`${reason.indicator}-${i}`}>
-          <h4>{indicatorLabel(reason.indicator)}</h4>
-          <PatternOnlyNotice evidence={reason.supporting_values?.billing_status_evidence} />
-          {indicatorDefinition(reason.indicator) && <p>{indicatorDefinition(reason.indicator)}</p>}
-          <EvidenceList evidence={reason.evidence} />
-          {(REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)) && <div className="guidance review-hint"><Lightbulb size={15} /><span><strong>Yang perlu diperiksa:</strong> {REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)}</span></div>}
-        </article>) : <p className="fine-print">Lolos pemeriksaan aturan. Klaim ini masuk daftar karena penilaian AI di atas.</p>}
-      </div>
-    </section>
-
-    <ClinicalNoteCard runId={runId} caseId={caseId} canAsk={canUpdateStatus} />
+    {(evidence.note || evidence.visits > 1) && <div className="evidence-heading" id="bukti">
+      <h2><FileSearch size={17} className="head-icon" aria-hidden="true" />Bukti pendukung</h2>
+      <p>Catatan klinis dan riwayat kunjungan yang mendasari temuan di atas.</p>
+    </div>}
+    <div id="bukti-catatan" className="evidence-anchor">
+      <ClinicalNoteCard runId={runId} caseId={caseId} canAsk={canUpdateStatus} onLoaded={hasNote => setEvidence(current => ({ ...current, note: hasNote }))} />
+    </div>
+    <div id="bukti-kunjungan" className="evidence-anchor">
+      <VisitTimeline runId={runId} caseId={caseId} relevant={candidate.indicators.some(code => VISIT_FINDINGS.has(code))}
+        onLoaded={count => setEvidence(current => ({ ...current, visits: count }))} />
+    </div>
 
     <section className="card" aria-label="Keputusan tinjauan">
       <div className="card-head"><div><h2>Keputusan tinjauan</h2><p>Isi dari langkah 1 sampai 3.</p></div></div>
@@ -449,3 +464,25 @@ function historyLabel(type: string): string {
   return "Perubahan";
 }
 function StatusBadge({ status }: { status: string }) { return <span className={`status-pill status-${status}`}>{runReviewStatusLabels[status as RunReviewStatus] ?? statusText(status)}</span>; }
+
+type Evidence = { note: boolean; visits: number };
+// Findings whose evidence is the participant's other visits.
+const VISIT_FINDINGS = new Set(["repeat_billing_candidate", "rapid_readmission_candidate"]);
+// Findings whose evidence is in the clinical note.
+const NOTE_FINDINGS = new Set(["cloned_clinical_note_candidate", "length_of_stay_extreme_candidate", "unusual_severity_candidate",
+  "severity_without_secondary_candidate", "rapid_readmission_candidate"]);
+
+/** A jump from a finding to the evidence card that supports it (only when that evidence exists). */
+function EvidenceLink({ indicator, evidence }: { indicator: string; evidence: Evidence }) {
+  const links: Array<[string, string]> = [];
+  if (VISIT_FINDINGS.has(indicator) && evidence.visits > 1) links.push(["bukti-kunjungan", "kunjungan peserta"]);
+  if (NOTE_FINDINGS.has(indicator) && evidence.note) links.push(["bukti-catatan", "catatan klinis"]);
+  if (!links.length) return null;
+  const jump = (target: string) => {
+    const element = document.getElementById(target);
+    element?.querySelector("details:not([open])")?.setAttribute("open", "");
+    element?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  return <div className="evidence-links">{links.map(([target, label]) => <button key={target} type="button" className="evidence-link" onClick={() => jump(target)}>
+    <ArrowDown size={13} aria-hidden="true" />Lihat bukti: {label}</button>)}</div>;
+}

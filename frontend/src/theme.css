@@ -1,0 +1,249 @@
+/* ==========================================================================
+   CIR — tema terang dan gelap
+   Token tambahan (tinta merek, kaca, kerangka muat) dan nilai tema gelap untuk
+   semua token di tokens.css dan ui.css. Tema dipasang lewat data-theme pada <html>
+   (index.html memasangnya sebelum halaman digambar agar tidak berkedip).
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+  /* Brand as text and links; fills keep --brand so white text on buttons stays readable. */
+  --brand-ink: #047857;
+  --brand-ink-strong: #065f46;
+  /* Translucent bars and panels over the canvas. */
+  --glass-canvas: rgb(241 244 242 / 0.88);
+  --glass-surface: rgb(255 255 255 / 0.92);
+  /* Loading placeholders. */
+  --skeleton-base: #eef1ef;
+  --skeleton-shine: #f7f9f8;
+  --skeleton-glint: rgb(255 255 255 / 0.45);
+  /* Decorative accent behind KPI icons and section icons. */
+  --accent-soft: #e7f5ee;
+  --accent-ring: rgb(4 120 87 / 0.12);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* tokens.css */
+  --canvas-bg: #0b1311;
+  --surface-bg: #121c19;
+  --surface-subtle: #18241f;
+  --surface-muted: #151f1c;
+  --text-primary: #e6edea;
+  --text-secondary: #c2ccc8;
+  --text-muted: #93a39d;
+  --text-faint: #6f807a;
+  --bpjs-green: #047857;
+  --bpjs-green-hover: #059669;
+  --bpjs-green-subtle: #10302a;
+  --bpjs-green-border: #1f5a49;
+  --bpjs-green-dark: #6ee7b7;
+  --border-subtle: #24332e;
+  --border-medium: #33453f;
+  --border-focus: #34d399;
+
+  --status-good-bg: #0f2a1f; --status-good-text: #86efac; --status-good-border: #1d4d38; --status-good-dot: #22c55e;
+  --status-warn-bg: #2a2010; --status-warn-text: #fcd34d; --status-warn-border: #5c4516; --status-warn-dot: #f59e0b;
+  --status-warn-heading: #fde68a;
+  --status-danger-bg: #2c1414; --status-danger-text: #fca5a5; --status-danger-border: #5f2424; --status-danger-dot: #ef4444;
+  --status-neutral-bg: #18211e; --status-neutral-text: #b4c0bb; --status-neutral-border: #2a3833; --status-neutral-dot: #8fa09a;
+  --status-info-bg: #0e2433; --status-info-text: #7dd3fc; --status-info-border: #1e4a66; --status-info-dot: #38bdf8;
+
+  --shadow-subtle: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.35), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+
+  /* ui.css */
+  --canvas: #0b1311;
+  --brand: #047857;
+  --brand-strong: #059669;
+  --brand-deep: #064e3b;
+  --brand-soft: #10302a;
+  --brand-line: #1f5a49;
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 22px -12px rgb(0 0 0 / 0.6);
+  --ink: #e6edea;
+  --ink-soft: #6f807a;
+  --chart-1: #10b981;
+  --chart-2: #34d399;
+  --chart-3: #1f6f55;
+  --chart-4: #f59e0b;
+  --chart-5: #ef4444;
+  --chart-6: #38bdf8;
+  --lane-red: #ef4444; --lane-red-soft: #2c1414; --lane-red-line: #5f2424;
+  --lane-yellow: #f59e0b; --lane-yellow-soft: #2a2010; --lane-yellow-line: #5c4516;
+  --lane-green: #10b981; --lane-green-soft: #0f2a1f; --lane-green-line: #1d4d38;
+
+  /* theme.css */
+  --brand-ink: #34d399;
+  --brand-ink-strong: #6ee7b7;
+  --glass-canvas: rgb(11 19 17 / 0.86);
+  --glass-surface: rgb(18 28 25 / 0.94);
+  --skeleton-base: #18241f;
+  --skeleton-shine: #22302b;
+  --skeleton-glint: rgb(255 255 255 / 0.06);
+  --accent-soft: #10302a;
+  --accent-ring: rgb(52 211 153 / 0.18);
+}
+
+/* Smooth hand-over when the theme is switched (not on first paint). */
+:root.theme-switching, :root.theme-switching * {
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, fill 180ms ease !important;
+}
+
+/* Form controls and media follow the theme. */
+:root[data-theme="dark"] input, :root[data-theme="dark"] select, :root[data-theme="dark"] textarea {
+  color: var(--text-primary);
+  background-color: var(--surface-bg);
+  border-color: var(--border-medium);
+}
+:root[data-theme="dark"] ::placeholder { color: var(--text-faint); }
+
+/* Theme switch: a round icon button in the top bar and on the login page. */
+.theme-toggle { display: inline-grid; width: 40px; height: 40px; flex: none; place-items: center; padding: 0;
+  border: 1px solid var(--border-subtle); border-radius: 999px; color: var(--text-secondary); background: var(--surface-bg);
+  cursor: pointer; transition: color 150ms ease, border-color 150ms ease, transform 150ms ease; }
+.theme-toggle:hover { color: var(--brand-ink); border-color: var(--brand-line); }
+.theme-toggle:active { transform: scale(0.94); }
+.theme-toggle:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.login-panel { position: relative; }
+.login-theme-toggle { position: absolute; top: 20px; right: 20px; }
+
+/* ==========================================================================
+   Beranda: angka utama dengan perbandingan dan garis tren
+   ========================================================================== */
+.page-eyebrow { display: inline-flex; gap: 6px; align-items: center; margin-bottom: 6px; color: var(--text-muted);
+  font-size: 12.5px; font-weight: 600; letter-spacing: 0.01em; text-transform: capitalize; }
+.head-icon { margin-right: 7px; vertical-align: -2px; color: var(--brand-ink); }
+/* The utility reset makes every svg a block; icons inside headings stay on the heading's line. */
+h1 > svg, h2 > svg, h3 > svg, h4 > svg, strong > svg, summary span > svg { display: inline-block; }
+
+.kpi-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; }
+@media (max-width: 1180px) { .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .kpi-strip { grid-template-columns: minmax(0, 1fr); } }
+
+.kpi2 { position: relative; display: grid; gap: 10px; align-content: start; padding: 18px 18px 16px; overflow: hidden;
+  color: inherit; text-decoration: none; transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease; }
+a.kpi2:hover { transform: translateY(-2px); box-shadow: 0 14px 30px -18px rgb(4 120 87 / 0.45); }
+a.kpi2:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.kpi2-top { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.kpi2-label { min-width: 0; color: var(--text-secondary); font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.kpi2-go { margin-left: auto; flex: none; color: var(--text-faint); transition: color 160ms ease, transform 160ms ease; }
+a.kpi2:hover .kpi2-go { color: var(--brand-ink); transform: translate(1px, -1px); }
+.kpi2-icon { display: inline-grid; flex: none; width: 36px; height: 36px; place-items: center; border-radius: 11px; }
+.kpi2-icon.tone-brand { color: var(--brand-ink); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-ring); }
+.kpi2-icon.tone-red { color: var(--lane-red); background: var(--lane-red-soft); box-shadow: inset 0 0 0 1px var(--lane-red-line); }
+.kpi2-icon.tone-yellow { color: var(--lane-yellow); background: var(--lane-yellow-soft); box-shadow: inset 0 0 0 1px var(--lane-yellow-line); }
+.kpi2-icon.tone-neutral { color: var(--text-muted); background: var(--surface-subtle); }
+.kpi2-value { flex: none; color: var(--text-primary); font-size: clamp(24px, 2.1vw, 30px); font-weight: 800; letter-spacing: -0.03em;
+  line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kpi2-main { display: flex; gap: 12px; align-items: flex-end; justify-content: space-between; min-width: 0; }
+.kpi2-foot { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.kpi2-delta { display: inline-flex; gap: 3px; align-items: center; padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi2-delta-note { color: var(--text-faint); font-size: 12px; white-space: nowrap; }
+.kpi2-delta.tone-bad { color: var(--status-danger-text); background: var(--status-danger-bg); }
+.kpi2-delta.tone-good { color: var(--status-good-text); background: var(--status-good-bg); }
+.kpi2-delta.tone-neutral { color: var(--text-muted); background: var(--surface-subtle); }
+.kpi2-spark { flex: 0 1 88px; min-width: 36px; height: 36px; margin-bottom: 2px; }
+.kpi2-extra { padding-top: 10px; border-top: 1px dashed var(--border-subtle); }
+.kpi2-sub { display: inline-flex; gap: 7px; align-items: center; color: var(--text-muted); font-size: 12.5px; text-decoration: none; }
+a.kpi2-sub:hover { color: var(--brand-ink); }
+
+/* The action card: how much of the analysed claims needs action. */
+.hero-card .hero-share { display: grid; gap: 6px; }
+.hero-card .hero-share-bar { display: flex; height: 8px; overflow: hidden; border-radius: 999px; background: rgb(255 255 255 / 0.18); }
+.hero-card .hero-share-bar i { display: block; height: 100%; }
+.hero-card .hero-share-bar .r { background: #fca5a5; }
+.hero-card .hero-share-bar .y { background: #fcd34d; }
+.hero-card .hero-share-text { font-size: 12.5px; opacity: 0.85; }
+
+/* Loading placeholders keep the page layout. */
+.skeleton-block { position: relative; overflow: hidden; border-color: transparent;
+  background: linear-gradient(90deg, var(--skeleton-base) 0%, var(--skeleton-shine) 40%, var(--skeleton-base) 80%);
+  background-size: 200% 100%; animation: cir-shimmer 1.4s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .skeleton-block { animation: none; } }
+
+/* The institution logo has dark lettering: on the dark login panel it sits on a light badge, like the sidebar logo. */
+:root[data-theme="dark"] .login-institution img { padding: 8px 12px; border-radius: 12px; background: #ffffff; }
+
+/* ==========================================================================
+   Revisi tampilan: kartu terpisah jelas dari latar, teks abu-abu terbaca,
+   hijau yang meredup pada tema gelap.
+   ========================================================================== */
+
+/* Light theme: a slightly deeper canvas, cards with a hairline border and a soft lift, readable greys. */
+:root {
+  --canvas: #edf1ee;
+  --canvas-bg: #edf1ee;
+  --text-muted: #566173;
+  --text-faint: #636e7c;
+  --ink-soft: #636e7c;
+  --card-border: #e1e7e3;
+  --card-lift: 0 1px 2px rgb(16 24 20 / 0.05), 0 6px 16px -8px rgb(16 24 20 / 0.10);
+}
+.card { border: 1px solid var(--card-border); box-shadow: var(--card-lift); }
+
+/* Dark theme: the green steps back. Large surfaces (navigation, summary cards, login panel) become deep
+   green-black with green accents, the way dark interfaces such as GitHub and Supabase keep their brand
+   colour for actions and highlights instead of whole panels. */
+:root[data-theme="dark"] {
+  --card-border: #22302b;
+  --card-lift: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 24px -14px rgb(0 0 0 / 0.65);
+  --brand: #087f5b;
+  --brand-strong: #0b8a64;
+  --bpjs-green: #087f5b;
+  --bpjs-green-hover: #0b8a64;
+  --hero-gradient: radial-gradient(120% 140% at 0% 0%, #0f5a43 0%, #0b3d30 50%, #082a22 100%);
+}
+:root[data-theme="dark"] .side-nav {
+  background: #0e1815;
+  border-right: 1px solid var(--border-subtle);
+}
+:root[data-theme="dark"] .side-brand span:last-child { color: var(--text-muted); }
+:root[data-theme="dark"] .side-group { color: var(--text-faint); }
+:root[data-theme="dark"] .side-link { color: var(--text-secondary); }
+:root[data-theme="dark"] .side-link:hover { color: var(--text-primary); background: rgb(255 255 255 / 0.05); }
+:root[data-theme="dark"] .side-link.active {
+  color: #6ee7b7; background: rgb(52 211 153 / 0.12); box-shadow: inset 3px 0 0 #34d399;
+}
+:root[data-theme="dark"] .side-foot { color: var(--text-secondary); background: var(--surface-subtle); border: 1px solid var(--border-subtle); }
+:root[data-theme="dark"] .hero-card,
+:root[data-theme="dark"] .case-hero-panel,
+:root[data-theme="dark"] .perf-kpi.highlight {
+  background: var(--hero-gradient);
+  box-shadow: inset 0 0 0 1px rgb(110 231 183 / 0.16);
+}
+:root[data-theme="dark"] .hero-card .hero-cta { color: #064e3b; background: #d1fae5; }
+:root[data-theme="dark"] .login-intro { background: linear-gradient(180deg, #0b3d30 0%, #082a22 60%, #071f19 100%); }
+
+
+/* The action card: content at the top, the button at the bottom at its natural height. */
+.hero-card { display: flex; flex-direction: column; gap: 14px; }
+.hero-card .hero-cta { align-self: flex-start; margin-top: auto; }
+
+/* Dropdowns: one drawn chevron with room on the right, instead of the browser arrow at the very edge. */
+select:not([multiple]):not([size]) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23738090' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  background-size: 15px;
+}
+/* The profile button: the chevron keeps the same distance from the edge as the avatar on the left. */
+.side-topbar .profile-trigger { padding: 5px 14px 5px 6px; }
+
+/* ==========================================================================
+   Tema terang: navigasi hijau, pita mint tipis di belakang judul halaman.
+   ========================================================================== */
+/* The sidebar note: a darker panel keeps its white text readable over the lighter end of the green gradient. */
+.side-foot { color: #ffffff; background: rgb(0 0 0 / 0.16); }
+
+/* The mint band behind the page title fades into the canvas. */
+:root:not([data-theme="dark"]) .green-shell {
+  background:
+    radial-gradient(900px 260px at 78% -40px, rgb(16 185 129 / 0.16), transparent 70%),
+    linear-gradient(180deg, #dcefe5 0px, #e7f2ec 150px, var(--canvas) 340px) var(--canvas);
+}
+:root:not([data-theme="dark"]) .green-shell .main-panel { background: transparent; }
