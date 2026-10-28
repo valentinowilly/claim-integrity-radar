@@ -1,5 +1,6 @@
 from copy import deepcopy
 
+from app.analytics.risk_scoring import DETECTOR_ORDER
 import pytest
 
 import app.analytics.record_level_evaluation as record_eval
@@ -36,7 +37,7 @@ def test_small_synthetic_comparison_runs_all_methods_and_k_without_identifier_ou
     assert report["metadata"]["selection_policy_version"] == "record-selection-v1"
     assert report["metadata"]["scoring_version"]
     assert report["metadata"]["priority_version"]
-    assert len(report["detector_coverage"]) == 6
+    assert len(report["detector_coverage"]) == len(DETECTOR_ORDER)
     assert all("not_assessed_case_count" in row and "search_truncated" in row for row in report["detector_coverage"])
     assert set(report["budgets"]) == {"60", "120", "240"}
     for k_text, budget in report["budgets"].items():

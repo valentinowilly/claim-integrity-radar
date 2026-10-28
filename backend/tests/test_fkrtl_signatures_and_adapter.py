@@ -1,4 +1,5 @@
 from datetime import date
+from app.analytics.risk_scoring import DETECTOR_ORDER
 import json
 import hashlib
 import json as json_module
@@ -26,7 +27,7 @@ def _row(**overrides):
         "PSTV01": "synthetic-member-a", "FKL02": "synthetic-visit-a",
         "FKL03": "2024-03-01", "FKL04": "2024-03-03",
         "FKL05": "SYN-PROV", "FKL06": "SYN-CITY", "FKL07": "public",
-        "FKL08": "general", "FKL09": "class-a", "FKL16": "SYN-DX1",
+        "FKL08": "general", "FKL09": "class-a", "FKL13": "care-3", "FKL16": "SYN-DX1",
         "FKL18": "SYN-DX2", "FKL19": "SYN-GROUP", "FKL30": "SYN-PROC",
         "FKL47": "1000.00",
     }
@@ -295,9 +296,9 @@ def test_local_dta_provider_runs_analytics_with_source_metadata_and_safe_output(
     assert result["feature_contract_version"] == "canonical-analytic-features-v1"
     assert result["data_source"]["label"] == "synthetic_fkrtl_fixture"
     assert result["data_source"]["classification"] == "synthetic_fixture"
-    assert result["data_source"]["mapping_version"] == "bpjs-fkrtl-sample-map-v1"
+    assert result["data_source"]["mapping_version"] == "bpjs-fkrtl-sample-map-v2"
     assert result["execution_status"] in {"completed", "partial"}
-    assert len(result["coverage"]) == 6
+    assert len(result["coverage"]) == len(DETECTOR_ORDER)
     assert result["score_type"] == "provisional_rule_based_index_not_fraud_probability"
     assert result["audit_priority"]["status"] != "available"
     assert "synthetic-member" not in serialized

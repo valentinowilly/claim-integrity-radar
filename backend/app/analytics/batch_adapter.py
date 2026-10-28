@@ -112,3 +112,55 @@ def adapt_batch_features(
     if not adapted:
         raise BatchAdapterError("A ready batch must contain normalized records.")
     return adapted, [facilities_by_id[key] for key in sorted(facilities_by_id)]
+
+
+BPJS_RECORD_FIELDS = frozenset({
+    "claim_id", "case_id", "participant_token", "service_date", "discharge_date",
+    "province_code", "municipality_code", "facility_ownership", "facility_type", "facility_class",
+    "care_class", "admission_diagnosis", "primary_diagnosis", "claim_group", "procedure_code",
+    "tariff_region", "tariff_group", "provider_billed_amount_unverified", "facility_id", "service_timestamp",
+    "service_type", "service_units", "facility_daily_capacity", "supporting_evidence_required",
+    "supporting_evidence_types", "supporting_evidence_present", "supporting_evidence_recording_status",
+    "billed_amount",
+})
+
+
+BPJS_OPTIONAL_FIELDS = frozenset({"clinical_note", "secondary_diagnoses", "special_codes"})
+
+
+def adapt_bpjs_batch_features(batch: Mapping[str, Any], records: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Check stored records of an uploaded file in the BPJS column format before analysis."""
+    from app.data_sources.bpjs_csv import BPJS_CSV_MAPPING_VERSION, BPJS_CSV_SCHEMA_VERSION
+
+    if batch.get("source_type") != "synthetic_csv" or batch.get("schema_version") != BPJS_CSV_SCHEMA_VERSION \
+            or batch.get("mapping_version") != BPJS_CSV_MAPPING_VERSION:
+        raise BatchAdapterError("Unsupported batch schema version.")
+    if batch.get("status") not in {"ready", "ready_with_warnings"}:
+        raise BatchAdapterError("Batch is not ready for analysis.")
+    adapted: list[dict[str, Any]] = []
+    for record in records:
+        # Files stored before the optional fields were added keep validating.
+        if not isinstance(record, Mapping) or set(record) - BPJS_OPTIONAL_FIELDS != BPJS_RECORD_FIELDS:
+            raise BatchAdapterError("Normalized record does not match the declared BPJS-format schema.")
+        if _FORBIDDEN_LABEL_FIELDS.intersection(record):
+            raise BatchAdapterError("Ground-truth fields are not valid detector features.")
+        if not all(isinstance(record.get(field), str) for field in ("claim_id", "case_id", "participant_token")):
+            raise BatchAdapterError("Normalized record identifiers are invalid.")
+        try:
+            if date.fromisoformat(record["service_date"]).isoformat() != record["service_date"]:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise BatchAdapterError("A service date is invalid.") from None
+        note = record.get("clinical_note")
+        if note is not None and not isinstance(note, str):
+            raise BatchAdapterError("A clinical note is invalid.")
+        for field in ("secondary_diagnoses", "special_codes"):
+            value = record.get(field)
+            if value is not None and not (isinstance(value, list) and all(isinstance(code, str) for code in value)):
+                raise BatchAdapterError("A secondary diagnosis or special code list is invalid.")
+        adapted.append({**deepcopy(dict(record)), "clinical_note": note,
+                        "secondary_diagnoses": record.get("secondary_diagnoses"),
+                        "special_codes": record.get("special_codes")})
+    if not adapted:
+        raise BatchAdapterError("A ready batch must contain normalized records.")
+    return adapted

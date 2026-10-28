@@ -76,18 +76,18 @@ async def import_synthetic_csv(request: Request, response: Response,
     response.status_code = 200 if reused else 201
     return {
         "batch": batch, "reused_existing": reused,
-        "notice": ("Batch sintetis tersimpan; bukan data BPJS." if batch["status"] != "rejected"
-                   else "Upaya impor ditolak; ringkasan validasi tidak memuat nilai baris."),
+        "notice": ("Berkas tersimpan." if batch["status"] != "rejected"
+                   else "Berkas ditolak; ringkasan pemeriksaan tidak memuat isi baris."),
     }
 
 
 @router.get("", response_model=BatchListResponse)
-def list_batches(request: Request, limit: int = 50, offset: int = 0,
+def list_batches(request: Request, limit: int = 50, offset: int = 0, removed: bool = False,
                  _principal: Principal = Depends(require_permission("batches:read"))):
     if not 1 <= limit <= 100 or offset < 0:
         raise ApiError(400, "INVALID_FILTER", "limit harus 1-100 dan offset tidak boleh negatif.", {})
     try:
-        result = _store(request).list_batches(limit, offset)
+        result = _store(request).list_batches(limit, offset, removed)
     except BatchStorageError as exc:
         raise ApiError(503, "BATCH_STORAGE_UNAVAILABLE", str(exc), {}) from exc
     return {**result, "limit": limit, "offset": offset, "availability": "available"}
@@ -105,3 +105,31 @@ def get_batch(batch_id: str, request: Request,
     return {"batch": batch, "availability": "available",
             "notice": "Hanya metadata validasi yang tersedia; isi CSV tidak disajikan melalui API."}
 
+
+
+@router.delete("/{batch_id}", status_code=204)
+def remove_batch_from_list(batch_id: str, request: Request,
+                           principal: Principal = Depends(require_permission("batches:write")),
+                           _csrf: Principal = Depends(require_csrf)):
+    """Hide an uploaded CSV file from the list; stored rows, runs and the audit trail are kept."""
+    try:
+        removed = _store(request).remove_from_list(batch_id, principal.user_id)
+    except BatchStorageError as exc:
+        raise ApiError(503, "BATCH_STORAGE_UNAVAILABLE", str(exc), {}) from exc
+    if not removed:
+        raise ApiError(404, "BATCH_NOT_FOUND", "Batch tidak ditemukan.", {})
+    return Response(status_code=204)
+
+
+@router.post("/{batch_id}/restore", status_code=204)
+def restore_batch_to_list(batch_id: str, request: Request,
+                          principal: Principal = Depends(require_permission("batches:write")),
+                          _csrf: Principal = Depends(require_csrf)):
+    """Show a removed CSV file in the list again."""
+    try:
+        restored = _store(request).restore_to_list(batch_id, principal.user_id)
+    except BatchStorageError as exc:
+        raise ApiError(503, "BATCH_STORAGE_UNAVAILABLE", str(exc), {}) from exc
+    if not restored:
+        raise ApiError(404, "BATCH_NOT_FOUND", "Batch tidak ditemukan.", {})
+    return Response(status_code=204)

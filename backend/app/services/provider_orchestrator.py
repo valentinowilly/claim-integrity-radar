@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.analytics.action_policy import ActionPolicyConfig, evaluate_action_policy, get_action_policy_config
+from app.analytics.facility_groups import build_facility_groups
 from app.data_sources.providers import (
     CANONICAL_FEATURE_CONTRACT_VERSION,
     FeatureSourceProvider,
@@ -25,6 +26,9 @@ def execute_provider_snapshot(
     snapshot = build_analytics_snapshot_from_dataset(dataset, stage_observer=stage_observer)
     policy = action_policy or get_action_policy_config()
     snapshot["action_policy"] = evaluate_action_policy(snapshot, policy)
+    snapshot["facility_groups"] = build_facility_groups(
+        list(dataset.records), snapshot.get("cases") or {}, snapshot["action_policy"].get("cases") or {},
+        dataset.source_metadata.get("category_labels") or {})
     if stage_observer:
         stage_observer("action_policy_complete")
     return dataset, snapshot
@@ -60,6 +64,7 @@ def run_provider_analysis(provider: FeatureSourceProvider, stage_observer=None) 
         "risk_scoring": snapshot["risk_scoring"],
         "audit_priority": snapshot["audit_priority"],
         "action_policy": snapshot["action_policy"],
+        "ml_anomaly": snapshot["ml_anomaly"],
         "limitations": list(dict.fromkeys(
             list(snapshot["risk_scoring"].get("limitations", []))
             + list(snapshot["audit_priority"].get("limitations", []))

@@ -50,12 +50,22 @@ def test_near_duplicate_finds_cloning_template_and_small_procedure_variation():
     original_records = deepcopy(data.records)
     result = detect_near_duplicate_claims(data.records)
     clone_ids = set(next(group["case_ids"] for group in data.ground_truth.group_labels if group["scenario_code"] == "cloning"))
-    clone_matches = [candidate for candidate in result["candidates"] if set(candidate["case_ids"]).issubset(clone_ids)]
+    qualifying = result["candidates"] + result["common_attribute_candidates"]
+    clone_matches = [candidate for candidate in qualifying if set(candidate["case_ids"]).issubset(clone_ids)]
     raw_tokens = {row["participant_token"] for row in data.records}
     raw_signatures = {row["procedure_code"] for row in data.records}
 
     assert clone_matches
-    assert any(candidate["differing_attributes"] for candidate in clone_matches)
+    # The two identical copies share their combination with nobody else: informative.
+    assert any(
+        candidate["evidence_class"] == "informative" and set(candidate["case_ids"]) <= clone_ids
+        for candidate in result["candidates"]
+    )
+    # The procedure variation is still found, but its matched values are shared by all three
+    # template members, so it is reported as a common-attribute pair rather than flagged.
+    variations = [candidate for candidate in clone_matches if candidate["differing_attributes"]]
+    assert variations
+    assert all(candidate["evidence_class"] == "common_attributes" for candidate in variations)
     assert all(candidate["matched_attributes"] for candidate in clone_matches)
     assert not any(token in str(result) for token in raw_tokens)
     assert not any(signature in str(result) for signature in raw_signatures)
@@ -82,7 +92,11 @@ def test_near_duplicate_bounds_common_pattern_search_and_output():
     assert result["search_diagnostics"]["oversized_primary_block_count"] > 0
     assert result["search_diagnostics"]["dense_bucket_sample_count"] > 0
     assert result["search_truncated"] is True
-    assert result["candidates"], "bounded dense-block sampling should still expose a known match"
+    # Twelve identical copies are a common combination: the sampled match is still found, but it is
+    # classified as common-attribute evidence and flags no record.
+    assert result["common_attribute_candidates"], "bounded dense-block sampling should still expose a known match"
+    assert result["candidates"] == []
+    assert result["search_diagnostics"]["common_attribute_pair_count"] == len(result["common_attribute_candidates"])
 
 
 def test_near_duplicate_pair_budget_marks_unvisited_small_blocks_unassessed():
@@ -164,9 +178,17 @@ def test_near_duplicate_dense_block_refinement_finds_known_cross_participant_pai
 
     first = detect_near_duplicate_claims(rows, config)
     second = detect_near_duplicate_claims(rows, config)
-    expected = {"syn-dense-000", "syn-dense-029"}
+    # syn-dense-000..028 are identical under the data contract (only the internal
+    # participant token differs), so which one pairs with the variation is not a
+    # meaningful distinction; the variation itself must be found.
+    identical = {f"syn-dense-{number:03d}" for number in range(29)}
 
-    assert any(set(candidate["case_ids"]) == expected for candidate in first["candidates"])
+    assert any(
+        "syn-dense-029" in candidate["case_ids"] and set(candidate["case_ids"]) - {"syn-dense-029"} <= identical
+        for candidate in first["candidates"] + first["common_attribute_candidates"]
+    )
+    # The variation's matched values are shared by all 29 template rows, so it is common evidence.
+    assert not any("syn-dense-029" in candidate["case_ids"] for candidate in first["candidates"])
     assert first == second
     assert first["search_truncated"] is True
     assert first["search_diagnostics"]["oversized_refinement_bucket_count"] >= 1

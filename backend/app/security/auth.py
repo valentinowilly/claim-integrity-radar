@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Iterator
 from uuid import uuid4
 
+from app.db import DatabaseError, connect_operational, is_postgres, sqlite_script
+
 
 SESSION_COOKIE = "cir_session"
 CSRF_COOKIE = "cir_csrf"
@@ -40,7 +42,8 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "users:manage", "security_audit:read",
     }),
     "data_operator": frozenset({"dashboard:read", "analytics:read", "batches:read", "batches:write", "runs:read", "runs:write"}),
-    "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "batches:read", "runs:read", "runs:results:read"}),
+    # One reviewer role fills every review step (status, outcome, authorized audit result) for the prototype.
+    "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
     "audit_lead": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
 }
 
@@ -130,11 +133,8 @@ class AuthStore:
     def _connection(self) -> Iterator[sqlite3.Connection]:
         connection: sqlite3.Connection | None = None
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            connection = sqlite3.connect(self.path, timeout=5)
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.executescript(
+            connection = connect_operational(self.path, timeout=5)
+            sqlite_script(connection, 
                 """
                 CREATE TABLE IF NOT EXISTS auth_users (
                     user_id TEXT PRIMARY KEY,
@@ -172,7 +172,7 @@ class AuthStore:
             )
             yield connection
             connection.commit()
-        except (OSError, sqlite3.Error) as exc:
+        except (OSError, *DatabaseError) as exc:
             if connection is not None:
                 connection.rollback()
             raise AuthenticationStorageError("Penyimpanan autentikasi lokal tidak tersedia.") from exc
@@ -356,6 +356,17 @@ class AuthStore:
     def audit_review_event(self, actor_user_id: str, case_id: str, status: str) -> None:
         with self._connection() as connection:
             self._event(connection, "review_updated", actor_user_id, "case", case_id, {"status": status})
+
+    def usernames(self, user_ids: set[str]) -> dict[str, str]:
+        """Display names of the given accounts (unknown ids are left out)."""
+        ids = sorted(user_ids)
+        if not ids:
+            return {}
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT user_id, username FROM auth_users WHERE user_id IN (" + ",".join("?" * len(ids)) + ")", ids,
+            ).fetchall()
+        return {row["user_id"]: row["username"] for row in rows}
 
     def list_audit_events(self, limit: int = 100) -> list[dict]:
         with self._connection() as connection:

@@ -1,19 +1,64 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ArrowLeft, History, Save, ShieldCheck } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { UserRound, ArrowLeft, History, Lightbulb, Lock, Save, ShieldCheck, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
+import { useNotify } from "../notifications/NotificationCenter";
 import {
-  getRun, getRunCaseReview, recordRunCaseOutcome, reviewOutcomeLabels, runReviewStatusLabels,
+  auditResultLabels, getRunCase, getRunCaseReview, recordRunCaseAuditConfirmation, recordRunCaseOutcome, reviewOutcomeLabels,
+  runReviewStatusLabels, type AuditResult,
   updateRunCaseReview, type ReviewOutcome, type RunCase, type RunDetailResponse,
   type RunReviewResponse, type RunReviewStatus,
+  changeAssignment, getRunAssignments, type CaseAssignment,
 } from "../api/client";
-import { EmptyState, LoadingState, PageHeading, SourceBadge } from "../components/DataStates";
+import { ClinicalNoteCard } from "../components/ClinicalNoteCard";
+import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
+import {
+  EvidenceList, mlQualification, PatternOnlyNotice, TechnicalDetails, aiScore, formatCount, formatDate, formatDateTime, indicatorDefinition,
+  indicatorGuidance, indicatorLabel, mlFeatureLabel, mlLevel, ruleIndexText, runTitle, shortRef, statusText, LANES, LaneDot,
+  attributeLabel,
+} from "../components/Display";
 import { useAuth } from "../auth/AuthContext";
 
 const statusValues = Object.keys(runReviewStatusLabels) as RunReviewStatus[];
 const outcomeValues = Object.keys(reviewOutcomeLabels) as ReviewOutcome[];
+// Reviewer guidance per check type; generic process steps, not claim-specific facts.
+const REVIEW_HINTS: Record<string, string> = {
+  repeat_billing_candidate: "Bandingkan tanggal pulang, resume medis, dan berkas klaim. Pastikan tiap kunjungan memang layanan terpisah.",
+  similar_claim_pattern_candidate: "Bandingkan berkas pendukung. Pengobatan yang umum memang bisa menghasilkan pola yang sama.",
+  near_duplicate_claim_candidate: "Periksa apakah kedua klaim benar-benar layanan yang berbeda. Klaim rutin memang sering mirip.",
+  temporal_pattern_candidate: "Periksa apakah kunjungan ini satu rangkaian perawatan atau terapi terjadwal.",
+  synthetic_capacity_candidate: "Bandingkan jumlah layanan yang tercatat dengan jumlah tenaga dan kapasitas faskes pada hari itu.",
+  supporting_evidence_completeness_candidate: "Periksa apakah dokumen pendukung yang disebutkan benar-benar ada di berkas klaim.",
+  length_of_stay_extreme_candidate: "Periksa resume medis dan catatan harian rawat: apakah ada komplikasi yang membenarkan rawat selama itu?",
+  rapid_readmission_candidate: "Bandingkan kedua resume medis: apakah ini dua episode, atau satu episode yang dipecah menjadi dua klaim?",
+  unusual_severity_candidate: "Periksa diagnosis sekunder dan tindakan di resume medis yang mendasari tingkat keparahan INA-CBG.",
+  cloned_clinical_note_candidate: "Bandingkan rekam medis para pasien: apakah catatan disalin dari pasien lain tanpa pemeriksaan sendiri?",
+  severity_without_secondary_candidate: "Periksa resume medis: adakah komorbid atau komplikasi yang mendasari tingkat keparahan INA-CBG?",
+  unusual_special_topup_candidate: "Periksa indikasi medis serta bukti pemberian obat, pemasangan alat, atau pelaksanaan tindakannya.",
+};
+const STATUS_HELP: Record<RunReviewStatus, string> = {
+  pending_review: "Belum ada yang memeriksa klaim ini.",
+  in_review: "Anda sedang memeriksa berkas klaim.",
+  awaiting_evidence: "Risiko sedang: minta klarifikasi atau koreksi dari faskes; klaim tidak ditahan.",
+  escalated: "Risiko tinggi: masuk antrean audit prioritas.",
+  closed: "Tinjauan sudah selesai.",
+};
+// Records made by the system itself, not by a person.
+const SYSTEM_ACTORS: Record<string, string> = {
+  "system-continuity": "Sistem (dibawa dari analisis sebelumnya)",
+  "system-inbox": "Sistem (sambungan otomatis)",
+};
+function actorName(id: string): string {
+  return SYSTEM_ACTORS[id] ?? id;
+}
+const NOTE_PLACEHOLDER = "Catatan singkat. Jangan menulis identitas peserta.";
 
-export default function RunCaseReviewPage() {
-  const { runId = "", caseId = "" } = useParams();
+function failureText(reason: unknown, fallback: string): string {
+  return reason instanceof Error ? reason.message : fallback;
+}
+
+/** One claim of one analysis: why it was flagged, and the human decisions for it. */
+export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: string; caseId: string; backTo: string; onSaved?: () => void }) {
+  const notify = useNotify();
   const { state: auth } = useAuth();
   const permissions = "session" in auth ? auth.session?.permissions ?? [] : [];
   const canRead = permissions.includes("review:read") && permissions.includes("runs:results:read");
@@ -23,38 +68,105 @@ export default function RunCaseReviewPage() {
   const [review, setReview] = useState<RunReviewResponse | null>(null);
   const [status, setStatus] = useState<RunReviewStatus>("pending_review");
   const [outcome, setOutcome] = useState<ReviewOutcome>("inconclusive");
+  const [auditResult, setAuditResult] = useState<AuditResult>("confirmed_issue");
+  const [auditReference, setAuditReference] = useState("");
+  const [auditNote, setAuditNote] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [notFound, setNotFound] = useState(false);
+  const [holder, setHolder] = useState<CaseAssignment | null>(null);
+  const loadHolder = useCallback(async () => {
+    if (!canRead) return;
+    try { setHolder((await getRunAssignments(runId)).items[caseId] ?? null); } catch { setHolder(null); }
+  }, [runId, caseId, canRead]);
+  useEffect(() => { void loadHolder(); }, [loadHolder]);
+  async function assign(action: "take" | "release") {
+    if (busy) return;
+    setBusy(true); setError(""); setFeedback("");
+    try {
+      setHolder((await changeAssignment(runId, caseId, action)).assignment);
+      setFeedback(action === "take" ? "Klaim ini sekarang Anda tangani." : "Klaim dilepas; petugas lain dapat mengambilnya.");
+      onSaved?.();
+    } catch (reason) {
+      setError(failureText(reason, "Penanggung jawab tidak dapat diubah."));
+      void loadHolder();
+    } finally { setBusy(false); }
+  }
 
+  // Each load gets a sequence number; a response from an older or cancelled load is ignored.
+  // Without this, a late duplicate load (e.g. React StrictMode running the effect twice) reset
+  // the form to the saved status after the user had already changed it.
+  const loadSequence = useRef(0);
   const reload = useCallback(async () => {
     if (!canRead) { setLoading(false); return; }
+    const sequence = ++loadSequence.current;
+    const current = () => sequence === loadSequence.current;
     setLoading(true); setError(""); setNotFound(false);
     try {
-      const savedRun = await getRun(runId);
-      const candidate = savedRun.result?.cases[caseId];
+      // Only this claim's slice of the stored result is downloaded (server returns 404 if absent).
+      const savedRun = await getRunCase(runId, caseId);
+      if (!current()) return;
+      const candidate = savedRun.result?.cases[caseId]
+        ?? savedRun.result?.ml_anomaly?.items.find(item => item.case_id === caseId);
       if (!candidate) { setNotFound(true); setRun(savedRun); setReview(null); return; }
       const savedReview = await getRunCaseReview(runId, caseId);
+      if (!current()) return;
       setRun(savedRun); setReview(savedReview); setStatus(savedReview.review_status);
       setOutcome(savedReview.review_outcome ?? "inconclusive"); setNote(savedReview.note ?? "");
     } catch (reason) {
+      if (!current()) return;
       if (reason && typeof reason === "object" && "status" in reason && (reason as { status: unknown }).status === 404) setNotFound(true);
-      else setError(reason instanceof Error ? reason.message : "Konteks run atau review gagal dimuat.");
-    } finally { setLoading(false); }
+      else setError(failureText(reason, "Klaim atau tinjauannya tidak dapat dimuat."));
+    } finally { if (current()) setLoading(false); }
   }, [runId, caseId, canRead]);
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    setFeedback("");
+    void reload();
+    return () => { loadSequence.current += 1; };  // unmount or new case: drop the pending load
+  }, [reload]);
 
+  // One-click status from the bar that stays at the bottom while the reasons are read.
+  async function quickStatus(next: RunReviewStatus) {
+    if (busy || !canUpdateStatus) return;
+    setBusy(true); setError(""); setFeedback("");
+    try {
+      await updateRunCaseReview(runId, caseId, { review_status: next, note: note.trim() || null });
+      setStatus(next);
+      await reload(); setFeedback("Status tinjauan tersimpan."); onSaved?.();
+      notify({ tone: "success", title: "Status tinjauan tersimpan", message: `Klaim ${shortRef(caseId)}: ${runReviewStatusLabels[next].toLowerCase()}.` });
+    } catch (reason) {
+      setError(failureText(reason, "Status tinjauan tidak tersimpan."));
+    } finally { setBusy(false); }
+  }
   async function submitStatus(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || !canUpdateStatus || note.length > 1000) return;
     setBusy(true); setError(""); setFeedback("");
     try {
       await updateRunCaseReview(runId, caseId, { review_status: status, note: note.trim() || null });
-      await reload(); setFeedback("Status dan riwayat dimuat ulang dari penyimpanan server.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Perubahan status tidak tersimpan."); }
+      await reload(); setFeedback("Status tinjauan tersimpan."); onSaved?.();
+      notify({ tone: "success", title: "Status tinjauan tersimpan", message: `Klaim ${shortRef(caseId)}: ${runReviewStatusLabels[status].toLowerCase()}.` });
+    } catch (reason) {
+      setError(failureText(reason, "Status tinjauan tidak tersimpan."));
+      notify({ tone: "danger", title: "Status tinjauan tidak tersimpan", message: reason instanceof Error ? reason.message : undefined });
+    }
+    finally { setBusy(false); }
+  }
+  async function submitAudit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy || !canUpdateOutcome || !auditReference.trim() || auditNote.length > 1000) return;
+    setBusy(true); setError(""); setFeedback("");
+    try {
+      await recordRunCaseAuditConfirmation(runId, caseId, { audit_result: auditResult, audit_reference: auditReference.trim(), note: auditNote.trim() || null });
+      await reload(); setAuditReference(""); setAuditNote(""); setFeedback("Hasil audit resmi tersimpan."); onSaved?.();
+      notify({ tone: "success", title: "Hasil audit resmi tersimpan", message: `Klaim ${shortRef(caseId)}.` });
+    } catch (reason) {
+      setError(failureText(reason, "Hasil audit tidak tersimpan."));
+      notify({ tone: "danger", title: "Hasil audit tidak tersimpan", message: reason instanceof Error ? reason.message : undefined });
+    }
     finally { setBusy(false); }
   }
   async function submitOutcome(event: FormEvent<HTMLFormElement>) {
@@ -63,36 +175,277 @@ export default function RunCaseReviewPage() {
     setBusy(true); setError(""); setFeedback("");
     try {
       await recordRunCaseOutcome(runId, caseId, { review_outcome: outcome, note: note.trim() || null });
-      await reload(); setFeedback("Outcome dan riwayat dimuat ulang dari penyimpanan server.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Outcome tidak tersimpan."); }
+      await reload(); setFeedback("Keputusan tinjauan tersimpan."); onSaved?.();
+      notify({ tone: "success", title: "Keputusan tinjauan tersimpan", message: `Klaim ${shortRef(caseId)}: ${reviewOutcomeLabels[outcome].toLowerCase()}.` });
+    } catch (reason) {
+      setError(failureText(reason, "Keputusan tinjauan tidak tersimpan."));
+      notify({ tone: "danger", title: "Keputusan tinjauan tidak tersimpan", message: reason instanceof Error ? reason.message : undefined });
+    }
     finally { setBusy(false); }
   }
 
-  if (!canRead) return <section className="empty-state-panel"><span className="panel-kicker">AKSES DIBATASI</span><h2>Hasil run tidak dapat dibaca</h2><p>Halaman membutuhkan runs:results:read dan review:read. Backend tetap menjadi sumber otorisasi.</p><Link className="button button-secondary" to="/workflow"><ArrowLeft size={15} />Kembali ke batch dan run</Link></section>;
-  if (loading) return <LoadingState label="Memuat hasil run dan review tersimpan…" />;
-  if (notFound) return <section className="surface-panel not-found-case"><span className="panel-kicker">KASUS RUN TIDAK DITEMUKAN</span><h2>Pasangan run dan kasus tidak tersedia</h2><p>Kasus harus menjadi kandidat pada hasil AnalysisRun yang persis dipilih.</p><Link className="button button-secondary" to="/workflow"><ArrowLeft size={15} />Kembali ke AnalysisRun</Link></section>;
+  const back = (always = false) => <Link className={`button button-secondary button-compact case-back${always ? " always" : ""}`} to={backTo}><ArrowLeft size={14} />Kembali ke daftar</Link>;
+  if (!canRead) return <section className="card"><EmptyState title="Rincian klaim tidak dapat dibuka" message="Halaman ini membutuhkan izin membaca hasil analisis dan tinjauan." /></section>;
+  if (loading) return <section className="card"><LoadingState label="Memuat klaim dan tinjauannya…" /></section>;
+  if (notFound) return <section className="card not-found-case">{back(true)}<EmptyState title="Klaim tidak ada di analisis ini" message="Klaim hanya dapat ditinjau di dalam analisis tempat klaim itu ditandai atau diperingkat." /></section>;
+  if (error && !review) return <section className="card">{back(true)}<ErrorState message={error} httpStatus={null} onRetry={() => void reload()} /></section>;
 
   const result = run?.result;
-  const candidate: RunCase | undefined = result?.cases[caseId];
+  const ruleCandidate: RunCase | undefined = result?.cases[caseId];
+  const mlItem = result?.ml_anomaly?.items.find(item => item.case_id === caseId);
+  // Claims surfaced only by the ML ranking have no rule reasons or coverage rows.
+  const candidate: RunCase | undefined = ruleCandidate ?? (mlItem ? {
+    case_id: caseId, risk_score: null, score_status: "not_assessable", indicators: [],
+    indicator_coverage: [], reasons: [], limitations: [], ml_anomaly: mlItem ?? null,
+  } : undefined);
+  const mlRank = candidate?.ml_anomaly ?? null;
+  const mlNotAssessed = ruleCandidate?.ml_inference ?? null;
   const lane = result?.action_policy.cases[caseId];
-  if (!run || !result || !candidate || !review) return <EmptyState title="Detail review belum tersedia" message="Server tidak mengembalikan kandidat dan review lengkap untuk pasangan run/kasus ini." />;
+  if (!run || !result || !candidate || !review) return <section className="card">{back(true)}<EmptyState title="Rincian tinjauan tidak tersedia" message="Server tidak mengirim data klaim dan tinjauan yang lengkap." /></section>;
+  const heading = ruleCandidate
+    ? (ruleCandidate.indicators.map(indicatorLabel).join(" + ") || "Klaim ditandai")
+    : "Temuan tambahan AI";
+  const scored = result.ml_anomaly?.records_scored ?? 0;
+  const percentile = mlRank ? mlRank.reference_percentile ?? mlRank.anomaly_percentile : null;
+  const level = percentile !== null ? mlLevel(percentile) : null;
+  const laneKey = lane && lane.lane in LANES ? lane.lane as keyof typeof LANES : null;
+  // Plain-language reason: never the raw policy band text.
+  const verdictReason = candidate.risk_score !== null
+    ? `Skor aturan ${Math.round(candidate.risk_score * 100)} dari 100.`
+    : laneKey === "red" ? "Ditandai pemeriksaan aturan dan dinilai sangat tidak biasa oleh AI."
+    : laneKey === "yellow" ? "Ditandai pemeriksaan aturan dan dinilai tidak biasa oleh AI."
+    : laneKey === "green" ? "Ditandai pemeriksaan aturan, tetapi AI menilai polanya wajar." : "";
+  // Factors behind the AI score: per-claim signals against the training data, else the stored top-list deviations.
+  const factors = (mlRank?.supporting_signals ?? []).map(item => ({ feature: item.feature, description: item.description, percentile: item.training_percentile }))
+    .concat(!(mlRank?.supporting_signals?.length) ? (mlItem?.top_deviations ?? []) : []).slice(0, 4);
+  const training = result.ml_anomaly?.training_reference;
+  const trainingText = training?.rows_eligible
+    ? `Model dilatih dengan ${formatCount(training.rows_eligible)} klaim rumah sakit${training.date_from && training.date_to ? ` (${formatDate(training.date_from)} – ${formatDate(training.date_to)})` : ""}, lalu membandingkan klaim ini dengan pola klaim tersebut.`
+    : "AI membandingkan klaim ini dengan pola seluruh klaim pada analisis ini.";
+  const suggested: RunReviewStatus | null = laneKey === "red" ? "escalated" : laneKey === "yellow" ? "awaiting_evidence" : null;
 
-  return <>
-    <PageHeading eyebrow="TINJAUAN TERIKAT RUN" title="Detail kandidat" description="Identitas review adalah pasangan AnalysisRun dan case ID; hasil analitik tetap immutable." action={<Link className="button button-secondary" to={`/cases?run_id=${encodeURIComponent(runId)}`}><ArrowLeft size={15} />Kembali ke antrean run</Link>} />
-    <div className="notice-panel workflow-notice"><ShieldCheck size={18} /><p>Semua sumber saat ini sintetis. Review adalah metadata proses, bukan keputusan fraud. Catatan disimpan lokal; aplikasi demo belum memiliki assignment-based access control. Jangan memasukkan data peserta, klaim nyata, atau informasi sensitif.</p></div>
+  return <div className="case-panel stack">
     {error && <div className="workflow-error" role="alert"><strong>Permintaan gagal</strong><span>{error}</span></div>}
     {feedback && <div className="workflow-feedback" role="status">{feedback}</div>}
-    <section className="detail-hero surface-panel"><div className="detail-identity"><span className="detail-icon"><History size={19} /></span><div><span className="eyebrow muted-eyebrow">{run.run.run_id}</span><h2>{candidate.case_id}</h2></div></div><div className="detail-meta"><span className="status-pill status-neutral">Skor: {candidate.risk_score === null ? "tidak dapat dinilai" : candidate.risk_score.toFixed(3)} · {candidate.score_status}</span><StatusBadge status={review.review_status} /><SourceBadge source={result.data_source} /></div></section>
-    <div className="result-summary-grid review-run-context"><article><span>Batch sumber</span><strong>{run.run.batch_id} · v{run.run.batch_version}</strong><p>Run dibuat {new Date(run.run.created_at).toLocaleString()}</p></article><article><span>Action lane</span><strong>{lane?.lane ?? "Tidak disediakan"}</strong><p>{lane?.reasons.join("; ") ?? "Tidak ada rekomendasi lane untuk kandidat ini."}</p></article><article><span>Versi policy</span><strong>{lane?.policy_version ?? run.run.action_policy_version ?? "—"}</strong><p>{lane?.limitations.join("; ") ?? "Lane tidak ditafsirkan sebagai keputusan fraud."}</p></article></div>
-    <section className="surface-panel section-block run-case-reasons"><div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">ALASAN DAN CAKUPAN</span><h2>Sinyal untuk diperiksa auditor</h2></div></div>{candidate.reasons.length ? candidate.reasons.map((reason, i) => <article className="run-reason" key={`${reason.indicator}-${i}`}><strong>{reason.indicator.replace(/_/g, " ")}</strong><p>{reason.summary}</p>{reason.evidence.length > 0 && <ul>{reason.evidence.map((item, j) => <li key={j}>{item}</li>)}</ul>}{reason.limitations.length > 0 && <small>{reason.limitations.join("; ")}</small>}</article>) : <EmptyState title="Alasan tidak disediakan" message="Hasil run tidak mengandung teks alasan untuk kandidat ini." />}
-      <div className="coverage-chip-list">{candidate.indicator_coverage.map(item => <span className="coverage-chip" key={item.indicator}><strong>{item.indicator.replace(/_/g, " ")}</strong> · {item.status}{item.reason ? ` — ${item.reason}` : ""}</span>)}</div>{candidate.limitations.length > 0 && <ul>{candidate.limitations.map(item => <li key={item}>{item}</li>)}</ul>}</section>
-    <section className="workflow-review-grid">
-      <form className="surface-panel workflow-form" onSubmit={event => void submitStatus(event)}><div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">STATUS PROSES</span><h2>Tindak lanjut</h2></div><StatusBadge status={review.review_status} /></div><label className="review-field">Status<select value={status} onChange={event => setStatus(event.target.value as RunReviewStatus)} disabled={!canUpdateStatus || busy}>{statusValues.map(value => <option value={value} key={value}>{runReviewStatusLabels[value]}</option>)}</select></label><label className="review-field">Catatan sintetis opsional<textarea value={note} onChange={event => setNote(event.target.value)} maxLength={1000} disabled={!canUpdateStatus || busy} placeholder="Ringkasan aman untuk tinjauan, tanpa identitas atau nilai klaim nyata." /></label><div className="review-form-footer"><span className={`character-count${note.length > 1000 ? " character-count-error" : ""}`}>{note.length}/1000</span><button className="button button-primary" type="submit" disabled={!canUpdateStatus || busy || note.length > 1000}><Save size={14} />{busy ? "Menyimpan…" : "Simpan status"}</button></div>{!canUpdateStatus && <small>Role ini tidak memiliki review:write.</small>}</form>
-      <form className="surface-panel workflow-form" onSubmit={event => void submitOutcome(event)}><div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">KESIMPULAN MANUSIA</span><h2>Outcome tinjauan</h2></div><span className="status-pill status-neutral">{review.review_outcome_label ?? "Belum dicatat"}</span></div><label className="review-field">Outcome<select value={outcome} onChange={event => setOutcome(event.target.value as ReviewOutcome)} disabled={!canUpdateOutcome || busy}>{outcomeValues.map(value => <option value={value} key={value}>{reviewOutcomeLabels[value]}</option>)}</select></label><p className="workflow-muted">Taksonomi prototipe sementara; menyatakan dukungan pada sinyal yang diperiksa, bukan keputusan hukum/operasional atau fraud terverifikasi.</p><div className="review-form-footer"><span className="reviewer-demo-label">Aktor berasal dari sesi tervalidasi server.</span><button className="button button-primary" type="submit" disabled={!canUpdateOutcome || busy}><Save size={14} />{busy ? "Menyimpan…" : "Simpan outcome"}</button></div>{!canUpdateOutcome && <small>Hanya role berpermission review:manage yang dapat mencatat outcome.</small>}</form>
+
+    <section className="case-hero-panel" aria-label="Ringkasan klaim">
+      {back()}
+      <div className="case-hero">
+        <div>
+          <span className="eyebrow-text">{runTitle(run.run)} · Ref. klaim {shortRef(caseId)}</span>
+          <h2>{heading}</h2>
+        </div>
+        <div className="case-hero-badges"><StatusBadge status={review.review_status} />{review.review_outcome && <span className="status-pill tone-neutral">{reviewOutcomeLabels[review.review_outcome]}</span>}</div>
+      </div>
+      {laneKey && <div className={`verdict-box ${laneKey === "red" ? "high" : laneKey === "yellow" ? "medium" : "low"}`} style={{ marginTop: 16 }} data-testid="case-lane">
+        <span className="verdict-level"><LaneDot lane={laneKey} /> {LANES[laneKey].name.toUpperCase()} · {LANES[laneKey].meaning}</span>
+        <p>{verdictReason} <strong>Saran: {LANES[laneKey].action}.</strong></p>
+      </div>}
+      <div className="fact-grid">
+        <div className="fact">
+          <span>Tingkat risiko</span>
+          <strong>{laneKey ? LANES[laneKey].name : "Belum dinilai"}</strong>
+          <small>{laneKey ? LANES[laneKey].action : "Data belum cukup untuk memberi saran."}</small>
+        </div>
+        <div className="fact">
+          <span>Skor AI</span>
+          <strong>{percentile !== null ? `${aiScore(percentile)} / 100` : mlNotAssessed ? "Tidak dinilai" : "—"}</strong>
+          <small>{level ? level.label : mlNotAssessed ? "Data untuk AI tidak lengkap." : "Klaim ini tidak dinilai AI."}</small>
+        </div>
+        <div className="fact">
+          <span>Pemeriksaan yang menandai</span>
+          <strong>{candidate.indicators.length || "—"}</strong>
+          <small>{candidate.indicators.map(indicatorLabel).join(", ") || "Hanya ditandai AI"}</small>
+        </div>
+      </div>
     </section>
-    <section className="surface-panel review-history-panel"><div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">RIWAYAT APPEND-ONLY</span><h2><History size={16} />Perubahan review</h2></div><span className="history-count">{review.history.length} event</span></div>{review.history.length === 0 ? <EmptyState title="Belum ada perubahan" message="Status awal Menunggu Tinjauan; GET tidak membuat baris atau event review." /> : <ol className="review-history-list">{review.history.map((event, index) => <li className={`review-history-item${index === review.history.length - 1 ? " review-history-current" : ""}`} key={event.event_id}><span className="history-marker" /><div className="history-event-content"><div className="history-event-heading"><strong className="history-event-label">{event.event_type.replace(/_/g, " ")} · aktor {event.actor_user_id}</strong><time dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString()}</time></div><div className="history-status-transition">{event.previous_status && <StatusBadge status={event.previous_status} />}<span>→</span>{event.new_status && <StatusBadge status={event.new_status} />}{event.previous_outcome && <span>{reviewOutcomeLabels[event.previous_outcome]}</span>}{event.new_outcome && <strong>{reviewOutcomeLabels[event.new_outcome]}</strong>}</div>{event.note && <p className="history-note">{event.note}</p>}</div></li>)}</ol>}</section>
-    <p className="workflow-disclaimer">Current review status: <strong>{review.review_status_label}</strong> · outcome: <strong>{review.review_outcome_label ?? "belum dicatat"}</strong> · terakhir diubah {review.updated_at ? new Date(review.updated_at).toLocaleString() : "belum pernah"}.</p>
-  </>;
+
+    {(mlRank || mlNotAssessed) && <section className="card run-case-reasons" aria-label="Penilaian AI">
+      <div className="card-head">
+        <div><h2><Sparkles size={16} style={{ verticalAlign: "-2px", color: "var(--brand)" }} /> Analisis AI</h2>
+          <p>{trainingText}</p></div>
+      </div>
+      {mlNotAssessed && !mlRank && <p>AI tidak dapat menilai klaim ini karena data {mlNotAssessed.reason.replace(/^missing:/, "").split("+").map(field => attributeLabel(field)).join(", ")} kosong.</p>}
+      {mlRank && percentile !== null && <div className="ai-card">
+        <div className="ai-score">
+          <span className="fine-print">Skor AI</span>
+          <span className="ai-num">{aiScore(percentile)}<small> / 100</small></span>
+          {level && <span className={`status-pill tone-${level.tone}`} style={{ justifySelf: "start" }}>{level.label}</span>}
+          <span className="ai-meta">Peringkat {formatCount(mlRank.rank)} dari {formatCount(scored)} klaim pada periode ini{mlRank.tie_count && mlRank.tie_count > 1 ? ` (nilainya sama dengan ${formatCount(mlRank.tie_count - 1)} klaim lain)` : ""}.</span>
+        </div>
+        <div>
+          <strong style={{ display: "block", marginBottom: 12 }}>Faktor yang membuat klaim ini tidak biasa</strong>
+          {factors.length > 0 ? <ul className="ai-factors">{factors.map(item => (
+            <li className="ai-factor" key={item.feature}>
+              <div className="ai-factor-head"><span>{mlFeatureLabel(item.feature, item.description)}</span>
+                <span>lebih ekstrem dari {Math.floor(item.percentile * 100)}% klaim</span></div>
+              <div className="ai-bar" aria-hidden="true"><span style={{ width: `${Math.max(4, item.percentile * 100)}%` }} /></div>
+            </li>))}</ul>
+            : <p className="fine-print">Tidak ada satu faktor yang menonjol; yang tidak biasa adalah gabungan beberapa data.</p>}
+        </div>
+      </div>}
+      <p className="ai-meta" style={{ marginTop: 14 }}>{ruleCandidate ? "" : "Klaim ini lolos pemeriksaan aturan; AI menemukannya dari pola data. "}{mlQualification(result.ml_anomaly)}</p>
+    </section>}
+
+    <section className="card run-case-reasons" aria-label="Alasan ditandai">
+      <div className="card-head"><div><h2>Mengapa klaim ini perlu diperiksa?</h2><p>Temuan dari pemeriksaan aturan.</p></div></div>
+      <div className="stack">
+        {candidate.reasons.length ? candidate.reasons.map((reason, i) => <article className="reason-card run-reason" key={`${reason.indicator}-${i}`}>
+          <h4>{indicatorLabel(reason.indicator)}</h4>
+          <PatternOnlyNotice evidence={reason.supporting_values?.billing_status_evidence} />
+          {indicatorDefinition(reason.indicator) && <p>{indicatorDefinition(reason.indicator)}</p>}
+          <EvidenceList evidence={reason.evidence} />
+          {(REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)) && <div className="guidance review-hint"><Lightbulb size={15} /><span><strong>Yang perlu diperiksa:</strong> {REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)}</span></div>}
+        </article>) : <p className="fine-print">Lolos pemeriksaan aturan. Klaim ini masuk daftar karena penilaian AI di atas.</p>}
+      </div>
+    </section>
+
+    <ClinicalNoteCard runId={runId} caseId={caseId} canAsk={canUpdateStatus} />
+
+    <section className="card" aria-label="Keputusan tinjauan">
+      <div className="card-head"><div><h2>Keputusan tinjauan</h2><p>Isi dari langkah 1 sampai 3.</p></div></div>
+      <div className="assignment-bar" data-testid="case-assignment">
+        <span><UserRound size={15} aria-hidden="true" /> Penanggung jawab: <strong>{holder ? (holder.is_me ? "Anda" : holder.username) : "belum ada"}</strong></span>
+        {canUpdateStatus && !holder && <button className="button button-secondary row-button" disabled={busy} onClick={() => void assign("take")}>Ambil klaim ini</button>}
+        {canUpdateStatus && holder?.is_me && <button className="button button-secondary row-button" disabled={busy} onClick={() => void assign("release")}>Lepaskan</button>}
+      </div>
+      <div className="decision-steps">
+        <div className={`decision-step${canUpdateStatus ? "" : " locked"}`}>
+          <span className="step-num">1</span>
+          <form className="form-stack" onSubmit={event => void submitStatus(event)} aria-label="Status tinjauan">
+            <h4>Tindakan</h4>
+            <p>{suggested ? `Untuk ${LANES[laneKey!].name.toLowerCase()}, tindak lanjut yang disarankan: ${runReviewStatusLabels[suggested]}.` : "Tandai sejauh mana Anda sudah memeriksa klaim ini."}</p>
+            <fieldset className="option-grid" disabled={!canUpdateStatus || busy}>
+              <legend className="sr-only">Status tinjauan</legend>
+              {statusValues.map(value => <label className="option" key={value} title={STATUS_HELP[value]}>
+                <input type="radio" name="review-status" value={value} checked={status === value} onChange={() => setStatus(value)} />
+                {runReviewStatusLabels[value]}
+              </label>)}
+            </fieldset>
+            <label htmlFor="review-note">Catatan (opsional)</label><textarea id="review-note" value={note} onChange={event => setNote(event.target.value)} maxLength={1000} disabled={!canUpdateStatus || busy} placeholder={NOTE_PLACEHOLDER} />
+            <div className="form-actions">
+              <span className={`character-count${note.length > 1000 ? " character-count-error" : ""}`}>{note.length}/1000</span>
+              <button className="button button-primary" type="submit" disabled={!canUpdateStatus || busy || note.length > 1000}><Save size={14} />{busy ? "Menyimpan…" : "Simpan status"}</button>
+            </div>
+            {!canUpdateStatus && <small className="fine-print"><Lock size={12} /> Peran Anda dapat melihat tinjauan ini, tetapi tidak dapat mengubah statusnya.</small>}
+          </form>
+        </div>
+
+        {!canUpdateOutcome && <>
+          <div className="decision-step locked">
+            <span className="step-num">2</span>
+            <div><h4>Umpan balik: benar atau ternyata wajar? <span className="status-pill tone-neutral">{review.review_outcome ? reviewOutcomeLabels[review.review_outcome] : "Belum diputuskan"}</span></h4>
+              <small className="fine-print"><Lock size={12} /> Hanya verifikator dan administrator yang dapat menyimpan keputusan.</small></div>
+          </div>
+          <div className="decision-step locked">
+            <span className="step-num">3</span>
+            <div><h4>Hasil audit resmi <span className="status-pill tone-neutral" data-testid="audit-result-status">{review.audit_result ? auditResultLabels[review.audit_result] : "Belum ada hasil audit resmi"}</span></h4>
+              {review.audit_result && review.audit_details_visible === false
+                ? <p className="fine-print" data-testid="audit-details-restricted">Nomor referensi, catatan, dan pencatat audit hanya dapat dilihat oleh verifikator dan administrator.</p>
+                : <small className="fine-print"><Lock size={12} /> Dicatat setelah audit resmi selesai.</small>}</div>
+          </div>
+        </>}
+        {canUpdateOutcome && <>
+        <div className={`decision-step${canUpdateOutcome ? "" : " locked"}`}>
+          <span className="step-num">2</span>
+          <form className="form-stack" onSubmit={event => void submitOutcome(event)} aria-label="Keputusan tinjauan">
+            <h4>Umpan balik: benar atau ternyata wajar? <span className="status-pill tone-neutral">{review.review_outcome ? reviewOutcomeLabels[review.review_outcome] : "Belum diputuskan"}</span></h4>
+            <p>Setelah memeriksa berkas, apakah klaim ini memang bermasalah? Jawaban Anda menjadi tolok ukur ketepatan sistem dan dasar penyesuaian ambang oleh administrator.</p>
+            <fieldset className="option-grid" disabled={!canUpdateOutcome || busy}>
+              <legend className="sr-only">Keputusan tinjauan</legend>
+              {outcomeValues.map(value => <label className="option" key={value}>
+                <input type="radio" name="review-outcome" value={value} checked={outcome === value} onChange={() => setOutcome(value)} />
+                {reviewOutcomeLabels[value]}
+              </label>)}
+            </fieldset>
+            <div className="form-actions">
+              <span className="fine-print">Tercatat atas nama akun Anda.</span>
+              <button className="button button-primary" type="submit" disabled={!canUpdateOutcome || busy}><Save size={14} />{busy ? "Menyimpan…" : "Simpan keputusan"}</button>
+            </div>
+            {!canUpdateOutcome
+              ? <small className="fine-print"><Lock size={12} /> Hanya verifikator dan administrator yang dapat menyimpan keputusan.</small>
+              : null}
+          </form>
+        </div>
+
+        <div className={`decision-step${canUpdateOutcome ? "" : " locked"}`}>
+          <span className="step-num">3</span>
+          <div className="form-stack" aria-label="Hasil audit resmi">
+            <h4>Hasil audit resmi <span className="status-pill tone-neutral" data-testid="audit-result-status">{review.audit_result ? auditResultLabels[review.audit_result] : "Belum ada hasil audit resmi"}</span></h4>
+            {canUpdateOutcome ? <details className="audit-form" open={Boolean(review.audit_result) || undefined}>
+              <summary>Catat hasil audit resmi <small>diisi setelah audit resmi selesai</small></summary>
+              <form className="form-stack" onSubmit={event => void submitAudit(event)}>
+              <fieldset className="option-grid" disabled={busy}>
+                <legend className="sr-only">Hasil audit</legend>
+                {(Object.keys(auditResultLabels) as AuditResult[]).map(value => <label className="option" key={value}>
+                  <input type="radio" name="audit-result" value={value} checked={auditResult === value} onChange={() => setAuditResult(value)} />
+                  {auditResultLabels[value]}
+                </label>)}
+              </fieldset>
+              <label htmlFor="audit-reference">Nomor referensi audit</label><input id="audit-reference" value={auditReference} onChange={event => setAuditReference(event.target.value)} placeholder="mis. AUD-2026/014" maxLength={64} required disabled={busy} />
+              <label htmlFor="audit-note">Catatan audit (opsional)</label><textarea id="audit-note" value={auditNote} onChange={event => setAuditNote(event.target.value)} maxLength={1000} disabled={busy} placeholder={NOTE_PLACEHOLDER} />
+              <div className="form-actions">
+                <span className="fine-print">Simpan status di langkah 1 terlebih dahulu.</span>
+                <button className="button button-primary" type="submit" disabled={busy || !auditReference.trim()}><ShieldCheck size={14} />{busy ? "Menyimpan…" : "Simpan hasil audit"}</button>
+              </div>
+              </form>
+            </details> : <small className="fine-print"><Lock size={12} /> Hanya verifikator dan administrator yang dapat mencatat hasil audit resmi.</small>}
+            {review.audit_result && review.audit_details_visible === false && <p className="fine-print" data-testid="audit-details-restricted">Nomor referensi, catatan, dan pencatat audit hanya dapat dilihat oleh verifikator dan administrator.</p>}
+            {(review.audit_confirmations ?? []).length > 0 && <ol className="timeline">{(review.audit_confirmations ?? []).map(item => <li key={item.confirmation_id}>
+              <strong>{auditResultLabels[item.audit_result]} · ref. {item.audit_reference}</strong>
+              <span>oleh {actorName(item.recorded_by_user_id)} · {formatDateTime(item.recorded_at)}</span>
+              {item.note && <p className="history-note">{item.note}</p>}
+            </li>)}</ol>}
+          </div>
+        </div>
+        </>}
+      </div>
+    </section>
+
+    <details className="card review-history-panel" aria-label="Riwayat tinjauan">
+      <summary className="history-summary"><span><History size={16} style={{ verticalAlign: "-2px" }} /> Riwayat tinjauan</span>
+        <span className="history-count">{review.history.length} perubahan</span></summary>
+      <p className="fine-print">Setiap perubahan tercatat dan tidak dapat dihapus.</p>
+      {review.history.length === 0
+        ? <p className="fine-print">Belum ada perubahan.</p>
+        : <ol className="timeline">{review.history.map(event => <li key={event.event_id}>
+          <strong>{historyLabel(event.event_type)}{event.new_status ? `: ${runReviewStatusLabels[event.new_status]}` : ""}{event.new_outcome ? `: ${reviewOutcomeLabels[event.new_outcome]}` : ""}</strong>
+          <span>oleh {actorName(event.actor_user_id)} · <time dateTime={event.occurred_at}>{formatDateTime(event.occurred_at)}</time>{event.previous_status ? ` · sebelumnya ${runReviewStatusLabels[event.previous_status]}` : ""}{event.previous_outcome ? ` · sebelumnya ${reviewOutcomeLabels[event.previous_outcome]}` : ""}</span>
+          {event.note && <p className="history-note">{event.note}</p>}
+        </li>)}</ol>}
+    </details>
+
+    {canUpdateStatus && <div className="quick-actions" role="group" aria-label="Tindakan cepat" data-testid="quick-actions">
+      <span className="quick-actions-label">Tindakan cepat{review.review_status !== "pending_review" ? ` · sekarang: ${runReviewStatusLabels[review.review_status]}` : ""}</span>
+      <div className="quick-actions-buttons">
+        {!holder && <button type="button" className="button button-secondary row-button" disabled={busy} onClick={() => void assign("take")}>Ambil klaim</button>}
+        {QUICK_STATUSES.map(([value, label]) => <button key={value} type="button" disabled={busy}
+          className={`button row-button ${review.review_status === value ? "button-primary" : "button-secondary"}`}
+          aria-pressed={review.review_status === value} onClick={() => void quickStatus(value)}>{label}</button>)}
+      </div>
+    </div>}
+
+    <div className="notice-panel workflow-notice"><ShieldCheck size={18} /><p>Catatan tinjauan bukan putusan kecurangan. Jangan menulis data peserta atau informasi sensitif lain.</p></div>
+    <TechnicalDetails items={[
+      { label: "ID klaim", value: caseId, copy: true },
+      { label: "ID analisis", value: run.run.run_id, copy: true },
+      { label: "ID data", value: `${run.run.batch_id} (versi ${run.run.batch_version})` },
+      { label: "Versi aturan saran", value: lane?.policy_version ?? run.run.action_policy_version },
+      { label: "Skor aturan", value: ruleIndexText(candidate) },
+      { label: "Status skor", value: statusText(candidate.score_status) },
+      { label: "Pembaruan tinjauan terakhir", value: review.updated_at ? formatDateTime(review.updated_at) : "belum pernah" },
+    ]} />
+  </div>;
 }
 
-function StatusBadge({ status }: { status: string }) { return <span className={`status-pill status-${status}`}>{runReviewStatusLabels[status as RunReviewStatus] ?? status.replace(/_/g, " ")}</span>; }
+const QUICK_STATUSES: Array<[RunReviewStatus, string]> = [
+  ["in_review", "Sedang ditinjau"], ["awaiting_evidence", "Minta klarifikasi"], ["escalated", "Masuk antrean audit"], ["closed", "Selesai"],
+];
+
+function historyLabel(type: string): string {
+  if (type === "status_changed") return "Status diubah";
+  if (type === "outcome_recorded") return "Keputusan dicatat";
+  if (type === "outcome_changed") return "Keputusan diubah";
+  return "Perubahan";
+}
+function StatusBadge({ status }: { status: string }) { return <span className={`status-pill status-${status}`}>{runReviewStatusLabels[status as RunReviewStatus] ?? statusText(status)}</span>; }

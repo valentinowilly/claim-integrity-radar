@@ -1,54 +1,164 @@
-import { Info } from "lucide-react";
-import { EmptyState, formatNumber, PageHeading, SourceBadge } from "../components/DataStates";
-import { RunSelector, RunStateMessage } from "../components/PersistedRunWorkspace";
-import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
+import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
+import { Activity, Database, Info, ListChecks, ShieldAlert } from "lucide-react";
+import { EmptyState } from "../components/DataStates";
+import { flaggedCaseCount, ruleFlaggedListedIds, type RunResult } from "../api/client";
 
-const stateLabels: Record<string, string> = {
-  triggered: "Ada sinyal", not_triggered: "Tidak terpicu pada penilaian tercakup",
-  not_applicable: "Tidak berlaku", not_assessed: "Belum dinilai",
-  complete: "Tercakup", partial: "Parsial", unavailable: "Tidak tersedia", not_assessable: "Belum dapat dinilai",
-};
+type IndicatorSummary = RunResult["indicators"][number];
+type IndicatorCoverage = RunResult["indicator_coverage"][number];
+import {
+  Callout, CoverageMetrics, FacilityPriorityNotice, LimitedSearchWarning, MoreInfo, PatternOnlyNotice, StatusPill, TechnicalDetails,
+  formatCount, indicatorDefinition, indicatorLabel, statusText, unassessedReasonText,
+} from "../components/Display";
+import { MlRankingSection } from "../components/MlRanking";
+import { RunSelector, RunStateMessage, RunTechnicalDetails, SourcePill } from "../components/PersistedRunWorkspace";
+import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 
 export default function AnalysisPage() {
   const { state, selectRun, reload } = usePersistedRunSnapshot();
+  const result = state.status === "success" ? state.detail.result : null;
+  const available = result && result.availability === "available" ? result : null;
+  const applicable = available?.indicators.filter(item => item.status !== "not_applicable") ?? [];
+  const notApplicable = available?.indicators.filter(item => item.status === "not_applicable") ?? [];
   return <>
-    <PageHeading eyebrow="ANALISIS" title="Analisis Risiko" description="Cakupan, hasil indikator, dan alasan dari snapshot AnalysisRun yang persisten." action={state.status === "success" && state.detail.result ? <SourceBadge source={state.detail.result.data_source}/> : undefined}/>
-    {state.status !== "success" && <RunStateMessage state={state} retry={reload}/>}
-    {state.status === "success" && <>
-      <RunSelector runs={state.runs} detail={state.detail} onChange={selectRun}/>
-      {!state.detail.result ? <EmptyState title="Hasil run tidak tersedia" message="Tidak ada snapshot persisten untuk run terpilih."/> : state.detail.result.availability !== "available" ? <EmptyState title="Hasil analisis tidak tersedia" message={`Status ketersediaan: ${state.detail.result.availability}. Tidak ada indikator yang dapat disajikan sebagai hasil operasional.`}/> : <>
-        <section className="analysis-overview-grid">
-          <Metric label="Record dipertimbangkan" value={formatNumber(state.detail.result.records_considered)}/>
-          <Metric label="Record memenuhi syarat" value={formatNumber(state.detail.result.records_eligible)}/>
-          <Metric label="Status eksekusi" value={state.detail.result.execution_status}/>
+    <header className="page-head">
+      <div>
+        <h1>Rincian <span className="muted">Analisis</span></h1>
+        <p>Apa yang ditemukan setiap pemeriksaan, berapa banyak data yang dapat diperiksa, dan apa batasannya.</p>
+      </div>
+      {state.status === "success" && <div className="page-head-actions">
+        {result && <SourcePill source={result.data_source} />}
+        <RunSelector runs={state.runs} detail={state.detail} onChange={selectRun} />
+      </div>}
+    </header>
+    {state.status !== "success" && <RunStateMessage state={state} retry={reload} />}
+    {state.status === "success" && (!result ? <EmptyState title="Hasil analisis tidak tersedia" message="Analisis yang dipilih belum memiliki hasil tersimpan." />
+      : !available ? <EmptyState title="Hasil analisis belum siap" message="Analisis ini belum selesai." />
+      : <>
+        <section className="dash-grid">
+          <Kpi className="span-3" icon={<Database size={18} />} label="Klaim dianalisis" value={formatCount(available.records_considered)} foot="Seluruh klaim di data ini" />
+          <Kpi className="span-3" icon={<ShieldAlert size={18} />} label="Klaim ditandai" value={formatCount(flaggedCaseCount(available))} foot="Oleh pemeriksaan aturan" />
+          <Kpi className="span-3" icon={<ListChecks size={18} />} label="Pemeriksaan berlaku" value={`${formatCount(applicable.length)} dari ${formatCount(available.indicators.length)}`} foot="Sisanya dilewati karena datanya tidak ada" />
+          <Kpi className="span-3" icon={<Activity size={18} />} label="Status analisis" value={available.execution_status === "partial" ? "Sebagian" : statusText(available.execution_status)} foot={available.execution_status === "partial" ? "Ada klaim yang belum dapat diperiksa" : "Semua pemeriksaan berjalan"} />
         </section>
-        <section className="surface-panel section-block"><div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">ENAM PEMERIKSA</span><h2>Cakupan dan sinyal</h2></div><span className="small-context">Status hasil, cakupan, dan status run adalah dimensi terpisah.</span></div>
-          {state.detail.result.indicators.length === 0 ? <EmptyState title="Tidak ada indikator pada hasil" message="Snapshot tidak menyertakan ringkasan pemeriksa."/> : <div className="analysis-indicator-list">{state.detail.result.indicators.map(indicator => {
-            const coverage = state.detail.result!.indicator_coverage.find(item => item.indicator === indicator.code);
-            const reasons = Object.values(state.detail.result!.cases).flatMap(item => item.reasons.filter(reason => reason.indicator === indicator.code).map(reason => reason.summary));
-            const caseStates = Object.values(state.detail.result!.cases).flatMap(item => item.indicator_coverage.filter(row => row.indicator === indicator.code).map(row => row.status));
-            const caseStateCounts = ["triggered", "not_triggered", "not_applicable", "not_assessed"].map(status => ({ status, count: caseStates.filter(item => item === status).length }));
-            return <article className="analysis-indicator-card" key={indicator.code}><div className="analysis-card-heading"><div><span className="indicator-pill">{stateLabels[indicator.status] ?? indicator.status}</span><h3>{indicator.name}</h3><code>{indicator.code}</code></div><div className="analysis-count"><strong>{formatNumber(indicator.candidate_count)}</strong><span>kandidat</span></div></div>
-              <p className="definition-copy">{indicator.definition}</p>
-              <div className="analysis-facts"><span><strong>{formatNumber(indicator.eligible_count)}</strong> memenuhi syarat</span><span><strong>{formatNumber(coverage?.records_assessed)}</strong> dinilai</span><span><strong>{formatNumber(indicator.not_applicable_count)}</strong> tidak berlaku</span><span><strong>{formatNumber(indicator.unassessed_count)}</strong> belum dinilai</span><span><strong>{coverage ? stateLabels[coverage.status] ?? coverage.status : "Belum tersedia"}</strong> status cakupan</span></div>
-              <p className="small-context">Status pada kandidat tersimpan: {caseStateCounts.map(item => `${stateLabels[item.status]} ${item.count}`).join(" · ")}. Ringkasan ini hanya meliputi kasus yang disertakan dalam snapshot.</p>
-              {(indicator.search_truncated || coverage?.search_truncated) && <p className="notice-inline">Pencarian terpotong; record yang tidak muncul tidak dapat dianggap tidak terpicu.</p>}
-              <div className="reason-block"><strong>Alasan kandidat tersimpan</strong>{reasons.length ? <ul>{[...new Set(reasons)].map(text => <li key={text}>{text}</li>)}</ul> : <p>Tidak ada alasan kandidat pada snapshot untuk indikator ini. Ini bukan bukti bahwa populasi bebas anomali.</p>}</div>
-              <div className="limitation-block"><strong>Keterbatasan</strong><ul>{indicator.limitations.map(text => <li key={text}>{text}</li>)}</ul></div>
-            </article>;
-          })}</div>}
+
+        <section className="card">
+          <div className="card-head"><div><h2>Hasil setiap pemeriksaan</h2><p>Jumlah klaim yang ditandai setiap pemeriksaan.</p></div></div>
+          {available.indicators.length === 0 ? <EmptyState title="Tidak ada pemeriksaan" message="Belum ada ringkasan pemeriksaan untuk analisis ini." />
+            : <div className="dash-grid analysis-indicator-list">
+              {applicable.map(indicator => <IndicatorCard key={indicator.code} indicator={indicator}
+                coverage={available.indicator_coverage.find(item => item.indicator === indicator.code)}
+                reasons={available.result_view?.indicator_reason_summaries?.[indicator.code]
+                  ?? [...new Set(Object.values(available.cases).flatMap(item => item.reasons.filter(reason => reason.indicator === indicator.code).map(reason => reason.summary)))]} />)}
+            </div>}
+          {notApplicable.length > 0 && <details className="tech-details" style={{ marginTop: 14 }}>
+            <summary>Tidak berlaku untuk data ini ({formatCount(notApplicable.length)} pemeriksaan)</summary>
+            <p className="fine-print">Dilewati karena datanya tidak tersedia, bukan karena tidak ada temuan.</p>
+            <ul className="row-list">{notApplicable.map(item => <li key={item.code} className="row-item" data-indicator={item.code}>
+              <span className="row-main"><strong>{indicatorLabel(item.code)}</strong><span>{indicatorDefinition(item.code) ?? item.name}</span></span>
+              <StatusPill value={item.status} />
+            </li>)}</ul>
+          </details>}
         </section>
-        <section className="surface-panel section-block"><div className="panel-heading-row"><div><span className="eyebrow muted-eyebrow">PENILAIAN DAN PRIORITAS</span><h2>Informasi tersimpan</h2></div></div>
-          <div className="analysis-facts"><span><strong>{state.detail.result.risk_scoring.version}</strong> versi skor</span><span><strong>{formatNumber(state.detail.result.risk_scoring.unassessable_case_count)}</strong> kasus tak dapat dinilai</span><span><strong>{state.detail.result.audit_priority.status}</strong> status prioritas fasilitas</span><span><strong>{state.detail.result.action_policy.policy_version}</strong> versi kebijakan demo</span><span><strong>{state.detail.result.action_policy.input_assessment_status}</strong> status masukan kebijakan</span></div>
-          <p className="definition-copy">Skor adalah indeks aturan provisional, bukan probabilitas fraud. Risk level tidak disediakan sebagai nilai tervalidasi.</p>
-          {state.detail.result.risk_scoring.limitations.length > 0 && <ul>{state.detail.result.risk_scoring.limitations.map(x => <li key={x}>{x}</li>)}</ul>}
-          {state.detail.result.audit_priority.status !== "available" && <p className="notice-inline">Prioritas fasilitas tidak tersedia atau cakupannya parsial sesuai prasyarat yang dicatat server.</p>}
-          <ul>{state.detail.result.audit_priority.eligibility_reasons.map(x => <li key={x}>{x}</li>)}</ul>
-          <ul>{state.detail.result.action_policy.limitations.map(x => <li key={x}>{x}</li>)}</ul>
+
+        {available.ml_anomaly && <MlRankingSection runId={state.detail.run.run_id} ml={available.ml_anomaly} ruleCaseIds={ruleFlaggedListedIds(available)} />}
+
+        <section className="card">
+          <div className="card-head"><div><h2>Skor aturan dan saran tindak lanjut</h2><p>Cara sistem mengurutkan klaim untuk ditinjau.</p></div></div>
+          {available.facility_groups?.status === "available"
+            ? <Callout tone="info" title="Urutan per faskes">
+                <p>Klaim juga dikelompokkan per kelompok faskes (wilayah, kepemilikan, jenis, dan kelas) dan diurutkan di halaman{" "}
+                  <Link to={`/facilities?run_id=${encodeURIComponent(state.detail.run.run_id)}`}>Faskes</Link>.</p>
+              </Callout>
+            : <FacilityPriorityNotice status={available.audit_priority.status} reasons={available.audit_priority.eligibility_reasons} />}
+          <div className="stack" style={{ marginTop: 12 }}>
+            <p><strong>Skor aturan</strong> adalah gabungan sementara dari pemeriksaan aturan untuk mengurutkan tinjauan, bukan peluang kecurangan.
+              {" "}{formatCount(available.risk_scoring.unassessable_case_count)} klaim belum dapat diberi skor karena tidak ada pemeriksaan yang dapat menilainya.
+              {available.risk_scoring.minimum_assessed_indicators !== undefined && ` Skor tidak dihitung untuk ${formatCount(available.risk_scoring.insufficient_indicator_case_count ?? 0)} klaim karena pemeriksaan yang berlaku kurang dari ${available.risk_scoring.minimum_assessed_indicators}.`}</p>
+            <p><strong>Saran tindak lanjut</strong> {available.action_policy.input_assessment_status === "assessed"
+              ? "tersedia untuk semua klaim yang ditandai."
+              : available.action_policy.input_assessment_status === "partial"
+                ? "hanya diberikan untuk klaim yang pemeriksaannya lengkap."
+                : `belum tersedia (${statusText(available.action_policy.input_assessment_status).toLowerCase()}).`}</p>
+          </div>
+          <MoreInfo title="Keterbatasan skor dan saran" items={[...available.risk_scoring.limitations, ...available.action_policy.limitations]} />
+          <TechnicalDetails items={[
+            { label: "Versi skor aturan", value: available.risk_scoring.version },
+            { label: "Versi urutan prioritas", value: `${available.audit_priority.priority_version} / ${available.audit_priority.status}` },
+            { label: "Versi aturan saran", value: `${available.action_policy.policy_version} / ${available.action_policy.input_assessment_status}` },
+          ]} />
         </section>
-        <div className="notice-panel"><Info size={17}/><p>{state.detail.notice} Action lane bila ada adalah saran demo provisional; review manusia tetap terpisah.</p></div>
-      </>}
-    </>}
+        <AnalysisQuality result={available} />
+        <div className="notice-panel"><Info size={17} /><p>Saran tindak lanjut hanya panduan awal; keputusan tetap di tangan petugas.</p></div>
+        <RunTechnicalDetails detail={state.detail} />
+      </>)}
   </>;
 }
-function Metric({ label, value }: { label: string; value: string }) { return <article className="metric-card"><div className="metric-card-top"><span>{label}</span></div><strong className="metric-value">{value}</strong><small>Dari hasil run tersimpan</small></article>; }
+
+function IndicatorCard({ indicator, coverage, reasons }: { indicator: IndicatorSummary; coverage: IndicatorCoverage | undefined; reasons: string[] }) {
+  const truncated = indicator.search_truncated || Boolean(coverage?.search_truncated);
+  const reasonCounts = Object.entries(coverage?.unassessed_reason_counts ?? {}).sort(([, a], [, b]) => b - a);
+  return <article className="reason-card analysis-indicator-card span-6" data-indicator={indicator.code}>
+    <div className="card-head" style={{ marginBottom: 0 }}>
+      <div><h3>{indicatorLabel(indicator.code)}</h3><p>{indicatorDefinition(indicator.code) ?? indicator.name}</p></div>
+      <StatusPill value={indicator.status} />
+    </div>
+    <PatternOnlyNotice evidence={indicator.interpretation?.billing_status_evidence} />
+    <CoverageMetrics candidates={indicator.candidate_count} assessed={coverage?.records_assessed ?? indicator.eligible_count} notAssessed={indicator.unassessed_count} notApplicable={indicator.not_applicable_count} truncated={truncated} />
+    {truncated && <LimitedSearchWarning indicator={indicator.code} />}
+    {!truncated && indicator.unassessed_count > 0 && <p className="fine-print">{formatCount(indicator.unassessed_count)} klaim tidak dapat diperiksa oleh pemeriksaan ini karena datanya tidak lengkap.</p>}
+    {indicator.unassessed_count > 0 && reasonCounts.length > 0 && <ul className="unassessed-reasons" aria-label={`Alasan klaim tidak diperiksa oleh ${indicatorLabel(indicator.code)}`}>
+      {reasonCounts.map(([code, count]) => <li key={code}><strong>{formatCount(count)}</strong> {unassessedReasonText(code)}</li>)}
+    </ul>}
+    <MoreInfo title="Catatan teknis temuan" items={reasons.slice(0, 5)} />
+    <MoreInfo title="Keterbatasan pemeriksaan" items={[indicator.definition, ...indicator.limitations]} />
+    <TechnicalDetails items={[
+      { label: "Kode pemeriksaan", value: indicator.code },
+      { label: "Kelompok klaim", value: formatCount(indicator.candidate_group_count) },
+      { label: "Cakupan pemeriksaan", value: coverage?.status ?? indicator.status },
+    ]} />
+  </article>;
+}
+
+function Kpi({ className, icon, label, value, foot }: { className: string; icon: ReactNode; label: string; value: string; foot: string }) {
+  return <article className={`card kpi ${className}`}>
+    <div className="kpi-top"><span>{label}</span><span className="kpi-icon">{icon}</span></div>
+    <strong className="kpi-value">{value}</strong>
+    <span className="kpi-foot">{foot}</span>
+  </article>;
+}
+
+/** Is the AI still working on familiar data, and is risk spread evenly across regions and facility types? */
+function AnalysisQuality({ result }: { result: RunResult }) {
+  const ml = result.ml_anomaly;
+  const observed = ml?.status === "available" ? ml.share_above_training_p99 : undefined;
+  const ratio = observed !== undefined ? observed / 0.01 : null;
+  const stable = ratio !== null && ratio >= 0.5 && ratio <= 2;
+  const fairness = result.facility_groups?.fairness;
+  const outliers = (fairness?.dimensions ?? []).flatMap(dimension => dimension.rows
+    .filter(row => (row.ratio_to_overall ?? 0) > 2 || ((row.ratio_to_overall ?? 1) < 0.5 && row.claims >= 300))
+    .map(row => ({ title: dimension.title, label: row.label, ratio: row.ratio_to_overall ?? 0 })));
+  if (ratio === null && !fairness) return null;
+  return <section className="card" aria-label="Mutu analisis" data-testid="analysis-quality">
+    <div className="card-head"><div><h2>Mutu analisis</h2><p>Pemantauan model AI dan pemerataan penandaan antarwilayah.</p></div></div>
+    <div className="quality-rows">
+      {ratio !== null && <div className="quality-row">
+        <span className={`status-pill tone-${stable ? "good" : "warn"}`}>{stable ? "Stabil" : "Perlu dicek"}</span>
+        <div><strong>Model AI</strong>
+          <p>{stable
+            ? "Pola klaim pada analisis ini masih serupa dengan data yang dipakai melatih model."
+            : ratio < 0.5
+              ? "Klaim yang dinilai sangat tidak biasa lebih sedikit dari biasanya; pola data mungkin berbeda dari data latih."
+              : "Klaim yang dinilai sangat tidak biasa lebih banyak dari biasanya; pola data mungkin berubah dan model perlu ditinjau."}</p></div>
+      </div>}
+      {fairness && <div className="quality-row">
+        <span className={`status-pill tone-${outliers.length ? "warn" : "good"}`}>{outliers.length ? `${formatCount(outliers.length)} perlu ditelaah` : "Merata"}</span>
+        <div><strong>Pemerataan antarwilayah dan jenis faskes</strong>
+          <p>{outliers.length
+            ? `Porsi klaim berisiko jauh berbeda dari rata-rata pada: ${outliers.slice(0, 4).map(item => `${item.label} (${item.ratio.toLocaleString("id-ID", { maximumFractionDigits: 1 })}×)`).join(", ")}. Pastikan perbedaannya karena pola klaim, bukan karena data yang tidak lengkap.`
+            : "Tidak ada wilayah atau jenis faskes yang ditandai jauh lebih sering dari rata-rata."}</p></div>
+      </div>}
+    </div>
+  </section>;
+}
+

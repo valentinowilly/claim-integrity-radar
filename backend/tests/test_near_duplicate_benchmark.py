@@ -88,7 +88,7 @@ def test_near_duplicate_pair_results_do_not_depend_on_input_order():
     )
 
 
-def test_stratified_sampling_reports_incomplete_coverage_without_hard_truncation():
+def test_budget_exhausted_block_is_reported_as_truncated_and_unassessed():
     base = {
         "service_date": "2024-04-12", "province_code": "SYN-PROV-01",
         "municipality_code": "SYN-MUNI-001", "facility_ownership": "synthetic-public",
@@ -109,11 +109,14 @@ def test_stratified_sampling_reports_incomplete_coverage_without_hard_truncation
     )
 
     diagnostics = detector_result["search_diagnostics"]
-    assert diagnostics["hard_search_limit_hit"] is False
+    # Three valid pairs cannot fit a budget of one: the block is sampled, and an
+    # exhausted budget is a hard truncation (the former stratified mode hid this).
+    assert diagnostics["hard_search_limit_hit"] is True
+    assert diagnostics["sampled_unit_count"] >= 1  # one unit per blocking key
     assert diagnostics["stratified_sampling_left_unassessed"] is True
     assert diagnostics["stratified_sampling_unassessed_case_count"] == 3
     assert diagnostics["assessment_incomplete"] is True
-    assert detector_result["search_truncated"] is False
+    assert detector_result["search_truncated"] is True
     assert not any("syn-case-" in str(value) for value in diagnostics.values())
 
     detector_results = {
@@ -132,7 +135,7 @@ def test_stratified_sampling_reports_incomplete_coverage_without_hard_truncation
         if item["indicator"] == "near_duplicate_claim_candidate"
     )
     assert coverage["status"] == "partial"
-    assert coverage["search_truncated"] is False
-    # Two records participating in the observed pair are triggered/assessed;
-    # the third has no finding and remains unassessed.
-    assert coverage["not_assessed_case_count"] == 1
+    assert coverage["search_truncated"] is True
+    # The one compared pair is three identical claims' common combination, so it flags nobody and
+    # all three records in the sampled unit stay unassessed (formerly the pair flagged two).
+    assert coverage["not_assessed_case_count"] == 3

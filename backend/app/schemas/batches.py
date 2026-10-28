@@ -1,4 +1,4 @@
-"""Public metadata-only schemas for synthetic DataBatch operations."""
+"""Public metadata-only schemas for DataBatch operations."""
 
 from typing import Any, Literal
 
@@ -23,7 +23,7 @@ class BatchMetadata(BaseModel):
     batch_version: int
     created_at: str
     creator_user_id: str
-    source_type: Literal["synthetic_csv"]
+    source_type: Literal["synthetic_csv", "bpjs_fkrtl_local"]
     schema_version: str
     mapping_version: str
     row_count: int | None

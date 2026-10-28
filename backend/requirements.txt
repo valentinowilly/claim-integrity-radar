@@ -2,5 +2,11 @@ fastapi>=0.115,<1.0
 uvicorn>=0.30,<1.0
 httpx>=0.27,<1.0
 pytest>=8.0,<9.0
+# Reads the locally configured FKRTL .dta sample (scripts/fkrtl_dta_reader.py).
+pandas>=2.0,<3.0
 
 scikit-learn==1.7.2
+# PostgreSQL operational database (CIR_DATABASE_URL); binary wheels bundle libpq.
+psycopg[binary]==3.2.10
+psycopg-pool==3.2.6
+anthropic==2.3.0

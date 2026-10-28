@@ -12,12 +12,16 @@ IndicatorCode = Literal[
     "repeat_billing_candidate", "similar_claim_pattern_candidate",
     "near_duplicate_claim_candidate", "synthetic_capacity_candidate",
     "temporal_pattern_candidate", "supporting_evidence_completeness_candidate",
+    "length_of_stay_extreme_candidate", "rapid_readmission_candidate", "unusual_severity_candidate",
+    "cloned_clinical_note_candidate", "severity_without_secondary_candidate", "unusual_special_topup_candidate",
 ]
 RiskLevel = Literal["high", "medium", "low"] | None
 CaseStatus = Literal["pending", "in_review", "resolved"]
 IndicatorRunStatus = Literal["complete", "partial", "unavailable", "not_applicable"]
 IndicatorState = Literal["triggered", "not_triggered", "not_applicable", "not_assessed"]
-ScoreStatus = Literal["assessed", "assessed_no_signal", "partial_coverage", "not_assessable"]
+ScoreStatus = Literal[
+    "assessed", "assessed_no_signal", "partial_coverage", "not_assessable", "insufficient_assessed_indicators",
+]
 ReviewStatus = Literal[
     "pending_review", "needs_more_evidence", "not_substantiated", "escalated"
 ]
@@ -64,6 +68,8 @@ class AnalysisIndicator(BaseModel):
     search_truncated: bool
     definition: str
     limitations: list[str]
+    # Set for checks whose matches are patterns only (repeat: billing status not available).
+    interpretation: dict[str, str] | None = None
 
 
 class IndicatorCoverage(BaseModel):
@@ -72,6 +78,8 @@ class IndicatorCoverage(BaseModel):
     records_assessed: int
     records_not_applicable: int
     records_unassessed: int
+    # Reason code -> records (each unassessed record counted once). Absent in runs saved before this field.
+    unassessed_reason_counts: dict[str, int] = Field(default_factory=dict)
     search_truncated: bool
     candidate_group_count: int | None
     limitations: list[str]

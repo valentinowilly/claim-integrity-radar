@@ -8,24 +8,27 @@ from fastapi.responses import JSONResponse
 
 
 class ApiError(Exception):
-    def __init__(self, status_code: int, code: str, message: str, details: dict | None = None):
+    def __init__(self, status_code: int, code: str, message: str, details: dict | None = None,
+                 headers: dict[str, str] | None = None):
         self.status_code = status_code
         self.code = code
         self.message = message
         self.details = details or {}
+        self.headers = headers or {}
 
 
 async def api_error_handler(request: Request, exc: Exception) -> JSONResponse:
     if isinstance(exc, ApiError):
-        status_code, code, message, details = (
-            exc.status_code, exc.code, exc.message, exc.details
+        status_code, code, message, details, headers = (
+            exc.status_code, exc.code, exc.message, exc.details, exc.headers
         )
     else:
-        status_code, code, message, details = (
-            500, "INTERNAL_ERROR", "Permintaan tidak dapat diproses.", {}
+        status_code, code, message, details, headers = (
+            500, "INTERNAL_ERROR", "Permintaan tidak dapat diproses.", {}, {}
         )
     return JSONResponse(
         status_code=status_code,
+        headers=headers or None,
         content={
             "error": {
                 "code": code,

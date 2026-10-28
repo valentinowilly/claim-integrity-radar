@@ -5,8 +5,8 @@
    ========================================================================== */
 
 :root {
-  /* Typography: BPJS public site uses Barlow; system sans-serif is the fallback. */
-  --font-sans: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Typography: Plus Jakarta Sans (self-hosted); system sans-serif is the fallback. */
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
   /* Type roles */

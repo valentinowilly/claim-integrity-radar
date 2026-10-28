@@ -1,6 +1,7 @@
 """Integration checks for the synthetic analytics API."""
 
 import asyncio
+import os
 import ast
 import json
 from pathlib import Path
@@ -20,18 +21,28 @@ import app.services.analytics as analytics_service
 
 TEST_DB = Path(gettempdir()) / f"cir-api-tests-{uuid4().hex}.sqlite3"
 TEST_APP = create_app(review_db_path=TEST_DB, auth_db_path=TEST_DB, cookie_secure=False)
-_test_store = AuthStore(TEST_DB)
-_test_user = _test_store.create_user("api-verifikator", "Test-only-password-2026!", "verifikator", "test-bootstrap")
-_test_session, _test_token = _test_store.authenticate("api-verifikator", "Test-only-password-2026!")
-TEST_COOKIES = {"cir_session": _test_token, "cir_csrf": _test_session["csrf_token"]}
+_sessions: dict[str, dict] = {}
+
+
+def _cookies() -> dict:
+    """A verifier session in the active operational database (per-test schema on PostgreSQL)."""
+    key = os.environ.get("CIR_DATABASE_SCHEMA") or "sqlite"
+    if key not in _sessions:
+        store = AuthStore(TEST_DB)
+        store.create_user("api-verifikator", "Test-only-password-2026!", "verifikator", "test-bootstrap")
+        session, token = store.authenticate("api-verifikator", "Test-only-password-2026!")
+        _sessions[key] = {"cir_session": token, "cir_csrf": session["csrf_token"]}
+    return _sessions[key]
 
 
 def request(method: str, path: str):
+    cookies = _cookies()
+
     async def send():
         transport = httpx.ASGITransport(app=TEST_APP, raise_app_exceptions=False)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            headers = {"X-CSRF-Token": TEST_COOKIES["cir_csrf"]} if method not in {"GET", "HEAD"} else None
-            return await client.request(method, path, cookies=TEST_COOKIES, headers=headers)
+            headers = {"X-CSRF-Token": cookies["cir_csrf"]} if method not in {"GET", "HEAD"} else None
+            return await client.request(method, path, cookies=cookies, headers=headers)
 
     return asyncio.run(send())
 
@@ -129,7 +140,7 @@ def test_coordinated_pipeline_calls_detectors_scoring_and_priority_once(monkeypa
     snapshot = build_analytics_snapshot()
 
     assert calls == {"detectors": 1, "scoring": 1, "priority": 1}
-    assert len(snapshot["indicator_coverage"]) == 6
+    assert len(snapshot["indicator_coverage"]) == len(DETECTOR_ORDER)
     by_code = {item["indicator"]: item for item in snapshot["indicator_coverage"]}
     assert by_code["synthetic_capacity_candidate"]["records_not_applicable"] == 0
     assert by_code["synthetic_capacity_candidate"]["records_unassessed"] == len(get_synthetic_records())
@@ -155,7 +166,7 @@ def test_empty_source_is_insufficient_data_with_a_valid_empty_queue():
 
 
 def test_unavailable_detectors_report_null_candidate_counts_not_false_zero(monkeypatch):
-    monkeypatch.setattr(analytics_service, "run_detector_suite", lambda records, facilities: {
+    monkeypatch.setattr(analytics_service, "run_detector_suite", lambda records, facilities, **_options: {
         indicator: {"indicator": indicator, "status": "unavailable", "error_type": "SyntheticTestFailure"}
         for indicator in DETECTOR_ORDER
     })
@@ -185,10 +196,14 @@ def test_pagination_filters_and_sorting_are_deterministic():
     second_ids = [item["case_id"] for item in second["items"]]
     assert not set(first_ids) & set(second_ids)
     assert first_ids + second_ids == [item["case_id"] for item in all_items[:4]]
-    assert all(item["risk_score"] is not None for item in all_items)
-    assert [item["risk_score"] for item in all_items] == sorted(
-        [item["risk_score"] for item in all_items], reverse=True
-    )
+    # A withheld index (too few assessed checks) is null, never a fabricated number,
+    # and sorts after every numeric index.
+    scores = [item["risk_score"] for item in all_items]
+    numeric = [score for score in scores if score is not None]
+    assert numeric and scores == numeric + [None] * (len(scores) - len(numeric))
+    assert numeric == sorted(numeric, reverse=True)
+    assert all(item["score_status"] in {"insufficient_assessed_indicators", "not_assessable"}
+               for item in all_items if item["risk_score"] is None)
 
     repeat = request("GET", "/api/v1/cases?indicator=repeat_billing_candidate").json()
     assert all("repeat_billing_candidate" in item["indicators"] for item in repeat["items"])
@@ -220,11 +235,24 @@ def test_case_details_are_explainable_minimized_and_unknown_ids_are_404():
     assert missing.json()["error"]["code"] == "CASE_NOT_FOUND"
 
 
-def test_evaluation_is_unavailable_without_ground_truth_and_has_no_metrics():
+def test_evaluation_is_unavailable_without_a_report_and_has_no_metrics(monkeypatch, tmp_path):
+    monkeypatch.setenv("CIR_EVALUATION_REPORT_DIR", str(tmp_path))
     result = request("GET", "/api/v1/evaluation").json()
     assert result["availability"] == "insufficient_data"
     assert result["evaluation"] is None
     assert any("Label acuan" in item for item in result["requirements_missing"])
+
+
+def test_evaluation_serves_the_latest_synthetic_pipeline_report(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setenv("CIR_EVALUATION_REPORT_DIR", str(tmp_path))
+    (tmp_path / "current-pipeline-10-seed1.json").write_text(json.dumps(
+        {"report": "cir-current-pipeline-synthetic-v1", "data_source": "synthetic_experiment_only", "precision": {"high": 1.0}}))
+    (tmp_path / "current-pipeline-bad.json").write_text("{not json")
+    result = request("GET", "/api/v1/evaluation").json()
+    assert result["availability"] == "available"
+    assert result["evaluation"]["precision"]["high"] == 1.0
+    assert "sintetis" in result["notice"]
 
 
 def test_results_repeat_consistently_and_period_filter_validation_is_explicit():

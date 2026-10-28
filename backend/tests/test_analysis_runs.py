@@ -8,6 +8,7 @@ import sqlite3
 import httpx
 import pytest
 
+from tests.db_helpers import assert_rejected, db_connection, on_postgres, seed_reviewable_runs  # noqa: F401
 from app.analytics.risk_scoring import DETECTOR_ORDER
 from app.analytics.action_policy import ActionPolicyConfig, ACTION_POLICY_CONFIGURATIONS, ACTION_POLICY_VERSION
 from app.analytics.batch_adapter import BatchAdapterError, adapt_batch_features
@@ -128,11 +129,12 @@ def test_create_pins_batch_persists_actual_pipeline_and_get_does_not_rerun(tmp_p
         "classification": "synthetic_only_declared",
         "mapping_version": SYNTHETIC_CSV_MAPPING_VERSION,
         "schema_profile": SYNTHETIC_CSV_SCHEMA_VERSION,
+        "batch_key": batch["batch_key"],
     }
     assert manifest["creator_user_id"] == users["operator"]["user_id"]
     assert manifest["execution_status"] in {"completed", "partial"}
     assert manifest["completed_at"] is not None and manifest["result_available"] is True
-    assert manifest["scoring_version"] == "rule-risk-index-v1-provisional"
+    assert manifest["scoring_version"] == "rule-risk-index-v2-provisional"
     assert manifest["priority_version"] == "audit-priority-v1-synthetic-assumption"
     assert manifest["detector_suite_version"] == "detector-suite-v1-manual"
     assert manifest["action_policy_version"] == ACTION_POLICY_VERSION
@@ -154,7 +156,7 @@ def test_create_pins_batch_persists_actual_pipeline_and_get_does_not_rerun(tmp_p
     assert result["data_source"]["classification"] == "synthetic_only_declared"
     assert result["data_source"]["mapping_version"] == SYNTHETIC_CSV_MAPPING_VERSION
     assert result["records_considered"] == len(generated.records)
-    assert len(result["indicator_coverage"]) == 6
+    assert len(result["indicator_coverage"]) == len(DETECTOR_ORDER)
     assert all(item["indicator"] in DETECTOR_ORDER for item in result["indicator_coverage"])
     serialized = json.dumps(detail.json())
     for record in generated.records:
@@ -176,7 +178,10 @@ def test_batches_can_have_independent_runs_and_run_history_survives_reinitializa
 
     verifier = verifier_session(app, users)
     listed = call(app, "GET", f"/api/v1/runs?batch_id={batch['batch_id']}&limit=10&offset=0", cookies=verifier)
-    assert listed.status_code == 200 and listed.json()["total_items"] == 2
+    # The newer analysis of the same file supersedes the earlier one in the list; both stay stored.
+    assert listed.status_code == 200 and [item["run_id"] for item in listed.json()["items"]] == [second["run_id"]]
+    archived = call(app, "GET", f"/api/v1/runs?batch_id={batch['batch_id']}&archived=true", cookies=verifier).json()
+    assert [(item["run_id"], item["archive_reason"]) for item in archived["items"]] == [(first["run_id"], "superseded")]
     reinitialized = create_app(tmp_path / "review.sqlite3", tmp_path / "auth.sqlite3",
                                cookie_secure=False, batch_db_path=batch_db)
     detail = call(reinitialized, "GET", f"/api/v1/runs/{first['run_id']}", cookies=verifier)
@@ -390,13 +395,73 @@ def test_terminal_run_cannot_be_overwritten_or_deleted_and_health_is_database_in
     created = create_run(app, operator, batch["batch_id"])
     assert created.status_code == 201
     run_id = created.json()["run"]["run_id"]
-    with sqlite3.connect(batch_db) as connection:
-        with pytest.raises(sqlite3.IntegrityError):
-            connection.execute("UPDATE analysis_runs SET execution_status='failed' WHERE run_id=?", (run_id,))
-        with pytest.raises(sqlite3.IntegrityError):
-            connection.execute("DELETE FROM analysis_run_results WHERE run_id=?", (run_id,))
+    with db_connection(batch_db) as connection:
+        assert_rejected(connection, "UPDATE analysis_runs SET execution_status='failed' WHERE run_id=?", (run_id,))
+        assert_rejected(connection, "DELETE FROM analysis_run_results WHERE run_id=?", (run_id,))
         events = connection.execute(
             "SELECT event_type FROM analysis_run_audit_events WHERE target_run_id=? ORDER BY occurred_at,event_id",
             (run_id,),
         ).fetchall()
     assert [row[0] for row in events] == ["analysis_run_created", "analysis_run_" + created.json()["run"]["execution_status"]]
+
+
+def test_a_finished_run_keeps_the_uploaded_file_name(tmp_path):
+    app, batch_db, users = setup(tmp_path)
+    operator = operator_session(app, users)
+    batch, _generated = import_batch(app, batch_db, operator)
+    created = create_run(app, operator, batch["batch_id"])
+    assert created.status_code == 201, created.text
+    assert created.json()["run"]["configuration"]["source"]["batch_key"] == batch["batch_key"]
+
+
+def test_files_and_runs_leave_the_lists_but_their_records_stay(tmp_path):
+    app, batch_db, users = setup(tmp_path)
+    operator, verifier = operator_session(app, users), verifier_session(app, users)
+    batch, _generated = import_batch(app, batch_db, operator)
+    run_id = create_run(app, operator, batch["batch_id"]).json()["run"]["run_id"]
+    csrf = {"X-CSRF-Token": operator["cir_csrf"]}
+
+    # Only writers with a CSRF token may hide entries.
+    assert call(app, "POST", f"/api/v1/runs/{run_id}/archive", cookies=verifier,
+                headers={"X-CSRF-Token": verifier["cir_csrf"]}).status_code == 403
+    assert call(app, "POST", f"/api/v1/runs/{run_id}/archive", cookies=operator).status_code == 403
+    assert call(app, "POST", "/api/v1/runs/run-unknown/archive", cookies=operator, headers=csrf).status_code == 404
+
+    assert call(app, "POST", f"/api/v1/runs/{run_id}/archive", cookies=operator, headers=csrf).status_code == 204
+    assert call(app, "POST", f"/api/v1/runs/{run_id}/archive", cookies=operator, headers=csrf).status_code == 204
+    assert call(app, "GET", "/api/v1/runs", cookies=operator).json()["total_items"] == 0
+    assert call(app, "GET", f"/api/v1/runs/{run_id}", cookies=verifier).status_code == 200
+
+    assert call(app, "DELETE", f"/api/v1/batches/{batch['batch_id']}", cookies=operator, headers=csrf).status_code == 204
+    assert call(app, "GET", "/api/v1/batches", cookies=operator).json()["total_items"] == 0
+    assert call(app, "GET", f"/api/v1/batches/{batch['batch_id']}", cookies=operator).status_code == 200
+    assert call(app, "DELETE", "/api/v1/batches/batch-unknown", cookies=operator, headers=csrf).status_code == 404
+    with db_connection(batch_db) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM data_batch_records WHERE batch_id=?",
+                                  (batch["batch_id"],)).fetchone()[0] > 0
+        events = {row[0] for row in connection.execute("SELECT event_type FROM analysis_run_audit_events")}
+        events |= {row[0] for row in connection.execute("SELECT event_type FROM batch_security_audit_events")}
+    assert {"run_archived", "batch_removed_from_list"} <= events
+
+    # The archive lists them, and restoring shows them again.
+    archived = call(app, "GET", "/api/v1/runs?archived=true", cookies=operator).json()
+    assert [item["run_id"] for item in archived["items"]] == [run_id]
+    removed = call(app, "GET", "/api/v1/batches?removed=true", cookies=operator).json()
+    assert [item["batch_id"] for item in removed["items"]] == [batch["batch_id"]]
+    assert call(app, "DELETE", f"/api/v1/runs/{run_id}/archive", cookies=operator).status_code == 403
+    assert call(app, "DELETE", f"/api/v1/runs/{run_id}/archive", cookies=operator, headers=csrf).status_code == 204
+    assert call(app, "GET", "/api/v1/runs", cookies=operator).json()["total_items"] == 1
+    assert call(app, "GET", "/api/v1/runs?archived=true", cookies=operator).json()["total_items"] == 0
+    assert call(app, "POST", f"/api/v1/batches/{batch['batch_id']}/restore", cookies=operator, headers=csrf).status_code == 204
+    assert call(app, "GET", "/api/v1/batches", cookies=operator).json()["total_items"] == 1
+    assert call(app, "POST", "/api/v1/batches/batch-unknown/restore", cookies=operator, headers=csrf).status_code == 404
+    with db_connection(batch_db) as connection:
+        restored = {row[0] for row in connection.execute("SELECT event_type FROM analysis_run_audit_events")}
+        restored |= {row[0] for row in connection.execute("SELECT event_type FROM batch_security_audit_events")}
+    assert {"run_restored", "batch_restored_to_list"} <= restored
+
+    # Uploading the same file again after removing it also brings it back.
+    assert call(app, "DELETE", f"/api/v1/batches/{batch['batch_id']}", cookies=operator, headers=csrf).status_code == 204
+    with pytest.raises(AssertionError, match="reused_existing"):
+        import_batch(app, batch_db, operator)
+    assert call(app, "GET", "/api/v1/batches", cookies=operator).json()["total_items"] == 1

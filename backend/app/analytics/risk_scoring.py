@@ -5,16 +5,28 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
+from app.analytics.note_similarity import INDICATOR as NOTE_INDICATOR, detect_cloned_notes
+from app.analytics.claim_detail_rules import (
+    INDICATORS as DETAIL_INDICATORS, detect_severity_without_secondary, detect_unusual_special_topup,
+)
+from app.analytics.clinical_rules import (
+    INDICATORS as CLINICAL_INDICATORS, detect_extreme_stay, detect_rapid_readmission, detect_unusual_severity,
+)
+CLINICAL_RULES_NEED_BPJS_COLUMNS = ("needs admission and discharge dates, class of care and INA-CBG codes in the BPJS FKRTL format")
 from app.analytics.capacity import detect_capacity_candidates
-from app.analytics.detector_utils import date_value, text_value, valid_records
+from app.analytics.detector_utils import (
+    MEMBER_CASE_IDS, candidate_members, date_value, membership_incomplete, text_value, valid_records,
+)
 from app.analytics.evidence_completeness import detect_evidence_completeness
 from app.analytics.near_duplicate_claims import detect_near_duplicate_claims
-from app.analytics.repeat_billing import detect_repeat_billing_candidates
+from app.analytics.repeat_billing import SIGNATURE_FIELDS as REPEAT_SIGNATURE_FIELDS, detect_repeat_billing_candidates
 from app.analytics.similar_claim_pattern import detect_similar_claim_patterns
 from app.analytics.temporal_patterns import detect_temporal_patterns
 
 
-SCORING_VERSION = "rule-risk-index-v1-provisional"
+# v2: the index is withheld when fewer than ``min_assessed_indicators`` checks
+# assessed the case (v1 could report 1.0 from a single assessable check).
+SCORING_VERSION = "rule-risk-index-v2-provisional"
 # Manually maintained contract identifier; this is not a source/build hash.
 DETECTOR_SUITE_VERSION = "detector-suite-v1-manual"
 DETECTOR_ORDER = (
@@ -24,15 +36,25 @@ DETECTOR_ORDER = (
     "synthetic_capacity_candidate",
     "temporal_pattern_candidate",
     "supporting_evidence_completeness_candidate",
+    # Rule checks on the BPJS FKRTL columns (clinical_rules.py); not applicable to other sources.
+    "length_of_stay_extreme_candidate",
+    "rapid_readmission_candidate",
+    "unusual_severity_candidate",
+    # Clinical notes of uploaded example files (note_similarity.py); not applicable without notes.
+    "cloned_clinical_note_candidate",
+    # Secondary diagnoses and special top-ups of the BPJS format (claim_detail_rules.py).
+    "severity_without_secondary_candidate",
+    "unusual_special_topup_candidate",
 )
 DEFAULT_WEIGHTS = {indicator: Decimal("1") for indicator in DETECTOR_ORDER}
 _SAFE_DETAIL_FIELDS = (
-    "matched_attributes", "differing_attributes", "candidate_record_count",
-    "distinct_participant_count", "mode", "case_count", "pattern_type",
+    "matched_attributes", "differing_attributes", "context_unavailable_attributes", "candidate_record_count",
+    "distinct_participant_count", "mode", "case_count", "pattern_type", "earlier_claim_count",
     "period", "supporting_values", "observed_service_units", "capacity_service_units",
     "capacity_threshold_multiplier", "utilization_ratio", "missing_evidence",
     "recorded_evidence", "rule", "similarity_ratio", "matched_attribute_count",
-    "compared_attribute_count",
+    "compared_attribute_count", "interpretation", "billing_status_evidence",
+    "match_support", "expected_chance_pairs", "evidence_class",
 )
 LIMITATIONS = [
     "Indeks adalah agregasi aturan prototipe, bukan probabilitas fraud, kerugian, atau keputusan pelanggaran.",
@@ -46,10 +68,16 @@ class RiskScoringConfig:
     weights: Mapping[str, int | float | Decimal] | None = None
     version: str = SCORING_VERSION
     max_reasons_per_indicator: int = 5
+    # Display rule, not a calibrated threshold: with one or two assessed checks
+    # the index can only be 0, 0.5 or 1 and adds nothing beyond the listed
+    # flags, so it is withheld instead of being shown as a score.
+    min_assessed_indicators: int = 3
 
     def __post_init__(self) -> None:
         if not self.version.strip():
             raise ValueError("version wajib diisi")
+        if not 1 <= self.min_assessed_indicators <= len(DETECTOR_ORDER):
+            raise ValueError("min_assessed_indicators harus antara 1 dan jumlah indikator")
         if self.max_reasons_per_indicator < 1:
             raise ValueError("max_reasons_per_indicator minimal 1")
         for key, value in (self.weights or {}).items():
@@ -76,14 +104,31 @@ def run_detector_suite(
     *,
     near_duplicate_candidate_pair_observer: Callable[[str, str], None] | None = None,
     near_duplicate_similarity_observer: Callable[[str, str, bool], None] | None = None,
+    repeat_signature_fields: Sequence[str] = REPEAT_SIGNATURE_FIELDS,
+    not_applicable: Mapping[str, str] | None = None,
+    clinical_rules: bool = False,
+    clinical_reference: Mapping[str, Any] | None = None,
+    special_reference: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Run the six rule detectors on feature records only.
+    """Run the rule detectors on feature records only.
+
+    The three clinical checks run only when ``clinical_rules`` is set (sources in the BPJS FKRTL format);
+    for any other source they are not applicable. ``clinical_reference`` is the trained model's aggregate
+    reference used by the stay and severity checks; without it those two report themselves unavailable.
 
     Exceptions are surfaced as per-detector unavailable states; no ground truth
-    argument exists in this interface.
+    argument exists in this interface. ``not_applicable`` maps detectors the
+    trusted source cannot support to a reason; they are not run and are
+    reported as not applicable for every record, never as failed searches.
     """
+    not_applicable = dict(not_applicable or {})
+    if not clinical_rules:
+        for code in (*CLINICAL_INDICATORS, NOTE_INDICATOR, *DETAIL_INDICATORS):
+            not_applicable.setdefault(code, CLINICAL_RULES_NEED_BPJS_COLUMNS)
+    if set(not_applicable) - set(DETECTOR_ORDER):
+        raise ValueError("Unknown detector declared not applicable.")
     calls = (
-        ("repeat_billing_candidate", lambda: detect_repeat_billing_candidates(records)),
+        ("repeat_billing_candidate", lambda: detect_repeat_billing_candidates(records, repeat_signature_fields)),
         ("similar_claim_pattern_candidate", lambda: detect_similar_claim_patterns(records)),
         ("near_duplicate_claim_candidate", lambda: detect_near_duplicate_claims(
             records,
@@ -93,9 +138,24 @@ def run_detector_suite(
         ("synthetic_capacity_candidate", lambda: detect_capacity_candidates(records, facilities)),
         ("temporal_pattern_candidate", lambda: detect_temporal_patterns(records)),
         ("supporting_evidence_completeness_candidate", lambda: detect_evidence_completeness(records)),
+        ("length_of_stay_extreme_candidate", lambda: detect_extreme_stay(records, clinical_reference)),
+        ("rapid_readmission_candidate", lambda: detect_rapid_readmission(records)),
+        ("unusual_severity_candidate", lambda: detect_unusual_severity(records, clinical_reference)),
+        ("cloned_clinical_note_candidate", lambda: detect_cloned_notes(records)),
+        ("severity_without_secondary_candidate", lambda: detect_severity_without_secondary(records)),
+        ("unusual_special_topup_candidate", lambda: detect_unusual_special_topup(records, special_reference)),
     )
     results: dict[str, dict[str, Any]] = {}
     for indicator, call in calls:
+        if indicator in not_applicable:
+            results[indicator] = {
+                "indicator": indicator,
+                "status": "not_applicable",
+                "input_record_count": len(records),
+                "candidates": [],
+                "limitations": [f"Tidak berlaku untuk sumber data ini: {not_applicable[indicator]}"],
+            }
+            continue
         try:
             results[indicator] = call()
         except Exception as error:  # convert a detector failure to explicit coverage metadata
@@ -108,11 +168,8 @@ def run_detector_suite(
 
 
 def _candidate_ids(candidate: Mapping[str, Any]) -> list[str] | None:
-    raw_ids = candidate.get("case_ids")
-    if isinstance(raw_ids, (list, tuple)):
-        if any(not isinstance(case_id, str) for case_id in raw_ids):
-            return None
-        return list(raw_ids)
+    if candidate.get("case_ids") is not None or candidate.get(MEMBER_CASE_IDS) is not None:
+        return candidate_members(candidate)
     case_id = candidate.get("case_id")
     return [case_id] if isinstance(case_id, str) else None
 
@@ -266,7 +323,7 @@ def score_claims(
             }
             for case_id in sorted(set(ids)):
                 reasons_by_case.setdefault(case_id, {}).setdefault(indicator, []).append(reason_entry)
-            if candidate.get("case_ids_truncated") is True and indicator != "synthetic_capacity_candidate":
+            if membership_incomplete(candidate) and indicator != "synthetic_capacity_candidate":
                 partial = True
                 search_truncated_by_indicator[indicator] = True
                 explicit_ids = _candidate_ids(candidate) or []
@@ -319,6 +376,7 @@ def score_claims(
 
     scored_cases: list[dict[str, Any]] = []
     unassessable_case_count = 0
+    insufficient_indicator_case_count = 0
     assessable_case_count = 0
     triggered_case_count = 0
     for case_id, row in validated:
@@ -329,9 +387,11 @@ def score_claims(
         numerator = Decimal(0)
         denominator = Decimal(0)
         for indicator in DETECTOR_ORDER:
+            # Most unexpected similarity first where a chance expectation exists, then by id.
             matches = sorted(
                 reasons_by_case.get(case_id, {}).get(indicator, []),
-                key=lambda item: (item["candidate_id"] or "", item["reason"]),
+                key=lambda item: (item["supporting_values"].get("expected_chance_pairs", float("inf")),
+                                  item["candidate_id"] or "", item["reason"]),
             )
             state = "triggered" if matches else (
                 "not_applicable" if case_id in not_applicable_by_indicator[indicator] else
@@ -357,6 +417,11 @@ def score_claims(
             score = None
             score_status = "not_assessable"
             unassessable_case_count += 1
+        elif len(assessed) < config.min_assessed_indicators:
+            # Too few checks for the index to mean more than the flags themselves.
+            score = None
+            score_status = "insufficient_assessed_indicators"
+            insufficient_indicator_case_count += 1
         else:
             score = round(float(numerator / denominator), 6)
             assessable_case_count += 1
@@ -373,6 +438,10 @@ def score_claims(
                 "facility_id": text_value(row.get("facility_id")),
                 "risk_score": score,
                 "score_status": score_status,
+                "score_basis": {
+                    "assessed_indicator_count": len(assessed),
+                    "minimum_assessed_indicators": config.min_assessed_indicators,
+                },
                 "score_formula": "sum(weights of distinct triggered indicators) / sum(weights of assessable indicators)",
                 "score_version": config.version,
                 "triggered_indicators": [
@@ -429,5 +498,10 @@ def score_claims(
         "triggered_case_count": triggered_case_count,
         "partial_group_membership": partial_group_notes,
         "unassessable_case_count": unassessable_case_count,
-        "limitations": LIMITATIONS.copy(),
+        "insufficient_indicator_case_count": insufficient_indicator_case_count,
+        "minimum_assessed_indicators": config.min_assessed_indicators,
+        "limitations": LIMITATIONS.copy() + [
+            f"Indeks tidak ditampilkan bila kurang dari {config.min_assessed_indicators} pemeriksaan menilai klaim; "
+            "batas ini aturan tampilan, bukan ambang yang dikalibrasi."
+        ],
     }

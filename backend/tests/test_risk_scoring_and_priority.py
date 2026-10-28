@@ -60,10 +60,10 @@ def test_one_indicator_and_custom_weight_follow_normalized_weighted_formula():
     scored = score_claims(rows, results, RiskScoringConfig(weights=weights))
     first = next(item for item in scored["cases"] if item["case_id"] == "syn-case-a")
 
-    assert first["risk_score"] == 0.375  # 3 / (3 + five 1s)
+    assert first["risk_score"] == round(3 / (3 + len(DETECTOR_ORDER) - 1), 6)  # 3 / (3 + the other checks at 1)
     assert first["triggered_indicators"] == ["repeat_billing_candidate"]
     assert first["indicator_reasons"][0]["reason"] == "Synthetic repeat signal."
-    assert first["score_version"] == "rule-risk-index-v1-provisional"
+    assert first["score_version"] == "rule-risk-index-v2-provisional"
 
 
 def test_many_near_pairs_contribute_once_and_claim_value_is_deduplicated():
@@ -82,13 +82,13 @@ def test_many_near_pairs_contribute_once_and_claim_value_is_deduplicated():
     queue = build_audit_priority_queue(rows, scores)
     unit = queue["items"][0]
 
-    assert case_a["risk_score"] == round(2 / 6, 6)
+    assert case_a["risk_score"] == round(2 / len(DETECTOR_ORDER), 6)
     assert case_a["triggered_indicators"] == ["repeat_billing_candidate", "near_duplicate_claim_candidate"]
     assert unit["claim_value"]["amount"] == "600.00"  # a is counted once despite two near pairs and repeat
     assert unit["claim_value"]["unique_claim_count"] == 3
     assert unit["audit_effort"]["recommended_record_files"] == 3
-    assert unit["risk_score"] == round(2 / 6, 6)
-    assert unit["priority_index"] == round(round(2 / 6, 6) * 600 / 3, 8)
+    assert unit["risk_score"] == round(2 / len(DETECTOR_ORDER), 6)
+    assert unit["priority_index"] == round(round(2 / len(DETECTOR_ORDER), 6) * 600 / 3, 8)
     assert rows == original_rows
 
 
@@ -153,7 +153,7 @@ def test_missing_detectors_and_truncated_near_search_are_not_reported_as_no_sign
     }]
     partial = score_claims(rows, results)
     case_a = next(item for item in partial["cases"] if item["case_id"] == "syn-case-a")
-    assert case_a["risk_score"] == 0.2
+    assert case_a["risk_score"] == round(1 / (len(DETECTOR_ORDER) - 1), 6)  # near search truncated
     assert case_a["score_status"] == "partial_coverage"
     assert {item["indicator"] for item in case_a["indicator_coverage"] if item["status"] == "not_assessed"} == {"near_duplicate_claim_candidate"}
     queue = build_audit_priority_queue(rows, partial)

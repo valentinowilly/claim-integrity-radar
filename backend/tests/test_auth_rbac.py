@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
+from tests.db_helpers import assert_rejected, db_connection, on_postgres, seed_reviewable_runs  # noqa: F401
 from app.main import create_app
 from app.services.analytics import build_analytics_snapshot
 from app.security.auth import (
@@ -91,7 +92,7 @@ def test_local_demo_password_requires_explicit_development_mode(tmp_path, monkey
     )
     assert admin["username"] == "admin"
     assert admin["role"] == "platform_admin"
-    with sqlite3.connect(store.path) as connection:
+    with db_connection(store.path) as connection:
         password_hash = connection.execute(
             "SELECT password_hash FROM auth_users WHERE username = 'admin'"
         ).fetchone()[0]
@@ -116,7 +117,7 @@ def test_login_me_logout_cookie_flags_revocation_and_audit_redaction(tmp_path):
     assert csrf_cookie is not None and not csrf_cookie["httponly"]
     assert "session_token" not in json.dumps(response.json())
     assert "Synthetic-admin-password-2026!" not in json.dumps(response.json())
-    with sqlite3.connect(store.path) as connection:
+    with db_connection(store.path) as connection:
         password_hash, token_hash, csrf_hash = connection.execute(
             "SELECT u.password_hash, s.token_hash, s.csrf_hash FROM auth_users u "
             "JOIN auth_sessions s ON s.user_id = u.user_id WHERE u.user_id = ?",
@@ -178,7 +179,7 @@ def test_backend_permission_matrix_enforced_for_all_roles(tmp_path, role):
     permissions = call(app, "GET", "/api/v1/auth/me", cookies=cookies).json()["permissions"]
     assert ("runs:results:read" in permissions) == (role in {"platform_admin", "verifikator", "audit_lead"})
     assert ("batches:write" in permissions) == (role in {"platform_admin", "data_operator"})
-    assert ("review:manage" in permissions) == (role in {"platform_admin", "audit_lead"})
+    assert ("review:manage" in permissions) == (role in {"platform_admin", "verifikator", "audit_lead"})
     create_user = call(app, "POST", "/api/v1/auth/users", json_body={
         "username": f"created-{role}", "password": "Synthetic-created-password-2026!", "role": "data_operator",
     }, cookies=cookies, csrf=True)

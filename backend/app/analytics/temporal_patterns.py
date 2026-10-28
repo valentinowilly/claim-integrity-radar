@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from app.analytics.detector_utils import date_value, text_value, timestamp_value, valid_records
+from app.analytics.detector_utils import MEMBER_CASE_IDS, date_value, text_value, timestamp_value, valid_records
 
 
 INDICATOR = "temporal_pattern_candidate"
@@ -43,7 +43,9 @@ def _candidate(
         "indicator": INDICATOR,
         "pattern_type": kind,
         "scope": "claim_group",
+        # Display list only; scoring and coverage use the complete internal membership.
         "case_ids": ids[:config.max_case_ids],
+        MEMBER_CASE_IDS: ids,
         "case_count": len(ids),
         "case_ids_truncated": len(ids) > config.max_case_ids,
         "period": {"from": period_from.isoformat(), "to": period_to.isoformat(), "unit": "day"},
@@ -70,6 +72,7 @@ def detect_temporal_patterns(
     uniform: dict[tuple[str, str, date, str], list[tuple[str, str]]] = defaultdict(list)
     invalid_dates: list[dict[str, str]] = []
     unassessed_times: list[dict[str, str]] = []
+    missing_prerequisites: list[dict[str, str]] = []
     for case_id, row in validated:
         participant = text_value(row.get("participant_token"))
         facility_id = text_value(row.get("facility_id"))
@@ -80,6 +83,11 @@ def detect_temporal_patterns(
             continue
         if participant and facility_id and service_type:
             repeats[(participant, facility_id, service_type)].append((service_day, case_id))
+        else:
+            # Neither temporal rule can evaluate this record; absence of a
+            # candidate must not be reported as an assessed negative.
+            missing_prerequisites.append({"case_id": case_id, "reason": "Peserta, fasilitas, atau jenis layanan tidak tersedia; pola temporal tidak dapat dinilai."})
+            continue
         timestamp = timestamp_value(row.get("service_timestamp"))
         if timestamp is not None and facility_id and service_type and participant:
             uniform[(facility_id, service_type, timestamp.date(), timestamp.strftime("%H:%M"))].append((case_id, participant))
@@ -90,12 +98,16 @@ def detect_temporal_patterns(
     window = timedelta(days=config.repeat_window_days)
     for key in sorted(repeats):
         ordered = sorted(repeats[key], key=lambda item: (item[0], item[1]))
-        start = 0
-        while start < len(ordered):
-            end = start + 1
-            while end < len(ordered) and ordered[end][0] - ordered[start][0] <= window:
-                end += 1
-            chunk = ordered[start:end]
+        # Chain claims whose gap to the previous claim is within the window, so every
+        # claim that has a same-key neighbour within the window is in a candidate. A
+        # window anchored on the first claim would drop later claims of a run of visits.
+        chains: list[list[tuple[date, str]]] = []
+        for item in ordered:
+            if chains and item[0] - chains[-1][-1][0] <= window:
+                chains[-1].append(item)
+            else:
+                chains.append([item])
+        for chunk in chains:
             if len(chunk) >= config.min_repeat_claims:
                 day_from, day_to = chunk[0][0], chunk[-1][0]
                 candidates.append(_candidate(
@@ -104,10 +116,9 @@ def detect_temporal_patterns(
                         "claim_count": len(chunk),
                         "participant_count": 1,
                         "window_days": config.repeat_window_days,
-                        "explanation": f"{len(chunk)} klaim untuk peserta sintetis yang sama, jenis layanan dan fasilitas sintetis yang sama muncul dalam rentang {config.repeat_window_days} hari.",
+                        "explanation": f"{len(chunk)} klaim untuk peserta sintetis yang sama, jenis layanan dan fasilitas sintetis yang sama; setiap klaim berjarak paling lama {config.repeat_window_days} hari dari klaim sebelumnya.",
                     }, config,
                 ))
-            start = end
 
     for (facility_id, service_type, service_day, minute), entries in sorted(uniform.items()):
         case_ids = sorted(case_id for case_id, _ in entries)
@@ -133,6 +144,7 @@ def detect_temporal_patterns(
         "candidates": candidates,
         "ineligible_cases": sorted(invalid_dates, key=lambda item: item["case_id"]),
         "unassessed_time_cases": sorted(unassessed_times, key=lambda item: item["case_id"]),
+        "unassessed_cases": sorted(missing_prerequisites, key=lambda item: item["case_id"]),
         "search_parameters": {
             "repeat_window_days": config.repeat_window_days,
             "min_repeat_claims": config.min_repeat_claims,

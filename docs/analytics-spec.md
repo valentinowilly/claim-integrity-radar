@@ -19,7 +19,7 @@ Perbedaan angka historis seperti “20 versus 81” **belum direkonsiliasi**. So
 
 ## Adapter FKRTL sample-compatible
 
-`backend/app/data_sources/bpjs_fkrtl_adapter.py` menetapkan mapping kode ke nama canonical dengan versi `bpjs-fkrtl-sample-map-v1`. Ini adalah adapter eksplisit untuk caller lokal yang telah mendapat otorisasi, bukan koneksi runtime/API dan bukan validasi pada file aktual. Adapter menerima baris yang telah dibaca caller; tidak dipanggil otomatis. ID kasus harus disediakan oleh factory aplikasi lokal, bukan diturunkan dari `FKL02`. `FKL02` tidak diperlakukan sebagai facility ID. `PSTV01` hanya dipertahankan sebagai kunci internal `participant_token` untuk pemeriksaan peserta sama/berbeda.
+`backend/app/data_sources/bpjs_fkrtl_adapter.py` menetapkan mapping kode ke nama canonical dengan versi `bpjs-fkrtl-sample-map-v2` (kontrak field: `FIELD_CONTRACT` di modul adapter). Ini adalah adapter eksplisit untuk caller lokal yang telah mendapat otorisasi, bukan koneksi runtime/API dan bukan validasi pada file aktual. Adapter menerima baris yang telah dibaca caller; tidak dipanggil otomatis. ID kasus harus disediakan oleh factory aplikasi lokal, bukan diturunkan dari `FKL02`. `FKL02` tidak diperlakukan sebagai facility ID. `PSTV01` hanya dipertahankan sebagai kunci internal `participant_token` untuk pemeriksaan peserta sama/berbeda.
 
 `FKL03`/`FKL04` diparse sebagai tanggal saja. `FKL05` dipetakan ke `province_code`; `FKL05_NEW` tidak diasumsikan. `FKL02` dan `PSTV01` menjadi input HMAC ber-key lokal minimal 32 byte untuk `case_id` stabil (FKL02 didefinisikan per peserta); nilai sumber tidak dimasukkan ke record keluaran. Secret dibaca dari konfigurasi lokal oleh caller (`CIR_FKRTL_PSEUDONYM_KEY` bila memakai helper env), tidak ditanam pada source atau dicetak. `PSTV01` dipseudonimkan dengan key yang sama menjadi `participant_token` internal untuk membandingkan peserta sama/berbeda; token ini bukan atribut signature lintas peserta dan tidak boleh masuk respons atau log. FKL47 sengaja tidak dipetakan ke `billed_amount` sampai formula, satuan, tipe, dan ketersediaan pra-verifikasi diklarifikasi. FKL48 tidak dipilih atau dipetakan. ID fasilitas, timestamp, kapasitas, jenis/unit layanan, dan inventory bukti ditandai tidak tersedia. Karena itu adapter belum membuat profil yang layak untuk ranking fasilitas atau menjalankan seluruh enam pemeriksa. Metadata coverage menjelaskan batas tersebut; implementasi ini belum menggantikan `synthetic_demo` atau import batch sintetis.
 
@@ -178,7 +178,7 @@ Default pasangan harus memiliki sedikitnya 9 atribut yang dapat dibandingkan, ra
 
 `temporal_patterns.py` menerima `case_id`, token peserta (internal), `facility_id` sintetis, `service_type`, `service_date`, dan `service_timestamp`. Generator eksperimen kini menyediakan timestamp sintetis lokal tanpa zona waktu. Dua sinyal terpisah diuji:
 
-1. `short_window_repeat`: sedikitnya 2 klaim dengan peserta, fasilitas sintetis, dan jenis layanan sama; jendela default 3 hari. Jendela di-anchor pada tanggal paling awal dan diproses tanpa tumpang tindih.
+1. `short_window_repeat`: sedikitnya 2 klaim dengan peserta, fasilitas sintetis, dan jenis layanan sama; jendela default 3 hari. Klaim dirantai: klaim masuk grup bila jaraknya ke klaim sebelumnya dengan kunci yang sama paling lama 3 hari, sehingga setiap klaim yang punya tetangga dalam jendela ikut ditandai (versi sebelumnya meng-anchor jendela pada klaim pertama dan melewatkan klaim berikutnya dalam rangkaian kunjungan).
 2. `uniform_service_minute`: sedikitnya 3 klaim dan 3 peserta berbeda pada fasilitas/jenis layanan/tanggal/menit yang sama.
 
 Tanggal sibuk saja bukan sinyal. Output menunjukkan tipe pola, jumlah, tanggal, menit (bila relevan), dan ID kasus terbatas. Pengulangan layanan terjadwal, episode perawatan, slot klinik seragam, atau pencatatan sistem dapat menjadi false positive. Timestamp simulasi tidak membuktikan waktu layanan aktual. Perubahan pola waktu lintas baseline/periode masih rencana terpisah.
@@ -284,3 +284,86 @@ Versi default `action-policy-demo-v1-provisional` membagi rentang indeks aturan 
 Lane `cannot_recommend` dikembalikan untuk skor null/invalid, status score parsial/tidak dapat dinilai, tidak adanya indikator relevan yang dinilai, indikator lokal `not_assessed`, indikator relevan unavailable, atau pencarian relevan truncated. `not_applicable` diabaikan dan tidak meniadakan lane bila masih ada pemeriksaan yang dinilai lengkap. Cakupan global parsial pada record lain ditampilkan sebagai limitation; kasus dengan penilaian lokal lengkap dapat tetap memperoleh lane. Semua hasil menyertakan input assessment status, alasan, versi, dan limitation. Ini saran alur demo, bukan probabilitas fraud, `risk_level`, prioritas fasilitas, atau keputusan auditor.
 
 AnalysisRun menambahkan action policy pada snapshot persisten; GET mengembalikan nilai tersimpan tanpa menghitung ulang. `DETECTOR_SUITE_VERSION = detector-suite-v1-manual` adalah identifier kontrak yang dipelihara manual, bukan source hash, provenance build, atau jaminan seluruh perubahan kode terdeteksi. Run menyimpan scoring/priority versions serta action-policy version/configuration yang benar-benar dipakai. Proses yang terputus masih dapat meninggalkan run `running`; pemulihan otomatis belum diterapkan.
+
+## Kesesuaian dengan proposal (revisi alur)
+
+- **Lampu lalu lintas (Langkah D):** policy `action-policy-two-signal-v2-provisional` — pada data dengan indeks aturan memakai interval indeks; pada sampel FKRTL (hanya dua pemeriksaan berlaku) memakai kesepakatan pemeriksaan aturan + AI (merah: ditandai aturan dan AI ≥ persentil 95; kuning: AI 90–95; hijau: lainnya). Uji agregat pada jendela 4–10 Maret 2024 (35.565 klaim): merah 275, kuning 434, hijau 9.915, tanpa saran 0.
+- **Rangkuman per faskes (Langkah B, C, E, F):** `app/analytics/facility_groups.py` — kelompok faskes FKL05–FKL09 dengan nama dari value label .dta, minimal 30 klaim, vonis satu kalimat, urutan "untung diperiksa" tanpa nominal, klaim sampel untuk paket bukti. Pada jendela uji: 340 kelompok (22 risiko tinggi, 88 sedang); 1.438 kelompok kecil (14.063 klaim) disembunyikan.
+- **Di-drop dari produk:** layar lama rawat (modul tetap sebagai masukan AI), halaman Evaluasi kosong, halaman detail kasus lama. Pemeriksaan kapasitas, pola waktu, dan kelengkapan bukti tetap hanya berlaku pada data contoh.
+
+## Evaluasi pipeline saat ini (data sintetis berlabel)
+
+`scripts/evaluate_current_pipeline.py` menjalankan pipeline produksi (pemeriksaan aturan + AI + policy v3) pada generator sintetis v4 dan menggabungkan label setelah analisis. Hasil seed 2026, 30.000 klaim, 60 faskes, 4% kecurangan: 100% klaim kecurangan terdeteksi pemeriksaan aturan; 96,7% masuk risiko sedang/tinggi (cloning 83%, modus lain 100%); 2 dari 28.800 klaim jujur tertandai (keduanya kontrol pengulangan sah, berisiko tinggi); ketepatan risiko tinggi 99,7% (≈25× pemilihan acak); 12/12 faskes di 20% teratas adalah faskes yang disuntik kecurangan. Data sintetis sengaja berpola jelas, sehingga angka ini tidak mewakili kinerja pada data nyata. Evaluasi lama `record-level-v4-120000` (prioritas fasilitas versi lama) menunjukkan presisi setara pemilihan acak (3,9% vs 4%) dan digantikan oleh pengukuran ini.
+
+**Stress test "jujur tapi mirip" (ditambahkan ke evaluasi):** 200 klaim terapi rutin bervolume tinggi dan 120 sesi terapi terjadwal, berlabel jujur, memakai kombinasi kode fisioterapi jujur yang paling umum. Menurut aturan saja seluruhnya berisiko sedang (satu temuan "pola identik"); setelah digabung AI pada data sintetis menjadi tinggi, karena kode sintetis acak membuat paket rutin tampak langka. Akibatnya ketepatan risiko tinggi pada uji sintetis turun dari 99,7% menjadi ±62%. Cek di data asli (4–10 Maret 2024): klaim dengan 10 kode INA-CBG paling umum (76,5% klaim) hanya 2,0% berpersentil AI ≥ 95%, kode langka 70,4%; jadi pada data asli AI tidak menilai klaim rutin sebagai anomali.
+
+## Pembaruan pemeriksaan dan evaluasi (data demo realistis)
+
+- **Pola identik antar-pasien** kini memperhitungkan peluang kebetulan pada input ≥ 200 klaim: jumlah klaim identik di faskes-hari tersebut dibandingkan perkiraan (klaim faskes-hari × porsi kombinasi kode di seluruh input), dan grup hanya dipertahankan bila peluang Poisson terjadinya ≥ jumlah itu secara kebetulan < 0,1%. Templat langka yang disalin tetap tertangkap; paket layanan umum tidak. Jumlah grup yang dilewati dilaporkan (`common_pattern_groups_skipped`).
+- **Policy v3**: skor AI yang relatif terhadap analisis itu sendiri (model dilatih per analisis, tanpa `reference_percentile`) tidak dapat mengonfirmasi pemeriksaan kemiripan yang eksploratif; hanya skor terhadap pembanding tetap (model terlatih FKRTL) yang dapat.
+- **Evaluasi Kinerja Sistem** memakai dunia `demo-3-operasional` (kode realistis). Hasil: 4 dari 4 modus 100% terdeteksi (phantom 88,7%), ketepatan risiko tinggi 88,8% (≈32× pemilihan acak), klaim jujur yang masuk risiko sedang/tinggi 3,8% (termasuk 544 kasus jujur-mirip yang sengaja dibuat; risiko tinggi hanya 30 dari 24.160). Generator v4 lama (kode acak) tetap tersedia dengan `--source v4`.
+
+## Pemeriksaan klinis pada kolom BPJS (`clinical-rules-v1`)
+
+Berlaku hanya untuk sumber berformat kolom data klaim BPJS FKRTL (sampel lokal dan unggahan `bpjs-fkrtl-csv-v1`); untuk sumber lain ketiganya `not_applicable`. Ketiganya adalah temuan aturan spesifik (bukan eksploratif), jadi ikut menentukan lane v3 dan level faskes. Referensi diambil dari tabel agregat model AI (median dan MAD lama rawat per INA-CBG dan kelas rawat; jumlah pasangan diagnosis–INA-CBG; kombinasi < 5 tidak disimpan). Tanpa model, pemeriksaan lama rawat dan keparahan berstatus `unavailable`.
+
+| Kode | Aturan (ambang dinyatakan sebelum diuji) |
+|---|---|
+| `length_of_stay_extreme_candidate` | Rawat inap dengan lama rawat > max(median + 7 hari, median + 5 × 1,4826 × max(MAD, 1)) dari INA-CBG dan kelas rawat yang sama. Kunjungan sehari: tidak berlaku. |
+| `rapid_readmission_candidate` | Peserta yang sama dirawat inap lagi dengan diagnosis utama sama ≤ 3 hari setelah pulang; kedua klaim ditandai sebagai satu pasangan. |
+| `unusual_severity_candidate` | INA-CBG keparahan II/III yang, untuk diagnosis utama dan kelompok INA-CBG dasar yang sama, dipakai < 5% klaim acuan (minimal 30 klaim acuan). |
+
+Uji agregat pada data sampel asli (4–10 Maret 2024, 35.565 klaim; `scripts/check_clinical_rules_real.py`, hanya hitungan): lama rawat ekstrem 19 klaim (0,6% rawat inap yang dinilai), rawat inap ulang cepat 14 (0,4%), keparahan tidak lazim 45 (10% klaim keparahan II/III yang dapat dinilai). Uji "keparahan III tetapi rawat singkat" ditolak: di data latih median lama rawat keparahan III hanya ±1 hari di atas keparahan I.
+
+## Level faskes: hanya temuan spesifik yang membuat "tinggi"
+
+`facility-group-v1` kini memerlukan minimal 3 klaim risiko tinggi **dengan temuan aturan spesifik** (`red_with_specific_finding`) dan porsi risiko tinggi ≥ 2× rata-rata. Klaim risiko tinggi yang hanya berasal dari penyaringan kemiripan (eksploratif) yang dikuatkan AI membuat faskes paling tinggi "sedang".
+
+## Tahap 2: catatan klinis (`note-clone-v1`) dan pembacaan AI
+
+Mengikuti panduan panitia (tahap 1 skor ML, tahap 2 LLM membaca catatan klinis; pilar 01 *cloning* lewat kemiripan teks catatan medis):
+
+- **Catatan klinis kembar** (`cloned_clinical_note_candidate`, `app/analytics/note_similarity.py`). Catatan dinormalisasi (huruf kecil, hanya kata dan angka) lalu di-*hash*; catatan ≥ 12 kata yang sama persis pada klaim dari ≥ 2 peserta berbeda menjadi satu grup. Angka tanda vital dan lab ikut dibandingkan, karena pada pasien berbeda angka itu hampir tidak mungkin sama semua. Peserta yang sama dengan catatan sama adalah urusan pemeriksaan layanan berulang, bukan salinan. Batas: hanya salinan kata demi kata; parafrase tidak tertangkap.
+- **Pembacaan AI** (`app/services/clinical_ai.py`): atas permintaan petugas per klaim, model bahasa (bawaan: model lokal lewat Ollama; opsional Claude enterprise) membaca fakta dari catatan, lalu aturan membandingkannya dengan data klaim dan menilai apakah catatan mendukung kode yang ditagih mendukung kode yang ditagih (`sesuai`, `perlu_dicek`, `mencurigakan`) dengan alasan dan hal yang perlu dicek di rekam medis. Bukan putusan dan tidak memengaruhi skor. Bila model tidak tersedia, pembacaan cadangan berbasis aturan teks dipakai dan ditandai demikian.
+- **Data demo**: setiap klaim membawa catatan sintetis dengan tanda vital dan lab acak. Modus kecurangan meninggalkan jejak di catatan: klaim salinan menyalin catatan pasien lain kata demi kata; *upcoding* tetap bercatatan "tanpa komplikasi" di bawah INA-CBG keparahan III; lama rawat diperpanjang tetap menyebut lama rawat semula; pemecahan rawat inap menyebut "lanjutan perawatan".
+- **Hasil evaluasi demo-3** (28.953 klaim, `scripts/evaluate_current_pipeline.py`): klaim salinan terdeteksi 72 dari 72 (sebelumnya 0); tidak ada catatan jujur yang tergrup (12 klaim di luar label adalah klaim templat asal salinan). Ketepatan risiko tinggi 60,5% (≈38× acak); 8 dari 8 faskes di 20% teratas adalah faskes yang disuntik kecurangan. Angka ini dari data sintetis berpola jelas, tidak mewakili kinerja pada data nyata. Pengukuran pembacaan catatan ada di bagian berikut.
+
+## Diagnosis sekunder dan tambahan khusus (`claim-detail-rules-v1`)
+
+Dasar: panduan data sampel BPJS (keparahan INA-CBG = komorbid/komplikasi, dicatat sebagai diagnosis sekunder FKL24; tambahan khusus FKL33–FKL46) dan materi BPJS (jejak *upcoding*: anomali dibanding rata-rata regional; contoh *phantom billing* operasi katarak).
+
+Profil agregat sampel 2024 (`scripts/profile_special_and_secondary_real.py`, 1,70 juta kunjungan; hanya angka): 100% kunjungan file diagnosis sekunder cocok dengan FKRTL; rawat inap keparahan I/II/III yang punya ≥ 1 diagnosis sekunder: 38,5% / 99,83% / 99,96%. Tambahan khusus jarang: prosedur 0,52% klaim (terbanyak *phacoemulsification*), pemeriksaan 0,11% (MRI), obat 0,09% (faktor anti-hemofilia, deferasirox), prostesis 0,018% (implan pinggul/lutut). Obat khusus berulang ≤ 30 hari 715 dari 1.599: wajar untuk terapi kronis bulanan, sehingga **tidak** dijadikan aturan.
+
+| Kode | Aturan (dinyatakan sebelum diuji) |
+|---|---|
+| `severity_without_secondary_candidate` | Rawat inap (tipe kasus 1/4/6) dengan INA-CBG keparahan II/III tanpa satu pun diagnosis sekunder. |
+| `unusual_special_topup_candidate` | Kode tambahan khusus yang ditagihkan bersama INA-CBG yang di acuan (FKRTL 2024 di luar jendela analisis, 1,66 juta klaim) muncul < 5 kali bersama kode itu. |
+
+Uji pada jendela analisis asli (4–10 Maret 2024, 35.565 klaim, `scripts/check_claim_detail_rules_real.py`): keparahan tanpa diagnosis sekunder 0 dari 862 klaim yang dinilai; tambahan khusus tidak lazim 1 dari 285. Artinya beban bagi faskes jujur sangat kecil; tanpa label, kemampuan menangkap kecurangan nyata tidak dapat diukur.
+
+**Pembanding wilayah** (`facility_groups.peer_signals`): porsi rawat inap keparahan II/III (minimal 30 klaim, pembanding ≥ 100, rasio ≥ 2, porsi ≥ 10%) dan porsi klaim bertambahan khusus (minimal 100 klaim, pembanding ≥ 300, rasio ≥ 3, porsi ≥ 2%) dibandingkan dengan ≥ 2 kelompok faskes sekelas di provinsi yang sama. Pada jendela asli: 3 dari 340 kelompok (semuanya tambahan khusus). Ditampilkan sebagai alasan, tidak mengubah tingkat risiko.
+
+## Pembacaan catatan klinis oleh model lokal
+
+`scripts/evaluate_clinical_reader.py` mengukur pembacaan catatan pada klaim berlabel, tanpa temuan aturan dan skor AI agar yang diukur hanya pembacaan catatannya. Dua himpunan: `--set demo` (8 klaim per label dari dunia demo-3, catatan dari generator kami) dan `--set independent` (16 catatan tulisan tangan di `scripts/clinical_reader_cases.py` dengan gaya resume medis yang beragam: singkatan, angka dalam kata, "2x24 jam", kasus berat yang jujur dengan komorbid). Qwen3 4B di CPU laptop (Ryzen 7 5825U, tanpa GPU):
+
+| Cara | Himpunan | Klaim curang ditandai | Klaim jujur ditandai | Waktu per klaim |
+|---|---|---|---|---|
+| Model langsung memberi verdict (ditinggalkan) | demo | 0 / 15 | 1 / 5 | ±45 dtk |
+| Model mengekstrak fakta, aturan memutuskan (versi awal) | catatan tulisan tangan | 12 / 12 | 2 / 4 | ±43 dtk |
+| **Model + aturan teks (dipakai)** | demo | 23 / 24 | 0 / 8 | ±43 dtk (maks. 53) |
+| **Model + aturan teks (dipakai)** | catatan tulisan tangan | 12 / 12 | 0 / 4 | ±40 dtk (maks. 43) |
+| Pembacaan cadangan tanpa model | demo | 23 / 24 | 0 / 8 | < 0,01 dtk |
+| Pembacaan cadangan tanpa model | catatan tulisan tangan | 11 / 12 | 0 / 4 | < 0,01 dtk |
+
+Perubahan dari versi awal setelah melihat catatan tulisan tangan: (1) selisih lama rawat satu hari tidak lagi dianggap bertentangan (cara menghitung hari masuk/malam; kasus lama rawat diperpanjang berselisih ≥ 5 hari); (2) catatan "ringan" yang tidak menyebut komorbid kini "perlu dicek", bukan "mencurigakan", dan model diberi tahu bahwa penyakit penyerta yang terkontrol tetap komorbid; (3) aturan teks (lama rawat dalam berbagai penulisan, tanda rawat ulang, kata "tanpa penyulit/penyerta") ikut diterapkan pada hasil model, karena model kecil kadang tidak membaca "2x24 jam" atau "hari perawatan kedua". Karena aturan itu disusun setelah melihat himpunan tulisan tangan, angka pada himpunan itu bukan lagi ukuran yang sepenuhnya independen. Sampel kecil dan semuanya catatan buatan; angka ini bukan ukuran kemampuan pada rekam medis asli. Kecepatan ±40 dtk per klaim di CPU laptop; dengan GPU server jauh lebih cepat (belum diukur).
+
+## Perbandingan metode (data demo-3 berlabel)
+
+| Cara memeriksa | Berkas diperiksa | Kecurangan per 100 berkas pertama | Kecurangan tertangkap | Klaim sah ikut diperiksa |
+|---|---|---|---|---|
+| Audit acak (beban sama dengan Radar) | 951 | 1,6 | 3,3% | 3,3% |
+| Aturan sederhana (satu aturan mana pun, tanpa AI/urutan) | 8.748 | 4,7 | 86,6% | 29,3% |
+| Claim Integrity Radar (risiko tinggi + sedang) | 951 | 63 | 85,5% | 1,93% |
+
+Populasi 28.918 klaim, 470 curang (1,6%) dalam enam modus di 10 dari 40 RS; tiap provinsi punya beberapa RS sekelas (pembanding wilayah). Per modus (aturan saja): klaim salinan 100%, pemecahan rawat inap 100%, tambahan khusus fiktif 100%, lama rawat diperpanjang 79%, tagihan ganda 76%, *upcoding* 42% (sebagian pelaku sengaja ikut memalsukan diagnosis sekunder). Ketepatan risiko tinggi 47% (29× acak); 8 dari 8 faskes di 20% teratas adalah faskes curang. Pembanding wilayah menandai satu kelompok: RS penambah kode khusus (7,4% vs 1,4% faskes sekelas di provinsinya). Data sintetis berpola jelas; bukan kinerja pada data JKN.

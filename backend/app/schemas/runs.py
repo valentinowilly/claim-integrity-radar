@@ -1,4 +1,4 @@
-"""Schemas for persistent synthetic AnalysisRun operations."""
+"""Schemas for persistent AnalysisRun operations (synthetic CSV or configured FKRTL sample)."""
 
 from datetime import datetime
 from typing import Any, Literal
@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 ExecutionStatus = Literal["running", "completed", "partial", "failed"]
+RunSourceType = Literal["synthetic_csv", "bpjs_fkrtl_local"]
 
 
 class RunCreateRequest(BaseModel):
@@ -22,18 +23,23 @@ class RunCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_batch_or_retry(self):
+        # The configured FKRTL source has no client-selected batch or path.
+        if self.source_type == "bpjs_fkrtl_local":
+            return self
         if self.batch_id is None and self.retry_of_run_id is None:
             raise ValueError("batch_id atau retry_of_run_id wajib diisi")
         return self
 
 
 class RunManifest(BaseModel):
+    # Only in archive listings: "manual", "superseded" or "older".
+    archive_reason: str | None = None
     run_id: str
     batch_id: str
     batch_version: int
     content_checksum: str
-    source_type: Literal["synthetic_csv"]
-    source_classification: Literal["synthetic_only_declared"]
+    source_type: RunSourceType
+    source_classification: Literal["synthetic_only_declared", "bpjs_sample_local"]
     source_schema_version: str
     source_mapping_version: str
     creator_user_id: str
@@ -63,6 +69,24 @@ class RunDetailResponse(BaseModel):
     run: RunManifest
     result: dict[str, Any] | None
     notice: str
+
+
+class RunCaseListItem(BaseModel):
+    case: dict[str, Any]
+    lane: dict[str, Any] | None
+
+
+class RunCaseListResponse(BaseModel):
+    """One page of rule-flagged claims read from the stored result (no detection rerun)."""
+    availability: Literal["available"]
+    run_id: str
+    items: list[RunCaseListItem]
+    total_matching: int
+    total_cases: int
+    reviewed_case_count: int | None
+    offset: int
+    limit: int
+    sort: str
 
 
 class RunListResponse(BaseModel):

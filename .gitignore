@@ -40,3 +40,17 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local-only demo evidence (aggregates of the BPJS sample); never commit.
+docs/demo-readiness.md
+
+# Playwright run artefacts (screenshots, traces, last-run status)
+frontend/test-results/
+frontend/playwright-report/
+
+# Example claim files in the BPJS column format (backend/scripts/make_bpjs_demo_datasets.py); never real BPJS data.
+!demo-data/*.csv
+!demo-data/harian/*.csv
+
+# Model trained on the real BPJS sample (and its aggregate companion files): local or private deployment only.
+backend/models/

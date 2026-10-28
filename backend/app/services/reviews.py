@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Iterator
 from uuid import uuid4
 
+from app.db import DatabaseError, connect_operational, is_postgres, sqlite_script
+
 
 DEFAULT_REVIEW_DB_PATH = Path(__file__).resolve().parents[2] / "outputs" / "review_workflow.sqlite3"
 INITIAL_STATUS = "pending_review"
@@ -41,11 +43,8 @@ class ReviewStore:
     def _connection(self) -> Iterator[sqlite3.Connection]:
         connection: sqlite3.Connection | None = None
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            connection = sqlite3.connect(self.path, timeout=5)
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.executescript(
+            connection = connect_operational(self.path, timeout=5)
+            sqlite_script(connection, 
                 """
                 CREATE TABLE IF NOT EXISTS review_cases (
                     case_id TEXT PRIMARY KEY,
@@ -77,14 +76,14 @@ class ReviewStore:
                 );
                 """
             )
-            history_columns = {
+            history_columns = {"actor_id"} if is_postgres(connection) else {
                 row["name"] for row in connection.execute("PRAGMA table_info(review_history)").fetchall()
             }
             if "actor_id" not in history_columns:
                 connection.execute("ALTER TABLE review_history ADD COLUMN actor_id TEXT")
             yield connection
             connection.commit()
-        except (OSError, sqlite3.Error) as exc:
+        except (OSError, *DatabaseError) as exc:
             if connection is not None:
                 connection.rollback()
             raise ReviewStorageError("Penyimpanan tinjauan lokal tidak tersedia.") from exc

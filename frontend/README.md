@@ -1,6 +1,6 @@
 # Frontend Claim Integrity Radar
 
-Frontend Claim Integrity Radar memakai React + TypeScript + Vite, Tailwind CSS, dan React Router. Lima halaman mengambil respons dari FastAPI lokal. Seluruh hasil yang tersedia saat ini berasal dari `synthetic_demo`, bukan dataset BPJS. Grafik tidak ditampilkan karena respons kontrak saat ini lebih tepat disajikan sebagai ringkasan angka dan daftar kandidat.
+Frontend Claim Integrity Radar memakai React + TypeScript + Vite, Tailwind CSS, dan React Router. Halaman mengambil respons dari FastAPI lokal. Hasil berasal dari batch CSV sintetis atau, bila dikonfigurasi di server, dari sampel FKRTL BPJS lokal (lihat `backend/README.md`); sumber selalu ditandai di UI. Ringkasan cakupan rilis: `docs/RELEASE-CANDIDATE.md`. Grafik tidak ditampilkan karena respons kontrak saat ini lebih tepat disajikan sebagai ringkasan angka dan daftar kandidat.
 
 ## Prasyarat
 
@@ -32,6 +32,15 @@ npm.cmd run build
 ```
 
 Build TypeScript dan aset produksi berada di `dist/`.
+
+## Uji E2E
+
+```powershell
+npm.cmd run test:e2e        # Vite dev server (React StrictMode aktif)
+npm.cmd run test:e2e:prod   # build produksi baru disajikan `vite preview` (statis + proxy /api same-origin)
+```
+
+Keduanya memakai database, akun, CSV, dan fixture `.dta` sintetis sementara. Satu tes (muat ganda StrictMode) hanya berlaku di mode dev dan dilewati di mode produksi.
 
 ## Jalankan bersama backend
 

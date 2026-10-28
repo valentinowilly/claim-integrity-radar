@@ -14,13 +14,13 @@ from app.analytics.normalization import normalize_amount, normalize_date, normal
 
 
 SIGNATURES = {
-    # run_fkrtl_real_detection.py: participant/date/diagnosis/group/procedure.
+    # From the early exploratory script run_fkrtl_real_detection.py (archived outside the repo): participant/date/diagnosis/group/procedure.
     "repeat_service_v1": ("PSTV01", "FKL03", "FKL18", "FKL19", "FKL30"),
     # A strict subset of repeat_service_v1 requiring equal claimed amount.
     "repeat_service_same_amount_v1": (
         "PSTV01", "FKL03", "FKL18", "FKL19", "FKL30", "FKL47",
     ),
-    # audit_fkrtl_patterns.py: includes discharge date and claimed amount.
+    # From the early exploratory script audit_fkrtl_patterns.py (archived outside the repo): includes discharge date and claimed amount.
     "legacy_audit_signature_v1": (
         "PSTV01", "FKL03", "FKL04", "FKL18", "FKL19", "FKL30", "FKL47",
     ),

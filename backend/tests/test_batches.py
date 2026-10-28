@@ -9,6 +9,7 @@ import sqlite3
 import httpx
 import pytest
 
+from tests.db_helpers import assert_rejected, db_connection, on_postgres, seed_reviewable_runs  # noqa: F401
 from app.data_sources.synthetic_csv import (
     CSV_COLUMNS, REQUIRED_COLUMNS, CsvImportError, SYNTHETIC_CSV_MAPPING_VERSION,
     SYNTHETIC_CSV_SCHEMA_VERSION, export_synthetic_csv, parse_synthetic_csv,
@@ -198,8 +199,7 @@ def test_store_versions_idempotency_record_persistence_and_immutability(tmp_path
     assert first["batch_version"] == 1 and not reused
     assert store.get_record_count(first["batch_id"]) == 2
     # Model the planned many-runs-to-one-batch FK without adding AnalysisRun runtime code.
-    with sqlite3.connect(store.path) as connection:
-        connection.execute("PRAGMA foreign_keys=ON")
+    with db_connection(store.path) as connection:
         connection.execute(
             "CREATE TABLE future_run_refs(run_id TEXT PRIMARY KEY, batch_id TEXT NOT NULL "
             "REFERENCES data_batches(batch_id))"
@@ -215,7 +215,7 @@ def test_store_versions_idempotency_record_persistence_and_immutability(tmp_path
         schema_version=SYNTHETIC_CSV_SCHEMA_VERSION, mapping_version=SYNTHETIC_CSV_MAPPING_VERSION,
     )
     assert reused and same["batch_id"] == first["batch_id"]
-    with sqlite3.connect(store.path) as connection:
+    with db_connection(store.path) as connection:
         assert connection.execute(
             "SELECT COUNT(*) FROM batch_security_audit_events WHERE event_type='batch_import_reused'"
         ).fetchone()[0] == 1
@@ -226,16 +226,13 @@ def test_store_versions_idempotency_record_persistence_and_immutability(tmp_path
         mapping_version=SYNTHETIC_CSV_MAPPING_VERSION,
     )
     assert second["batch_version"] == 2 and second["batch_id"] != first["batch_id"] and not reused
-    with sqlite3.connect(store.path) as connection:
-        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
-            connection.execute("UPDATE data_batches SET status='rejected' WHERE batch_id=?", (first["batch_id"],))
-        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
-            connection.execute("DELETE FROM data_batch_records WHERE batch_id=?", (first["batch_id"],))
-        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
-            connection.execute(
-                "INSERT INTO data_batch_records VALUES (?, ?, ?, ?)",
-                (first["batch_id"], "syn-claim-extra", "syn-claim-extra", "{}"),
-            )
+    with db_connection(store.path) as connection:
+        assert_rejected(connection, "UPDATE data_batches SET status='rejected' WHERE batch_id=?",
+                        (first["batch_id"],), match="immutable")
+        assert_rejected(connection, "DELETE FROM data_batch_records WHERE batch_id=?", (first["batch_id"],),
+                        match="immutable")
+        assert_rejected(connection, "INSERT INTO data_batch_records VALUES (?, ?, ?, ?)",
+                        (first["batch_id"], "syn-claim-extra", "syn-claim-extra", "{}"), match="immutable")
 
 
 def test_rejected_import_is_persisted_without_partial_records_and_next_version_is_distinct(tmp_path):
@@ -304,14 +301,14 @@ def test_batch_api_rbac_csrf_metadata_and_health_isolation(tmp_path):
     assert "participant_token" not in json.dumps(created.json())
     assert "125000.00" not in json.dumps(created.json())
     assert "content_checksum" not in created.json()["batch"]
-    with sqlite3.connect(batch_db) as connection:
+    with db_connection(batch_db) as connection:
         audit_rows = connection.execute(
             "SELECT actor_user_id,event_type,metadata_json FROM batch_security_audit_events"
         ).fetchall()
     assert audit_rows[0][0] == operator_user["user_id"]
     assert audit_rows[0][1] == "batch_imported"
-    assert "syn-participant" not in json.dumps(audit_rows)
-    assert "125000.00" not in json.dumps(audit_rows)
+    assert "syn-participant" not in json.dumps([tuple(row) for row in audit_rows])
+    assert "125000.00" not in json.dumps([tuple(row) for row in audit_rows])
 
     listing = call(app, "GET", "/api/v1/batches?limit=5", cookies=verifier)
     assert listing.status_code == 200

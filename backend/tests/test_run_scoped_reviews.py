@@ -7,6 +7,7 @@ import sqlite3
 import httpx
 import pytest
 
+from tests.db_helpers import assert_rejected, db_connection, on_postgres, seed_reviewable_runs  # noqa: F401
 from app.main import create_app
 from app.security.auth import AuthStore
 from app.services.reviews import ReviewStore
@@ -32,25 +33,8 @@ def review_env(tmp_path):
         "data_source": {"kind": "synthetic", "label": "synthetic_data_batch"},
         "cases": {"case-shared": {"case_id": "case-shared", "risk_score": None}},
     }
-    with sqlite3.connect(run_db) as connection:
-        connection.executescript("""
-            CREATE TABLE analysis_runs (
-                run_id TEXT PRIMARY KEY,
-                execution_status TEXT NOT NULL,
-                result_available INTEGER NOT NULL
-            );
-            CREATE TABLE analysis_run_results (
-                run_id TEXT PRIMARY KEY REFERENCES analysis_runs(run_id),
-                result_json TEXT NOT NULL
-            );
-        """)
-        for run_id, status, available in (
-            ("run-a", "completed", 1), ("run-b", "partial", 1), ("run-failed", "failed", 0),
-        ):
-            connection.execute("INSERT INTO analysis_runs VALUES (?,?,?)", (run_id, status, available))
-            if available:
-                connection.execute("INSERT INTO analysis_run_results VALUES (?,?)",
-                                   (run_id, json.dumps(result, sort_keys=True)))
+    seed_reviewable_runs(run_db, (("run-a", "completed", 1), ("run-b", "partial", 1), ("run-failed", "failed", 0)),
+                         result)
     app = create_app(review_db_path=tmp_path / "legacy-review.sqlite3", auth_db_path=auth_db,
                      cookie_secure=False, batch_db_path=run_db)
     store = AuthStore(auth_db)
@@ -59,6 +43,7 @@ def review_env(tmp_path):
         ("verifier", "synthetic-verifier", "verifikator"),
         ("lead", "synthetic-audit-lead", "audit_lead"),
         ("verifier2", "synthetic-verifier-two", "verifikator"),
+        ("operator", "synthetic-data-operator", "data_operator"),
     ):
         user = store.create_user(username, "Synthetic-review-password-2026!", role, "test-setup")
         session, token = store.authenticate(username, "Synthetic-review-password-2026!")
@@ -80,7 +65,7 @@ def test_get_is_read_only_and_returns_pending_for_valid_run_case(review_env):
     assert first.json()["review_outcome"] is None
     assert first.json()["review_id"] is None
     assert first.json()["history"] == []
-    with sqlite3.connect(db) as connection:
+    with db_connection(db) as connection:
         assert connection.execute("SELECT COUNT(*) FROM run_case_reviews").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM run_case_review_events").fetchone()[0] == 0
 
@@ -120,11 +105,11 @@ def test_same_case_in_different_runs_has_independent_review(review_env):
     assert other.json()["history"] == []
 
 
-def test_outcome_is_separate_and_audit_lead_only(review_env):
+def test_outcome_is_separate_and_needs_review_manage(review_env):
     app, _, _, users = review_env
     verifier = users["verifier"][1]
     lead = users["lead"][1]
-    denied = call(app, "POST", review_url() + "/outcome", cookies=verifier,
+    denied = call(app, "POST", review_url() + "/outcome", cookies=users["operator"][1],
                   payload={"review_outcome": "signal_supported", "note": "Sintetis."})
     assert denied.status_code == 403
     assert call(app, "GET", review_url(), cookies=verifier).json()["review_outcome"] is None
@@ -220,12 +205,12 @@ def test_unknown_run_case_and_unreviewable_run_are_rejected(review_env):
 def test_run_result_is_unchanged_and_security_events_are_separate(review_env):
     app, db, _, users = review_env
     cookies = users["lead"][1]
-    with sqlite3.connect(db) as connection:
+    with db_connection(db) as connection:
         before = connection.execute("SELECT result_json FROM analysis_run_results WHERE run_id='run-a'").fetchone()[0]
     call(app, "PATCH", review_url(), cookies=cookies, payload={"review_status": "escalated", "note": "Synthetic"})
     call(app, "POST", review_url() + "/outcome", cookies=cookies,
          payload={"review_outcome": "inconclusive", "note": "Synthetic review"})
-    with sqlite3.connect(db) as connection:
+    with db_connection(db) as connection:
         after = connection.execute("SELECT result_json FROM analysis_run_results WHERE run_id='run-a'").fetchone()[0]
         history_count = connection.execute("SELECT COUNT(*) FROM run_case_review_events").fetchone()[0]
         security = connection.execute("SELECT event_type FROM run_review_security_audit_events ORDER BY rowid").fetchall()
@@ -233,11 +218,9 @@ def test_run_result_is_unchanged_and_security_events_are_separate(review_env):
     assert history_count == 2
     assert [row[0] for row in security] == ["run_review_status_changed", "run_review_outcome_changed"]
     assert "participant_token" not in json.loads(after)
-    with sqlite3.connect(db) as connection:
-        with pytest.raises(sqlite3.IntegrityError):
-            connection.execute("UPDATE run_case_review_events SET note='rewritten' WHERE event_type='status_changed'")
-        with pytest.raises(sqlite3.IntegrityError):
-            connection.execute("DELETE FROM run_case_review_events WHERE event_type='status_changed'")
+    with db_connection(db) as connection:
+        assert_rejected(connection, "UPDATE run_case_review_events SET note='rewritten' WHERE event_type='status_changed'")
+        assert_rejected(connection, "DELETE FROM run_case_review_events WHERE event_type='status_changed'")
 
 
 def test_legacy_not_substantiated_status_is_not_migrated_into_run_outcome(review_env):
@@ -273,3 +256,19 @@ def test_note_limit_and_response_minimization(review_env):
     assert saved.status_code == 200
     for forbidden in ("participant_token", "pstV01", "signature", "ground_truth", "password_hash"):
         assert forbidden.lower() not in body
+
+
+def test_a_single_verifier_can_fill_every_review_step(review_env):
+    app, _, _, users = review_env
+    verifier = users["verifier"][1]
+    assert call(app, "PATCH", review_url(), cookies=verifier,
+                payload={"review_status": "escalated", "note": "Sintetis."}).status_code == 200
+    outcome = call(app, "POST", review_url() + "/outcome", cookies=verifier,
+                   payload={"review_outcome": "signal_supported", "note": "Sintetis."})
+    assert outcome.status_code == 200 and outcome.json()["review_outcome"] == "signal_supported"
+    audit = call(app, "POST", review_url() + "/audit-confirmation", cookies=verifier,
+                 payload={"audit_result": "confirmed_issue", "audit_reference": "AUD-2026/021", "note": None})
+    assert audit.status_code == 200
+    body = audit.json()
+    assert body["audit_details_visible"] is True
+    assert body["audit_confirmations"][-1]["recorded_by_user_id"] == users["verifier"][0]["user_id"]

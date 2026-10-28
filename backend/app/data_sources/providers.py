@@ -22,11 +22,20 @@ CANONICAL_FEATURE_FIELDS = (
     "service_timestamp", "facility_id", "service_type", "service_units",
     "facility_daily_capacity", "facility_daily_claim_count", "billed_amount",
     "province_code", "municipality_code", "facility_ownership", "facility_type",
-    "facility_class", "admission_diagnosis", "primary_diagnosis", "claim_group",
+    "facility_class", "care_class", "tariff_region", "tariff_group",
+    # Unverified FKL47: reconciliation subsets only, never a detector/ML feature.
+    "provider_billed_amount_unverified",
+    "admission_diagnosis", "primary_diagnosis", "claim_group",
     "procedure_code", "supporting_evidence_required", "supporting_evidence_types",
     "supporting_evidence_present", "supporting_evidence_recording_status",
+    # Optional free-text clinical note of an uploaded example file (clone check and the AI reading aid only).
+    "clinical_note",
+    # Optional BPJS-format details: secondary diagnoses (FKL24) and special top-up codes (FKL33-FKL44).
+    "secondary_diagnoses", "special_codes",
 )
 _CANONICAL_FIELD_SET = frozenset(CANONICAL_FEATURE_FIELDS)
+OPTIONAL_FEATURE_FIELDS = frozenset({"clinical_note", "secondary_diagnoses", "special_codes"})
+_CANONICAL_REQUIRED = _CANONICAL_FIELD_SET - OPTIONAL_FEATURE_FIELDS
 _FORBIDDEN_LABEL_FIELDS = frozenset({
     "is_anomaly", "is_synthetic_anomaly", "scenario", "scenario_label",
     "scenario_labels", "scenario_group_id", "scenario_code", "primary_scenario",
@@ -37,12 +46,17 @@ _FORBIDDEN_LABEL_FIELDS = frozenset({
 class CanonicalFeatureError(ValueError):
     """Safe error for provider records that violate the canonical feature contract."""
 
+# Cross-day checks compare a new file with claims of earlier files admitted up to this many days before it.
+LOOKBACK_DAYS = 30
+
 
 @dataclass(frozen=True)
 class FeatureDataset:
     records: Sequence[Mapping[str, Any]]
     facilities: Sequence[Mapping[str, Any]]
     source_metadata: Mapping[str, Any]
+    # Claims from earlier files, compared by the cross-day checks only; never analysed or stored as cases.
+    earlier_records: Sequence[Mapping[str, Any]] = ()
 
 
 class FeatureSourceProvider(Protocol):
@@ -73,7 +87,7 @@ def canonicalize_feature_dataset(dataset: FeatureDataset) -> FeatureDataset:
         if participant_token is not None and not isinstance(participant_token, str):
             raise CanonicalFeatureError("Internal participant comparison token has an invalid type.")
         seen.add(case_id)
-        if keys == _CANONICAL_FIELD_SET:
+        if _CANONICAL_REQUIRED <= keys:
             # Providers such as the FKRTL mapper already emit an exact canonical
             # shape. Reuse their freshly-owned, read-only-by-contract mapping to
             # avoid doubling memory for large datasets.
@@ -84,6 +98,7 @@ def canonicalize_feature_dataset(dataset: FeatureDataset) -> FeatureDataset:
         records=projected,
         facilities=deepcopy(list(dataset.facilities)),
         source_metadata=deepcopy(dict(dataset.source_metadata)),
+        earlier_records=dataset.earlier_records,
     )
 
 
@@ -107,8 +122,13 @@ class SyntheticBatchProvider:
 
     batch: Mapping[str, Any]
     normalized_records: Sequence[Mapping[str, Any]]
+    earlier_records: Sequence[Mapping[str, Any]] = ()
 
     def load(self) -> FeatureDataset:
+        from app.data_sources.bpjs_csv import BPJS_CSV_SCHEMA_VERSION
+
+        if self.batch.get("schema_version") == BPJS_CSV_SCHEMA_VERSION:
+            return _bpjs_format_dataset(self.batch, self.normalized_records, self.earlier_records)
         features, facilities = adapt_batch_features(self.batch, self.normalized_records)
         return FeatureDataset(
             records=features,
@@ -126,3 +146,39 @@ class SyntheticBatchProvider:
                 ],
             },
         )
+
+
+def _bpjs_format_dataset(batch: Mapping[str, Any], records: Sequence[Mapping[str, Any]],
+                         earlier: Sequence[Mapping[str, Any]] = ()) -> FeatureDataset:
+    """An uploaded file in the BPJS column format: same profile, checks and trained AI as the FKRTL source."""
+    from app.analytics.batch_adapter import adapt_bpjs_batch_features
+    from app.analytics.ml_model import category_labels
+    from app.data_sources.bpjs_csv import BPJS_CSV_MAPPING_VERSION
+    from app.data_sources.fkrtl_local_source import FKRTL_SCHEMA_PROFILE
+    from scripts.fkrtl_dta_provider import FKRTL_NOT_APPLICABLE_DETECTORS, FKRTL_REPEAT_SIGNATURE_PROFILE
+
+    features = adapt_bpjs_batch_features(batch, records)
+    dates = sorted(record["service_date"] for record in features)
+    current = {record["case_id"] for record in features}
+    earlier = [dict(record) for record in earlier if record.get("case_id") not in current]
+    return FeatureDataset(
+        earlier_records=earlier,
+        records=features,
+        facilities=(),
+        source_metadata={
+            "kind": "synthetic",
+            "label": "synthetic_data_batch",
+            "classification": "synthetic_only_declared",
+            "source_schema_profile": FKRTL_SCHEMA_PROFILE,
+            "mapping_version": BPJS_CSV_MAPPING_VERSION,
+            "repeat_signature_profile": FKRTL_REPEAT_SIGNATURE_PROFILE,
+            "not_applicable_detectors": dict(FKRTL_NOT_APPLICABLE_DETECTORS),
+            "selection": {"strategy": "uploaded_file", "date_from": dates[0], "date_to": dates[-1],
+                          "date_field": "FKL03", "processed_rows": len(features),
+                          "earlier_claims_compared": len(earlier), "lookback_days": LOOKBACK_DAYS},
+            "category_labels": category_labels(),
+            "limitations": [
+                "Berkas unggahan berformat kolom data klaim FKRTL; nomor peserta anonim (berawalan SYN).",
+            ],
+        },
+    )

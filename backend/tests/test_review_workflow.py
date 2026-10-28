@@ -39,6 +39,7 @@ def candidate_id() -> str:
     return sorted(build_analytics_snapshot()["cases"])[0]
 
 
+@pytest.mark.sqlite_storage  # asserts the SQLite review file is created
 def test_unreviewed_case_has_pending_review_and_empty_history(review_app):
     app, db_path = review_app
     case_id = candidate_id()
@@ -155,6 +156,7 @@ def test_health_does_not_initialize_review_database(review_app):
     assert not fresh_path.exists()
 
 
+@pytest.mark.sqlite_storage  # an unwritable SQLite path; PostgreSQL failures: test_postgres_storage.py
 def test_storage_failure_returns_controlled_503_without_database_details(tmp_path):
     blocker = tmp_path / "not-a-directory"
     blocker.write_text("fixture", encoding="utf-8")

@@ -163,11 +163,13 @@ def test_explicit_unassessed_positive_and_negative_are_excluded_from_detector_me
             **base,
             "case_id": f"syn-pair-{chr(ord('a') + index)}",
             "participant_token": f"syn-participant-{index}",
+            # Two pairs, each sharing a diagnosis: four identical claims would be a common
+            # combination that flags nobody, while each pair here is informative.
+            "primary_diagnosis": f"SYN-DX-00{index // 2}",
         })
     scope = {row["case_id"] for row in records}
-    # A low-budget, four-record synthetic block reproduces stratified
-    # sampling: the detector explicitly reports the block as unassessed even
-    # though the hard comparison-cap flag is false.
+    # A low-budget, four-record synthetic block is sampled: the detector reports
+    # the block as unassessed and the exhausted budget as a truncated search.
     result = detect_near_duplicate_claims(
         records, NearDuplicateConfig(max_pair_comparisons=1, max_candidates=10),
     )
@@ -186,9 +188,9 @@ def test_explicit_unassessed_positive_and_negative_are_excluded_from_detector_me
     assert eligible == predicted
     assert result["search_diagnostics"]["stratified_block_sampling"] is True
     assert len(result["unassessed_case_ids"]) == 4
-    assert result["search_truncated"] is False
+    assert result["search_truncated"] is True
     assert coverage["status"] == "partial"
-    assert coverage["search_truncated"] is False
+    assert coverage["search_truncated"] is True
     assert coverage["unassessed_count"] == 2
     assert metrics["tp"] == 1
     assert metrics["fp"] == 1
@@ -240,6 +242,12 @@ def test_detector_scenario_mapping_keeps_other_anomalies_out_of_negative_populat
         "supporting_evidence_completeness_candidate": (
             "phantom_physiotherapy", "action_without_support", "mixed_light_severe",
         ),
+        "length_of_stay_extreme_candidate": ("prolonged_stay",),
+        "rapid_readmission_candidate": ("readmission_split",),
+        "unusual_severity_candidate": ("upcoding",),
+        "cloned_clinical_note_candidate": ("cloning",),
+        "severity_without_secondary_candidate": ("upcoding",),
+        "unusual_special_topup_candidate": ("special_topup",),
     }
     assert evaluation.SUPPORTED_SCENARIOS == expected
 

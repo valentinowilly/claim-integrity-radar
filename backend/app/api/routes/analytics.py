@@ -1,6 +1,9 @@
 """Versioned dashboard, analysis, case, and evaluation API routes."""
 
+import json
+import os
 from datetime import date, datetime, timezone
+from pathlib import Path
 from math import ceil
 
 from fastapi import APIRouter, Depends, Request
@@ -241,11 +244,51 @@ def case_detail(case_id: str, _principal: Principal = Depends(require_permission
     }
 
 
+# Reports written by scripts/evaluate_current_pipeline.py (synthetic, labelled, aggregate-only).
+EVALUATION_REPORT_DIR = Path(__file__).resolve().parents[4] / "outputs" / "synthetic_evaluations"
+
+
+def _latest_pipeline_report() -> dict | None:
+    directory = Path(os.environ.get("CIR_EVALUATION_REPORT_DIR", "") or EVALUATION_REPORT_DIR)
+    reports = sorted(directory.glob("current-pipeline-*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for path in reports:
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if report.get("report") == "cir-current-pipeline-synthetic-v1" and report.get("data_source") == "synthetic_experiment_only":
+            return report
+    return None
+
+
+def _ai_routine_check() -> dict | None:
+    """Aggregate real-data check written by scripts/check_ai_routine_claims.py (counts and shares only)."""
+    path = Path(os.environ.get("CIR_EVALUATION_REPORT_DIR", "") or EVALUATION_REPORT_DIR) / "ai-routine-check.json"
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return report if report.get("report") == "cir-ai-routine-check-v1" else None
+
+
 @router.get("/evaluation", response_model=EvaluationResponse)
 def evaluation(period_from: str | None = None, period_to: str | None = None,
                evaluation_version: str | None = None,
                _principal: Principal = Depends(require_permission("analytics:read"))):
     _period(period_from, period_to)
+    report = _latest_pipeline_report()
+    if report is not None:
+        routine = _ai_routine_check()
+        if routine is not None:
+            report = {**report, "ai_routine_check": routine}
+        return {
+            "availability": "available",
+            "data_source": DATA_SOURCE,
+            "generated_at": _now(),
+            "evaluation": report,
+            "requirements_missing": ["Label kasus terkonfirmasi dari data BPJS untuk evaluasi pada data nyata."],
+            "notice": "Hasil uji pada data sintetis berlabel; bukan kinerja pada data JKN asli.",
+        }
     return {
         "availability": "insufficient_data",
         "data_source": DATA_SOURCE,
@@ -253,7 +296,7 @@ def evaluation(period_from: str | None = None, period_to: str | None = None,
         "evaluation": None,
         "requirements_missing": [
             "Label acuan yang tervalidasi belum tersedia.",
-            "Protokol evaluasi dan versi evaluasi belum ditetapkan.",
+            "Jalankan scripts.evaluate_current_pipeline untuk membuat laporan uji sintetis.",
         ],
         "notice": "Metrik evaluasi belum dihitung; fixture sintetis bukan ground truth.",
     }

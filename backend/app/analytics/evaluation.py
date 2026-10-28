@@ -14,6 +14,7 @@ import statistics
 from typing import Any
 
 from app.analytics.audit_priority import build_audit_priority_queue
+from app.analytics.detector_utils import candidate_members, membership_incomplete
 from app.data_sources.synthetic_generator import SCENARIO_CODES
 from app.analytics.risk_scoring import DETECTOR_ORDER, run_detector_suite, score_claims
 
@@ -30,6 +31,13 @@ SUPPORTED_SCENARIOS = {
     "supporting_evidence_completeness_candidate": (
         "phantom_physiotherapy", "action_without_support", "mixed_light_severe",
     ),
+    # BPJS-column checks; not applicable to this synthetic benchmark (no discharge date or INA-CBG severity).
+    "length_of_stay_extreme_candidate": ("prolonged_stay",),
+    "rapid_readmission_candidate": ("readmission_split",),
+    "unusual_severity_candidate": ("upcoding",),
+    "cloned_clinical_note_candidate": ("cloning",),
+    "severity_without_secondary_candidate": ("upcoding",),
+    "unusual_special_topup_candidate": ("special_topup",),
 }
 _FORBIDDEN_FEATURE_KEYS = {
     "is_anomaly", "is_synthetic_anomaly", "scenario", "scenario_label",
@@ -94,9 +102,9 @@ def _candidate_case_ids(result: Mapping[str, Any]) -> set[str]:
         case_id = item.get("case_id")
         if isinstance(case_id, str):
             ids.add(case_id)
-        case_ids = item.get("case_ids")
-        if isinstance(case_ids, (list, tuple)):
-            ids.update(value for value in case_ids if isinstance(value, str))
+        case_ids = candidate_members(item)
+        if case_ids:
+            ids.update(case_ids)
     return ids
 
 
@@ -138,7 +146,7 @@ def _detector_coverage(
         declared_unassessed.update(scope_ids - predicted)
     declared_unassessed &= scope_ids
     truncated_groups = any(
-        isinstance(item, Mapping) and item.get("case_ids_truncated") is True
+        isinstance(item, Mapping) and membership_incomplete(item)
         for item in result.get("candidate_groups", result.get("candidates", []))
     )
     search_truncated = result.get("search_truncated") is True or truncated_groups

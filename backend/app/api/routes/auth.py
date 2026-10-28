@@ -9,6 +9,7 @@ from app.security.auth import (
     AuthenticationStorageError, Principal, ROLE_PERMISSIONS,
 )
 from app.security.dependencies import auth_store, current_principal, require_csrf, require_permission
+from app.security.rate_limit import client_key, limiter, rate_limited_error, username_key
 
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
@@ -35,12 +36,20 @@ def _session_payload(user: dict) -> dict:
 @router.post("/login", response_model=SessionResponse)
 def login(payload: LoginRequest, request: Request, response: Response,
           store: AuthStore = Depends(auth_store)):
+    limits = limiter(request)
+    account = username_key(payload.username)
+    # Both limits are checked before the password is verified, so a blocked request costs no scrypt work.
+    delay = limits.hit("login_ip", client_key(request)) or limits.retry_after("login_failures", account)
+    if delay is not None:
+        raise rate_limited_error(delay)
     try:
         user, session_token = store.authenticate(payload.username, payload.password)
     except AuthenticationStorageError as exc:
         raise ApiError(503, "AUTH_STORAGE_UNAVAILABLE", "Layanan autentikasi sementara tidak tersedia.", {}) from exc
     if user is None or session_token is None:
+        limits.record("login_failures", account)
         raise ApiError(401, "INVALID_CREDENTIALS", "Username atau password tidak valid.", {})
+    limits.reset("login_failures", account)
     options = _cookie_options(request)
     response.set_cookie(SESSION_COOKIE, session_token, max_age=request.app.state.session_ttl_seconds, **options)
     response.set_cookie(CSRF_COOKIE, user["csrf_token"], max_age=request.app.state.session_ttl_seconds,

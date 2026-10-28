@@ -1,6 +1,7 @@
 import { AlertTriangle, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DataSource } from "../api/client";
+import { formatCount } from "./Display";
 
 export function PageHeading({
   eyebrow,
@@ -35,19 +36,20 @@ export function SourceBadge({ source }: { source: DataSource }) {
     return (
       <span className="source-badge source-synthetic">
         <span />
-        Synthetic Demo Data
+        Berkas unggahan
       </span>
     );
   }
-  if (source.kind === "none") return <span className="source-badge source-muted">Sumber belum tersedia</span>;
+  if (source.label === "bpjs_sample") return <span className="source-badge source-muted">Data klaim FKRTL</span>;
+  if (source.kind === "none") return <span className="source-badge source-muted">Belum ada sumber data</span>;
   return <span className="source-badge source-muted">{source.label ?? "Sumber data"}</span>;
 }
 
-export function LoadingState({ label = "Memuat data dari API…" }: { label?: string }) {
+export function LoadingState({ label = "Memuat data…" }: { label?: string }) {
   return (
     <div className="api-state api-loading" role="status">
-      <LoaderCircle size={19} className="spin" />
-      <span>{label}</span>
+      <span className="skeleton-lines" aria-hidden="true"><i /><i /><i /></span>
+      <span className="loading-label"><LoaderCircle size={15} className="spin" />{label}</span>
     </div>
   );
 }
@@ -67,7 +69,7 @@ export function ErrorState({
         <AlertTriangle size={18} />
       </span>
       <div className="api-state-copy">
-        <strong>Data gagal dimuat</strong>
+        <strong>Data tidak dapat dimuat</strong>
         <span>{message}</span>
         {httpStatus !== null && <small>HTTP {httpStatus}</small>}
       </div>
@@ -92,15 +94,7 @@ export function EmptyState({ title, message }: { title: string; message: string 
 }
 
 export function formatNumber(value: number | null | undefined): string {
-  return value === null || value === undefined ? "—" : new Intl.NumberFormat("id-ID").format(value);
+  return formatCount(value);
 }
 
-export function indicatorLabel(code: string): string {
-  if (code === "repeat_billing_candidate") return "Pola penagihan berulang";
-  if (code === "similar_claim_pattern_candidate") return "Pola klaim serupa";
-  if (code === "near_duplicate_claim_candidate") return "Klaim hampir duplikat";
-  if (code === "synthetic_capacity_candidate") return "Kandidat kapasitas layanan";
-  if (code === "temporal_pattern_candidate") return "Pola berdasarkan waktu";
-  if (code === "supporting_evidence_completeness_candidate") return "Kelengkapan bukti pendukung";
-  return code.replace(/_/g, " ");
-}
+export { indicatorLabel } from "./Display";

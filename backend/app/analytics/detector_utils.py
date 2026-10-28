@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from app.analytics.normalization import is_missing, normalize_date
 from app.analytics.records import validate_case_records
 
 
@@ -12,24 +13,41 @@ def valid_records(records: Sequence[Mapping[str, Any]]) -> list[tuple[str, Mappi
     return validate_case_records(records)
 
 
+# Internal key for the complete member list of a candidate whose public ``case_ids``
+# are cut to a display limit. It is read by scoring/coverage within one analysis
+# execution and is never copied into API reasons (not in any safe-field list).
+MEMBER_CASE_IDS = "_member_case_ids"
+
+
+def candidate_members(candidate: Mapping[str, Any]) -> list[str] | None:
+    """All member case IDs: the internal complete list when present, else the public list."""
+    members = candidate.get(MEMBER_CASE_IDS)
+    if members is None:
+        members = candidate.get("case_ids")
+    if isinstance(members, (list, tuple)) and all(isinstance(case_id, str) for case_id in members):
+        return list(members)
+    return None
+
+
+def membership_incomplete(candidate: Mapping[str, Any]) -> bool:
+    """True only when the display cut also lost members (no complete internal list)."""
+    return candidate.get("case_ids_truncated") is True and candidate.get(MEMBER_CASE_IDS) is None
+
+
 def text_value(value: Any) -> str | None:
-    if not isinstance(value, str):
+    # Missing sentinels ("NA", "null", ...) follow normalization.is_missing, as in the
+    # repeat and exact-pattern detectors, so two missing codes never match each other.
+    if not isinstance(value, str) or is_missing(value):
         return None
     value = value.strip()
     return value if value else None
 
 
 def date_value(value: Any) -> date | None:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        return date.fromisoformat(value.strip()[:10])
-    except ValueError:
-        return None
+    # Same strict ISO rule as normalization.normalize_date; a malformed string is
+    # missing rather than truncated to a plausible date.
+    normalized = normalize_date(value)
+    return date.fromisoformat(normalized) if normalized else None
 
 
 def timestamp_value(value: Any) -> datetime | None:
