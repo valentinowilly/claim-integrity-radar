@@ -86,6 +86,11 @@ try {
     const firstGroup = page.locator("tr[data-group-id] a").first();
     if (await firstGroup.count()) { await firstGroup.click(); await shot("2b-faskes-rincian" + suffix); }
     await page.goto(base + "/cases");
+    await page.locator("a.queue-item").first().waitFor();
+    await page.locator("section.queue-list-card").screenshot({ path: path.join(outDir, "3a-daftar-antrean" + suffix + ".png") });
+    await page.locator("button.queue-filter-toggle").click();
+    await page.locator("section.queue-list-card").screenshot({ path: path.join(outDir, "3a2-daftar-saring" + suffix + ".png") });
+    await page.locator("button.queue-filter-toggle").click();
     await page.locator("a.queue-item").first().click();
     await page.getByRole("region", { name: "Ringkasan klaim" }).waitFor();
     await shot("3-antrean-klaim" + suffix);

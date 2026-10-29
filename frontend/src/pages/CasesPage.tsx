@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Clock3, MousePointerClick, Search } from "lucide-react";
+import { Clock3, MousePointerClick, Search, SlidersHorizontal, X } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/DataStates";
 import { Callout, LANES, LaneDot, formatCount, indicatorLabel, mlFeatureLabel, mlLevel, shortRef } from "../components/Display";
@@ -17,7 +17,7 @@ import {
 type SortKey = Exclude<RunCaseSort, "stored">;
 const SORTS: Record<SortKey, string> = {
   ml_rank: "Skor AI tertinggi",
-  rule_index: "Skor aturan tertinggi",
+  rule_index: "Skor temuan tertinggi",
   checks: "Paling banyak pemeriksaan",
   similarity_rarity: "Paling mirip dengan klaim lain",
   review_updated: "Terakhir ditinjau",
@@ -30,6 +30,8 @@ const REVIEW_FILTERS: Array<[ReviewFilter, string]> = [
   ["has_outcome", "Sudah diputuskan"],
 ];
 type LaneTab = Lane | "all" | "ai";
+// Short tab names (the dot carries the colour; the full name is in the tooltip and the accessible name).
+const LANE_SHORT: Record<Lane, string> = { red: "Tinggi", yellow: "Sedang", green: "Rendah" };
 const LIST_PARAMS = ["lane", "q", "check", "state", "sort", "page"];
 
 // The review workspace: the flagged claims of one analysis on the left, the selected claim on the right.
@@ -71,6 +73,7 @@ export default function CasesPage() {
 
   // Router navigation may not have re-rendered between two quick filter changes, so each change
   // builds on the last parameters written, not on the possibly stale ones of this render.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const pendingParams = useRef<URLSearchParams | null>(null);
   useEffect(() => { pendingParams.current = null; }, [params]);
   function updateList(changes: Record<string, string>) {
@@ -112,6 +115,11 @@ export default function CasesPage() {
     lane: laneTab === "red" || laneTab === "yellow" || laneTab === "green" ? laneTab : undefined,
   };
   const queryKey = JSON.stringify([runId, query]);
+  const activeFilters = [
+    ...(indicator ? [{ key: "check", label: `Pemeriksaan: ${indicatorLabel(indicator)}` }] : []),
+    ...(reviewFilter && reviewMap ? [{ key: "state", label: `Status: ${REVIEW_FILTERS.find(([value]) => value === reviewFilter)?.[1] ?? reviewFilter}` }] : []),
+    ...(assigned && reviewMap ? [{ key: "who", label: assigned === "me" ? "Klaim saya" : "Belum diambil" }] : []),
+  ];
   const [casePage, setCasePage] = useState<{ key: string; data: RunCaseListResponse } | { key: string; error: string } | null>(null);
   useEffect(() => {
     if (!runId || !reviewable || laneTab === "ai") return;
@@ -161,42 +169,59 @@ export default function CasesPage() {
         </Callout>}
         <div className={`queue-layout${selected ? " has-detail" : ""}`}>
           <section className="card queue-list-card" aria-label="Daftar klaim">
-            <div className="card-head">
-              <div>
-                <h2>{laneTab === "ai" ? `${formatCount(aiOnly.length)} klaim` : pageData ? `${formatCount(pageData.total_matching)} klaim` : "Klaim ditandai"}</h2>
-                {reviewedCount !== null && <p data-testid="queue-review-progress">{formatCount(reviewedCount)} dari {formatCount(pageData?.total_cases ?? 0)} klaim sudah ditinjau</p>}
-                {reviewedCount !== null && <QueueAge createdAt={state.detail.run.created_at} unreviewed={(pageData?.total_cases ?? 0) - reviewedCount} />}
-                {reviewsFailed && <p>Status tinjauan tidak dapat dimuat; daftar klaim tetap ditampilkan.</p>}
-              </div>
+            <div className="queue-head">
+              <h2>{laneTab === "ai" ? `${formatCount(aiOnly.length)} klaim` : pageData ? `${formatCount(pageData.total_matching)} klaim` : "Klaim ditandai"}</h2>
+              {reviewedCount !== null && <span className="queue-head-meta" data-testid="queue-review-progress"
+                title={`${formatCount(reviewedCount)} dari ${formatCount(pageData?.total_cases ?? 0)} klaim sudah ditinjau`}>
+                {formatCount(reviewedCount)}/{formatCount(pageData?.total_cases ?? 0)} ditinjau</span>}
+              {reviewedCount !== null && <QueueAge createdAt={state.detail.run.created_at} unreviewed={(pageData?.total_cases ?? 0) - reviewedCount} />}
             </div>
+            {reviewsFailed && <p className="fine-print">Status tinjauan tidak dapat dimuat; daftar klaim tetap ditampilkan.</p>}
             <div className="queue-tabs" role="group" aria-label="Saring tingkat risiko">
               <button type="button" className="queue-tab" aria-pressed={laneTab === "all"} onClick={() => updateList({ lane: "all" })}>Semua <span className="tab-count">{formatCount((laneCounts.red ?? 0) + (laneCounts.yellow ?? 0) + (laneCounts.green ?? 0))}</span></button>
-              {(["red", "yellow", "green"] as const).map(lane => <button key={lane} type="button" className="queue-tab lane-tab" aria-pressed={laneTab === lane} onClick={() => updateList({ lane })}>
-                <LaneDot lane={lane} />{LANES[lane].name}<span className="tab-count">{formatCount(laneCounts[lane] ?? 0)}</span></button>)}
-              {mlAvailable && <button type="button" className="queue-tab" aria-pressed={laneTab === "ai"} onClick={() => updateList({ lane: "ai" })}>Temuan tambahan AI <span className="tab-count">{formatCount(aiOnly.length)}{result.ml_anomaly?.items_truncated ? "+" : ""}</span></button>}
+              {(["red", "yellow", "green"] as const).map(lane => <button key={lane} type="button" className="queue-tab lane-tab" aria-pressed={laneTab === lane}
+                onClick={() => updateList({ lane })} title={LANES[lane].name} aria-label={`${LANES[lane].name} ${formatCount(laneCounts[lane] ?? 0)}`}>
+                <LaneDot lane={lane} />{LANE_SHORT[lane]}<span className="tab-count">{formatCount(laneCounts[lane] ?? 0)}</span></button>)}
+              {mlAvailable && <button type="button" className="queue-tab" aria-pressed={laneTab === "ai"} onClick={() => updateList({ lane: "ai" })}
+                title="Klaim yang lolos pemeriksaan aturan, tetapi dinilai tidak biasa oleh AI" aria-label={`Temuan tambahan AI ${formatCount(aiOnly.length)}`}>
+                Tambahan AI <span className="tab-count">{formatCount(aiOnly.length)}{result.ml_anomaly?.items_truncated ? "+" : ""}</span></button>}
             </div>
             {laneTab === "ai" ? <AiOnlyList items={aiOnly} runId={runId} routeCaseId={routeCaseId} listSearch={listSearch} /> : <>
             <div className="queue-filters">
-              <QueueSearch value={search} onSearch={text => updateList({ q: text })} />
-              <div className="filter-pair">
-                <select aria-label="Saring jenis pemeriksaan" value={indicator} onChange={event => updateList({ check: event.target.value })}>
-                  <option value="">Semua pemeriksaan</option>
-                  {result.indicators.map(item => <option key={item.code} value={item.code}>{indicatorLabel(item.code)}</option>)}
-                </select>
-                <select aria-label="Urutkan" value={sort} onChange={event => updateList({ sort: event.target.value })}>
-                  {(Object.keys(SORTS) as SortKey[])
-                    .filter(key => (key !== "review_updated" || reviewMap) && (key !== "ml_rank" || mlAvailable))
-                    .map(key => <option key={key} value={key}>{SORTS[key]}</option>)}
-                </select>
+              <div className="queue-search-row">
+                <QueueSearch value={search} onSearch={text => updateList({ q: text })} />
+                <button type="button" className={`queue-filter-toggle${activeFilters.length ? " has-active" : ""}`} aria-expanded={filtersOpen}
+                  aria-controls="queue-filter-panel" onClick={() => setFiltersOpen(open => !open)}>
+                  <SlidersHorizontal size={15} aria-hidden="true" />Saring{activeFilters.length > 0 && <span className="filter-count">{activeFilters.length}</span>}
+                </button>
               </div>
-              {reviewMap && <select aria-label="Saring status tinjauan" value={reviewFilter} onChange={event => updateList({ state: event.target.value })}>
-                {REVIEW_FILTERS.map(([value, label]) => <option key={value || "all"} value={value}>{label}</option>)}
-              </select>}
-              {reviewMap && <select aria-label="Saring penanggung jawab" value={assigned ?? ""} onChange={event => updateList({ who: event.target.value })}>
-                <option value="">Semua petugas</option>
-                <option value="me">Klaim saya</option>
-                <option value="none">Belum diambil</option>
-              </select>}
+              <div id="queue-filter-panel" className="queue-filter-panel" hidden={!filtersOpen}>
+                <label><span>Pemeriksaan</span>
+                  <select aria-label="Saring jenis pemeriksaan" value={indicator} onChange={event => updateList({ check: event.target.value })}>
+                    <option value="">Semua pemeriksaan</option>
+                    {result.indicators.map(item => <option key={item.code} value={item.code}>{indicatorLabel(item.code)}</option>)}
+                  </select></label>
+                <label><span>Urutan</span>
+                  <select aria-label="Urutkan" value={sort} onChange={event => updateList({ sort: event.target.value })}>
+                    {(Object.keys(SORTS) as SortKey[])
+                      .filter(key => (key !== "review_updated" || reviewMap) && (key !== "ml_rank" || mlAvailable))
+                      .map(key => <option key={key} value={key}>{SORTS[key]}</option>)}
+                  </select></label>
+                {reviewMap && <label><span>Status</span>
+                  <select aria-label="Saring status tinjauan" value={reviewFilter} onChange={event => updateList({ state: event.target.value })}>
+                    {REVIEW_FILTERS.map(([value, label]) => <option key={value || "all"} value={value}>{label}</option>)}
+                  </select></label>}
+                {reviewMap && <label><span>Penanggung jawab</span>
+                  <select aria-label="Saring penanggung jawab" value={assigned ?? ""} onChange={event => updateList({ who: event.target.value })}>
+                    <option value="">Semua petugas</option>
+                    <option value="me">Klaim saya</option>
+                    <option value="none">Belum diambil</option>
+                  </select></label>}
+              </div>
+              {activeFilters.length > 0 && <div className="queue-active-filters" aria-label="Saringan aktif">
+                {activeFilters.map(item => <span key={item.key} className="filter-chip">{item.label}
+                  <button type="button" onClick={() => updateList({ [item.key]: "" })} aria-label={`Hapus saringan ${item.label}`}><X size={12} /></button></span>)}
+              </div>}
             </div>
             {pageError ? <EmptyState title="Daftar klaim tidak dapat dimuat" message={pageError} />
               : !pageData ? <p className="fine-print" role="status">Memuat daftar klaim…</p>
@@ -232,9 +257,9 @@ export default function CasesPage() {
               <div>
                 <button className="button button-secondary button-compact" disabled={page <= 1} onClick={() => updateList({ page: String(page - 1) })}>Sebelumnya</button>
                 <button className="button button-secondary button-compact" disabled={page >= pageCount} onClick={() => updateList({ page: String(page + 1) })}>Berikutnya</button>
+                <ReviewShortcuts />
               </div>
             </div>}
-            <ReviewShortcuts />
             </>}
           </section>
           <div className="queue-detail">
@@ -303,7 +328,7 @@ const QueueSearch = memo(function QueueSearch({ value, onSearch }: { value: stri
 function QueueAge({ createdAt, unreviewed }: { createdAt: string; unreviewed: number }) {
   const days = analysisAgeDays(createdAt);
   const tone = ageTone(days, unreviewed);
-  return <span className={`queue-age tone-${tone}`} data-testid="queue-age" title="Klaim masuk antrean saat analisis dibuat.">
-    <Clock3 size={12} aria-hidden="true" />Antrean dibuat {ageText(days)}{unreviewed > 0 && days > 7 ? ` · ${formatCount(unreviewed)} belum ditinjau` : ""}
+  return <span className={`queue-age tone-${tone}`} data-testid="queue-age" title={`Antrean dibuat ${ageText(days)}; klaim masuk antrean saat analisis dibuat.`}>
+    <Clock3 size={12} aria-hidden="true" />{ageText(days)}{unreviewed > 0 && days > 7 ? ` · ${formatCount(unreviewed)} belum` : ""}
   </span>;
 }

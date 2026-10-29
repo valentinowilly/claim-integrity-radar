@@ -59,8 +59,9 @@ export function ReviewShortcuts() {
   }, []);
 
   return <>
-    <button type="button" className="shortcut-hint" onClick={() => setHelp(true)} aria-label="Pintasan keyboard">
-      <Keyboard size={13} aria-hidden="true" /><span><kbd>J</kbd><kbd>K</kbd> pindah klaim · <kbd>?</kbd> pintasan</span>
+    <button type="button" className="shortcut-hint" onClick={() => setHelp(true)} aria-label="Pintasan keyboard"
+      title="Pintasan keyboard: J/K pindah klaim, 1–5 pilih status, S simpan, ? daftar lengkap">
+      <Keyboard size={14} aria-hidden="true" />
     </button>
     {help && <div className="palette-scrim" onMouseDown={() => setHelp(false)}>
       <div className="shortcut-help" role="dialog" aria-modal="true" aria-label="Pintasan keyboard" onMouseDown={event => event.stopPropagation()}>

@@ -183,7 +183,7 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
 
       <article className="card span-5">
         <div className="card-head">
-          <div><h2><BarChart3 size={16} className="head-icon" aria-hidden="true" />Klaim per kelompok faskes</h2><p>Enam kelompok dengan klaim risiko {chartLane === "red" ? "tinggi" : "sedang"} terbanyak</p></div>
+          <div><h2><BarChart3 size={16} className="head-icon" aria-hidden="true" />Klaim per kelompok faskes</h2><p>Enam kelompok dengan klaim risiko {chartLane === "red" ? "tinggi" : "sedang"} terbanyak. Nomor = peringkat di daftar faskes; arahkan kursor untuk melihat namanya.</p></div>
           <div className="segmented-pill" role="group" aria-label="Pilih tingkat risiko grafik">
             <button type="button" aria-pressed={chartLane === "red"} onClick={() => setChartLane("red")}>Tinggi</button>
             <button type="button" aria-pressed={chartLane === "yellow"} onClick={() => setChartLane("yellow")}>Sedang</button>
@@ -255,7 +255,7 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
         {ml?.status !== "available" ? <p className="fine-print">AI tidak tersedia pada analisis ini.</p> : <>
           <div className="stat-big" style={{ marginBottom: 12 }}>{formatCount(ml.records_scored)}<small> klaim dinilai</small></div>
           <ul className="check-rows ai-stats">
-            {ml.share_above_training_p99 !== undefined && <li className="check-row"><span>Anomali sangat tinggi</span>
+            {ml.share_above_training_p99 !== undefined && <li className="check-row"><span>Sangat tidak biasa menurut AI</span>
               <strong>{formatCount(Math.round(ml.share_above_training_p99 * ml.records_scored))}</strong></li>}
             <li className="check-row"><span title="Klaim risiko tinggi yang juga dinilai sangat tidak biasa oleh AI">Menguatkan klaim risiko tinggi</span><strong>{formatCount(aiConfirmedRed)}</strong></li>
             <li className="check-row"><span title="Klaim yang lolos pemeriksaan aturan tetapi dinilai sangat tidak biasa oleh AI">Temuan tambahan AI</span><strong>{formatCount(aiOnly.length)}{ml.items_truncated ? "+" : ""}</strong></li>

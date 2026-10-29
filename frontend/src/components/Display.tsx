@@ -161,7 +161,7 @@ const INDICATORS: Record<string, [string, string, string]> = {
   ],
   near_duplicate_claim_candidate: [
     "Klaim serupa antar-peserta",
-    "Klaim dari peserta berbeda pada tanggal yang sama yang hampir semua atributnya cocok, dan kombinasinya jarang terjadi.",
+    "Klaim dari peserta berbeda pada tanggal yang sama yang hampir semua datanya cocok, dan kecocokan seperti itu jarang terjadi.",
     "Bandingkan kedua klaim: apakah kemiripannya wajar, atau ada tanda salinan klaim?",
   ],
   synthetic_capacity_candidate: [
@@ -181,7 +181,7 @@ const INDICATORS: Record<string, [string, string, string]> = {
   ],
   length_of_stay_extreme_candidate: [
     "Lama rawat ekstrem",
-    "Lama rawat inap jauh di atas kebiasaan INA-CBG dan kelas rawat yang sama (minimal 7 hari lebih lama dari median data acuan).",
+    "Lama rawat inap jauh di atas kebiasaan INA-CBG dan kelas rawat yang sama (minimal 7 hari lebih lama dari nilai tengah di data pembanding).",
     "Periksa resume medis dan catatan harian rawat: apakah ada komplikasi yang membenarkan rawat selama itu?",
   ],
   rapid_readmission_candidate: [
@@ -191,7 +191,7 @@ const INDICATORS: Record<string, [string, string, string]> = {
   ],
   unusual_severity_candidate: [
     "Keparahan tidak lazim",
-    "INA-CBG keparahan II/III dipakai untuk diagnosis utama yang di data acuan jarang (di bawah 5%) mendapat keparahan setinggi itu.",
+    "INA-CBG keparahan II/III dipakai untuk diagnosis utama yang di data pembanding jarang (di bawah 5%) mendapat keparahan setinggi itu.",
     "Periksa diagnosis sekunder dan tindakan di resume medis yang mendasari tingkat keparahan INA-CBG.",
   ],
   cloned_clinical_note_candidate: [
@@ -206,7 +206,7 @@ const INDICATORS: Record<string, [string, string, string]> = {
   ],
   unusual_special_topup_candidate: [
     "Tambahan khusus tidak lazim",
-    "Obat, alat/prostesis, prosedur, atau pemeriksaan khusus ditagihkan bersama INA-CBG yang di data acuan jarang mendapat tambahan itu.",
+    "Obat, alat/prostesis, prosedur, atau pemeriksaan khusus ditagihkan bersama INA-CBG yang di data pembanding jarang mendapat tambahan itu.",
     "Periksa indikasi medis serta bukti pemberian obat, pemasangan alat, atau pelaksanaan tindakannya.",
   ],
 };
@@ -267,16 +267,16 @@ export function attributeLabel(name: string): string {
 }
 
 const EVIDENCE_KEYS: Record<string, string> = {
-  matched_attributes: "Atribut yang sama",
-  differing_attributes: "Atribut yang berbeda",
+  matched_attributes: "Data yang sama",
+  differing_attributes: "Data yang berbeda",
   context_unavailable_attributes: "Tidak tercatat",
   candidate_record_count: "Jumlah klaim dalam kelompok",
   earlier_claim_count: "Klaim dari data sebelumnya",
   case_count: "Jumlah klaim dalam pola",
   distinct_participant_count: "Jumlah peserta",
   similarity_ratio: "Tingkat kemiripan",
-  matched_attribute_count: "Atribut yang cocok",
-  compared_attribute_count: "Atribut yang dibandingkan",
+  matched_attribute_count: "Data yang cocok",
+  compared_attribute_count: "Data yang dibandingkan",
   match_support: "Klaim pada tanggal yang sama",
   observed_service_units: "Unit layanan tercatat",
   capacity_service_units: "Kapasitas unit",
@@ -388,6 +388,14 @@ export function TechnicalDetails({
 }
 
 /** Expandable list for long qualifications (e.g. check limitations). */
+/** "How to read this page": folded, at the top of the page, so it is seen before the content it explains. */
+export function ReadingGuide({ title = "Cara membaca halaman ini", items }: { title?: string; items: Array<[string, ReactNode]> }) {
+  return <details className="reading-guide-bar" data-testid="reading-guide">
+    <summary><Info size={15} aria-hidden="true" />{title}<ChevronDown size={14} className="reading-guide-chevron" aria-hidden="true" /></summary>
+    <dl className="reading-guide">{items.map(([term, text]) => <div key={term}><dt>{term}</dt><dd>{text}</dd></div>)}</dl>
+  </details>;
+}
+
 export function MoreInfo({ title, items, children }: { title: string; items?: string[]; children?: ReactNode }) {
   if (!children && (!items || items.length === 0)) return null;
   return (

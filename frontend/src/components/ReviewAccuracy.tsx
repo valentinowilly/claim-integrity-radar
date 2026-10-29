@@ -41,20 +41,23 @@ export function ReviewAccuracy() {
 
   return <section className="card trend-card" aria-label="Ketepatan sistem" data-testid="review-accuracy-trend">
     <div className="card-head">
-      <div><h2><Target size={16} className="head-icon" aria-hidden="true" />Ketepatan sistem per minggu</h2>
-        <p>Dari klaim yang sudah diputuskan verifikator (semua analisis, 12 minggu terakhir): berapa yang memang perlu ditindaklanjuti.</p></div>
-      <div className="accuracy-total">
-        <strong>{data.totals.share === null ? "—" : formatPercent(data.totals.share)}</strong>
-        <span>{formatCount(data.totals.supported)} dari {formatCount(data.totals.decided)} keputusan</span>
-      </div>
+      <div><h2><Target size={16} className="head-icon" aria-hidden="true" />Ketepatan temuan sistem</h2>
+        <p>Dari klaim yang sudah diperiksa petugas, berapa persen yang memang bermasalah. Makin tinggi, makin jarang sistem menandai klaim yang ternyata wajar.</p></div>
+      {data.totals.share !== null && <div className="accuracy-total">
+        <strong>{formatPercent(data.totals.share)}</strong>
+        <span>{formatCount(data.totals.supported)} dari {formatCount(data.totals.decided)} klaim memang bermasalah</span>
+      </div>}
     </div>
     {data.totals.decided === 0
-      ? <p className="fine-print">Belum ada keputusan verifikator dalam 12 minggu terakhir. Grafik terisi setelah klaim diputuskan "benar, perlu ditindaklanjuti" atau "ternyata wajar".</p>
+      ? <div className="accuracy-empty">
+        <strong>Belum ada klaim yang diputuskan petugas dalam 12 minggu terakhir.</strong>
+        <span>Angka ini muncul setelah petugas mengisi langkah 2 di halaman klaim: <em>Benar, perlu ditindaklanjuti</em> atau <em>Ternyata wajar</em>.</span>
+      </div>
       : <>
         <div className="trend-legend" aria-hidden="true" style={{ marginBottom: 8 }}>
           <span><i className="trend-swatch" style={{ background: colors.supported }} />Benar, perlu ditindaklanjuti</span>
           <span><i className="trend-swatch low" />Ternyata wajar</span>
-          {data.policy_changes.length > 0 && <span><i className="accuracy-change-swatch" />Versi aturan berubah</span>}
+          {data.policy_changes.length > 0 && <span><i className="accuracy-change-swatch" />Mulai memakai aturan baru</span>}
         </div>
         <div className="chart-box" style={{ height: 240 }} role="img"
           aria-label={`Keputusan verifikator per minggu; secara keseluruhan ${data.totals.share === null ? "—" : formatPercent(data.totals.share)} memang perlu ditindaklanjuti.`}>
@@ -83,14 +86,13 @@ export function ReviewAccuracy() {
           {lanes.map(item => <li key={item.lane}>
             <span><LaneDot lane={item.lane} />{LANES[item.lane].name}</span>
             <strong>{item.decided ? formatPercent(item.supported / item.decided) : "—"}</strong>
-            <small>{formatCount(item.supported)} dari {formatCount(item.decided)} benar</small>
+            <small>{item.decided ? `${formatCount(item.supported)} dari ${formatCount(item.decided)} klaim memang bermasalah` : "Belum ada keputusan"}</small>
           </li>)}
         </ul>
       </>}
-    <p className="fine-print" style={{ marginTop: 10 }}>
-      Tiap klaim dihitung sekali pada keputusan terakhirnya; keputusan yang dibawa dari analisis sebelumnya tidak dihitung ulang.
-      {inconclusive > 0 ? ` ${formatCount(inconclusive)} keputusan "belum bisa disimpulkan" tidak dihitung.` : ""}
-      {" "}Angka ini dipakai administrator untuk menilai apakah ambang perlu disesuaikan.
-    </p>
+    {data.totals.decided > 0 && <p className="fine-print" style={{ marginTop: 10 }}>
+      Mencakup semua analisis dalam 12 minggu terakhir. Setiap klaim dihitung sekali, menurut keputusan terakhirnya.
+      {inconclusive > 0 ? ` ${formatCount(inconclusive)} klaim yang "belum bisa disimpulkan" tidak dihitung.` : ""}
+    </p>}
   </section>;
 }

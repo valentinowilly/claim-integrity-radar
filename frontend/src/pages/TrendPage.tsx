@@ -3,7 +3,7 @@ import { CalendarDays, CalendarRange, Flame, TrendingUp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { DailyActivity } from "../api/client";
 import { EmptyState } from "../components/DataStates";
-import { Callout, LaneDot, formatCount, formatRupiah } from "../components/Display";
+import { LaneDot, ReadingGuide, formatCount, formatRupiah } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { formatPercent } from "../components/RiskMap";
 import { ReviewAccuracy } from "../components/ReviewAccuracy";
@@ -62,6 +62,12 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
   const axis = { tick: { fontSize: 11.5, fill: colors.axis }, axisLine: false, tickLine: false };
 
   return <>
+    <ReadingGuide title="Cara membaca tren" items={[
+      ["Klaim per hari", "Tinggi batang = semua klaim pada tanggal layanan itu. Bagian merah dan kuning di atas = klaim risiko tinggi dan sedang."],
+      ["Porsi berisiko", `Persen klaim risiko tinggi dan sedang per hari. Garis putus-putus = rata-rata seluruh periode. Hari dengan kurang dari ${MIN_DAY_CLAIMS} klaim tidak digambar karena persennya mudah melonjak.`],
+      ["Ketepatan temuan sistem", "Di bagian bawah: dari klaim yang sudah diputuskan petugas, berapa persen yang memang bermasalah."],
+      ["Arti angka", "Petunjuk pemeriksaan, bukan bukti kecurangan."],
+    ]} />
     <section className="map-stats" aria-label="Ringkasan tren">
       <div className="map-stat card"><span className="map-stat-icon"><CalendarRange size={18} aria-hidden="true" /></span>
         <div><span>Rentang tanggal layanan</span><strong>{formatCount(rows.length)}<small> hari · {short(rows[0].date)} – {short(rows[rows.length - 1].date)}</small></strong></div></div>
@@ -132,10 +138,9 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
           </tr>)}</tbody>
         </table>
       </div>
-      <Callout tone="info" title="Cara membaca">
-        {activity.note}{activity.undated_claims > 0 ? ` ${formatCount(activity.undated_claims)} klaim tanpa tanggal tidak dihitung.` : ""}
-        {activity.days_truncated ? " Hanya tanggal terbaru yang ditampilkan." : ""}
-      </Callout>
+      {(activity.undated_claims > 0 || activity.days_truncated) && <p className="fine-print" style={{ marginTop: 10 }}>
+        {activity.undated_claims > 0 ? `${formatCount(activity.undated_claims)} klaim tanpa tanggal tidak dihitung.` : ""}
+        {activity.days_truncated ? " Hanya tanggal terbaru yang ditampilkan." : ""}</p>}
     </section>
   </>;
 }

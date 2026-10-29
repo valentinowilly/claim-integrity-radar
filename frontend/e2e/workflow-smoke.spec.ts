@@ -306,6 +306,7 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
   expect(new URL(page.url()).searchParams.get("run_id")).toBe(runId);
   await expect(page.getByText("Pilih klaim di kiri")).toBeVisible();
   await captureVisual(page, "cases-desktop");
+  await openFilters(page);
   const indicatorFilter = page.getByLabel("Saring jenis pemeriksaan");
   expect(await indicatorFilter.locator("option").count()).toBeGreaterThan(1);
   const firstIndicator = await indicatorFilter.locator("option").nth(1).getAttribute("value");
@@ -419,6 +420,7 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
 
   // The queue shows the saved human review state next to the (unchanged) check results.
   await page.goto(uiUrl + "/cases?run_id=" + encodeURIComponent(runId));
+  await openFilters(page);
   const reviewFilter = page.getByLabel("Saring status tinjauan");
   const reviewedRow = page.locator(`li[data-case-id="${caseId}"]`);
   await reviewFilter.selectOption("has_outcome");
@@ -426,7 +428,7 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
   await expect(reviewedRow.getByTestId("queue-review-cell")).toContainText("Minta klarifikasi");
   await expect(reviewedRow.getByTestId("queue-review-cell")).toContainText("Benar, perlu ditindaklanjuti");
   await expect(reviewedRow.getByTestId("queue-audit-result")).toHaveText("Audit resmi: ada masalah");
-  await expect(page.getByTestId("queue-review-progress")).toContainText("1 dari");
+  await expect(page.getByTestId("queue-review-progress")).toContainText("1/");
   await reviewFilter.selectOption("not_started");
   await expect(reviewedRow).toHaveCount(0);
   await reviewFilter.selectOption("");
@@ -691,6 +693,7 @@ test("FKRTL sample runs from Data & Analisis with repeat-service-v1, explicit co
   await expectNoTechnicalLeaks(page);
 
   await page.goto(uiUrl + "/cases?run_id=" + encodeURIComponent(run.run_id));
+  await openFilters(page);
   await page.getByLabel("Saring jenis pemeriksaan").selectOption("repeat_billing_candidate");
   await expect(page.getByRole("heading", { name: "2 klaim" })).toBeVisible();
   await expect(page.getByTestId("queue-review-cell").filter({ hasText: "Belum ditinjau" })).toHaveCount(2);
@@ -704,7 +707,7 @@ test("FKRTL sample runs from Data & Analisis with repeat-service-v1, explicit co
   await expect(repeatReason.getByTestId("repeat-pattern-only")).toContainText("status pembayaran tidak tersedia");
   // Too few checks apply for a rule index, so the light comes from the rule flag plus the AI signal.
   await expect(page.getByTestId("case-lane")).toContainText(/RISIKO (TINGGI|SEDANG|RENDAH)/);
-  await expect(repeatReason.getByText("Atribut yang berbeda")).toBeVisible();
+  await expect(repeatReason.getByText("Data yang berbeda")).toBeVisible();
   await expect(repeatReason.getByText("kelas fasilitas", { exact: true })).toBeVisible();
   await expectNoTechnicalLeaks(page);
   await page.getByRole("radio", { name: "Sedang ditinjau" }).check();
@@ -827,6 +830,13 @@ test("an uploaded BPJS-format file shows the clinical note, the cloned-note find
   await page.unroute(notePath);
   await page.unroute(analysisPath);
 });
+
+/** The queue's filters sit in a folded panel behind the "Saring" button. */
+async function openFilters(page: Page) {
+  const toggle = page.locator("button.queue-filter-toggle");
+  await toggle.waitFor();
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+}
 
 async function login(page: Page, username: string, password: string) {
   await page.goto(uiUrl);

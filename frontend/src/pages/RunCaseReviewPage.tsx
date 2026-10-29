@@ -215,7 +215,7 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
   const laneKey = lane && lane.lane in LANES ? lane.lane as keyof typeof LANES : null;
   // Plain-language reason: never the raw policy band text.
   const verdictReason = candidate.risk_score !== null
-    ? `Skor aturan ${Math.round(candidate.risk_score * 100)} dari 100.`
+    ? `Skor temuan ${Math.round(candidate.risk_score * 100)} dari 100.`
     : laneKey === "red" ? "Ditandai pemeriksaan aturan dan dinilai sangat tidak biasa oleh AI."
     : laneKey === "yellow" ? "Ditandai pemeriksaan aturan dan dinilai tidak biasa oleh AI."
     : laneKey === "green" ? "Ditandai pemeriksaan aturan, tetapi AI menilai polanya wajar." : "";
@@ -296,7 +296,7 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
           {factors.length > 0 ? <ul className="ai-factors">{factors.map(item => (
             <li className="ai-factor" key={item.feature}>
               <div className="ai-factor-head"><span>{mlFeatureLabel(item.feature, item.description)}</span>
-                <span>lebih ekstrem dari {Math.floor(item.percentile * 100)}% klaim</span></div>
+                <span>lebih tidak biasa daripada {Math.floor(item.percentile * 100)}% klaim lain</span></div>
               <div className="ai-bar" aria-hidden="true"><span style={{ width: `${Math.max(4, item.percentile * 100)}%` }} /></div>
             </li>))}</ul>
             : <p className="fine-print">Tidak ada satu faktor yang menonjol; yang tidak biasa adalah gabungan beberapa data.</p>}
@@ -446,7 +446,7 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
       { label: "ID analisis", value: run.run.run_id, copy: true },
       { label: "ID data", value: `${run.run.batch_id} (versi ${run.run.batch_version})` },
       { label: "Versi aturan saran", value: lane?.policy_version ?? run.run.action_policy_version },
-      { label: "Skor aturan", value: ruleIndexText(candidate) },
+      { label: "Skor temuan", value: ruleIndexText(candidate) },
       { label: "Status skor", value: statusText(candidate.score_status) },
       { label: "Pembaruan tinjauan terakhir", value: review.updated_at ? formatDateTime(review.updated_at) : "belum pernah" },
     ]} />

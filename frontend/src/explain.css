@@ -184,7 +184,7 @@ a.timeline-link:hover .timeline-ref { color: var(--brand-ink); text-decoration: 
 @media (hover: none) { .shortcut-hint { display: none; } }
 
 /* Tren: system accuracy from the verifiers' decisions */
-.accuracy-total { display: grid; justify-items: end; gap: 2px; text-align: right; }
+.accuracy-total { display: grid; justify-items: start; gap: 2px; text-align: left; }
 .accuracy-total strong { color: var(--text-primary); font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
 .accuracy-total span { color: var(--text-muted); font-size: 12.5px; }
 .accuracy-change-swatch { display: inline-block; width: 14px; border-top: 2px dashed var(--text-muted); }
@@ -194,3 +194,43 @@ a.timeline-link:hover .timeline-ref { color: var(--brand-ink); text-decoration: 
 .accuracy-lanes strong { color: var(--text-primary); font-size: 20px; font-weight: 800; }
 .accuracy-lanes small { color: var(--text-muted); font-size: 12px; }
 @media (max-width: 640px) { .accuracy-lanes { grid-template-columns: minmax(0, 1fr); } }
+
+/* "Cara membaca": a slim folded bar at the top of a page. */
+.reading-guide-bar { margin: 0 0 16px; border: 1px solid var(--status-info-border); border-radius: 14px; background: var(--status-info-bg); }
+.reading-guide-bar > summary { display: flex; gap: 8px; align-items: center; padding: 10px 14px; color: var(--status-info-text);
+  font-size: 13.5px; font-weight: 700; cursor: pointer; list-style: none; }
+.reading-guide-bar > summary::-webkit-details-marker { display: none; }
+.reading-guide-chevron { margin-left: auto; transition: transform 150ms ease; }
+.reading-guide-bar[open] .reading-guide-chevron { transform: rotate(180deg); }
+.reading-guide-bar > .reading-guide { margin: 0; padding: 0 14px 14px; }
+
+/* Queue list: a compact header so the claims get the space. */
+.queue-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.queue-head h2 { margin: 0 4px 0 0; color: var(--text-primary); font-size: 18px; font-weight: 800; }
+.queue-head-meta { color: var(--text-muted); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.queue-head .queue-age { margin-top: 0; }
+.queue-list-card .queue-tabs { gap: 6px; }
+.queue-list-card .queue-tab { padding: 6px 10px; font-size: 12.5px; }
+.queue-search-row { display: flex; gap: 8px; align-items: stretch; }
+.queue-search-row .queue-search { flex: 1; min-width: 0; }
+.queue-filter-toggle { display: inline-flex; flex: none; gap: 6px; align-items: center; padding: 0 12px; border: 1px solid var(--border-subtle);
+  border-radius: 12px; color: var(--text-secondary); background: var(--surface-muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.queue-filter-toggle:hover, .queue-filter-toggle[aria-expanded="true"] { color: var(--text-primary); border-color: var(--brand-line); }
+.queue-filter-toggle.has-active { color: var(--brand-ink); border-color: var(--brand-line); background: var(--accent-soft); }
+.filter-count { display: inline-grid; min-width: 18px; height: 18px; place-items: center; padding: 0 5px; border-radius: 999px;
+  color: #ffffff; background: var(--brand); font-size: 11px; font-weight: 700; }
+.queue-filter-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; border: 1px solid var(--border-subtle);
+  border-radius: 12px; background: var(--surface-muted); }
+.queue-filter-panel[hidden] { display: none; }
+.queue-filter-panel label { display: grid; gap: 4px; min-width: 0; }
+.queue-filter-panel label > span { color: var(--text-muted); font-size: 11.5px; font-weight: 600; }
+.queue-filter-panel select { width: 100%; min-width: 0; }
+.queue-active-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.queue-active-filters .filter-chip { padding: 3px 4px 3px 10px; font-size: 12px; }
+.queue-list-card .pager > div { display: flex; gap: 6px; align-items: center; }
+.queue-list-card .shortcut-hint { margin: 0; padding: 0; width: 30px; height: 30px; justify-content: center; border-style: solid; }
+.accuracy-empty { display: grid; gap: 4px; padding: 14px; border: 1px dashed var(--border-medium); border-radius: 12px; }
+.accuracy-empty strong { color: var(--text-primary); font-size: 14px; }
+.accuracy-empty span { color: var(--text-muted); font-size: 13px; }
+/* The count inside the active (green) tab stays readable. */
+.queue-tab[aria-pressed="true"] .tab-count { color: rgb(255 255 255 / 0.88); }

@@ -64,7 +64,7 @@ export default function AnalysisPage() {
         {available.ml_anomaly && <MlRankingSection runId={state.detail.run.run_id} ml={available.ml_anomaly} ruleCaseIds={ruleFlaggedListedIds(available)} />}
 
         <section className="card">
-          <div className="card-head"><div><h2>Skor aturan dan saran tindak lanjut</h2><p>Cara sistem mengurutkan klaim untuk ditinjau.</p></div></div>
+          <div className="card-head"><div><h2>Skor temuan dan saran tindak lanjut</h2><p>Cara sistem mengurutkan klaim untuk ditinjau.</p></div></div>
           {available.facility_groups?.status === "available"
             ? <Callout tone="info" title="Urutan per faskes">
                 <p>Klaim juga dikelompokkan per kelompok faskes (wilayah, kepemilikan, jenis, dan kelas) dan diurutkan di halaman{" "}
@@ -72,7 +72,7 @@ export default function AnalysisPage() {
               </Callout>
             : <FacilityPriorityNotice status={available.audit_priority.status} reasons={available.audit_priority.eligibility_reasons} />}
           <div className="stack" style={{ marginTop: 12 }}>
-            <p><strong>Skor aturan</strong> adalah gabungan sementara dari pemeriksaan aturan untuk mengurutkan tinjauan, bukan peluang kecurangan.
+            <p><strong>Skor temuan</strong> adalah gabungan sementara dari pemeriksaan aturan untuk mengurutkan tinjauan, bukan peluang kecurangan.
               {" "}{formatCount(available.risk_scoring.unassessable_case_count)} klaim belum dapat diberi skor karena tidak ada pemeriksaan yang dapat menilainya.
               {available.risk_scoring.minimum_assessed_indicators !== undefined && ` Skor tidak dihitung untuk ${formatCount(available.risk_scoring.insufficient_indicator_case_count ?? 0)} klaim karena pemeriksaan yang berlaku kurang dari ${available.risk_scoring.minimum_assessed_indicators}.`}</p>
             <p><strong>Saran tindak lanjut</strong> {available.action_policy.input_assessment_status === "assessed"
