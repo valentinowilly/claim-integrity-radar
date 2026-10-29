@@ -38,7 +38,7 @@ import {
 } from "../components/Display";
 import { useAuth } from "../auth/AuthContext";
 
-const ACTION_POLICY_VERSION = "action-policy-evidence-v3-provisional";
+const ACTION_POLICY_VERSION = "action-policy-evidence-v4-provisional";
 
 export default function WorkflowPage() {
   const notify = useNotify();
@@ -331,6 +331,7 @@ export default function WorkflowPage() {
               </form>
             ) : <p className="fine-print">Unggah berkas hanya dapat dilakukan oleh operator data.</p>}
             <p className="fine-print upload-policy">Kebijakan data: nomor peserta harus anonim (berawalan SYN); kolom biaya pasca-verifikasi (FKL48) tidak diterima.</p>
+            <p className="fine-print">Kolom tambahan opsional: catatan klinis (CATATAN_KLINIS), diagnosis sekunder (FKL24), serta data faskes dan rekam medis (ID_FASKES, KAPASITAS_HARIAN, JENIS_LAYANAN, JUMLAH_LAYANAN, JAM_LAYANAN, BUKTI_WAJIB, BUKTI_TERCATAT, STATUS_BUKTI) untuk pemeriksaan kapasitas, waktu layanan, dan kelengkapan bukti.</p>
             {importResult && !batchDetail && <BatchCard batch={importResult.batch} />}
             {canReadBatches && batches.length > 0 && (<>
               <h3 className="section-subtitle">Berkas tersimpan</h3>

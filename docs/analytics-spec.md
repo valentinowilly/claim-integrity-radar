@@ -289,11 +289,11 @@ AnalysisRun menambahkan action policy pada snapshot persisten; GET mengembalikan
 
 - **Lampu lalu lintas (Langkah D):** policy `action-policy-two-signal-v2-provisional` — pada data dengan indeks aturan memakai interval indeks; pada sampel FKRTL (hanya dua pemeriksaan berlaku) memakai kesepakatan pemeriksaan aturan + AI (merah: ditandai aturan dan AI ≥ persentil 95; kuning: AI 90–95; hijau: lainnya). Uji agregat pada jendela 4–10 Maret 2024 (35.565 klaim): merah 275, kuning 434, hijau 9.915, tanpa saran 0.
 - **Rangkuman per faskes (Langkah B, C, E, F):** `app/analytics/facility_groups.py` — kelompok faskes FKL05–FKL09 dengan nama dari value label .dta, minimal 30 klaim, vonis satu kalimat, urutan "untung diperiksa" tanpa nominal, klaim sampel untuk paket bukti. Pada jendela uji: 340 kelompok (22 risiko tinggi, 88 sedang); 1.438 kelompok kecil (14.063 klaim) disembunyikan.
-- **Di-drop dari produk:** layar lama rawat (modul tetap sebagai masukan AI), halaman Evaluasi kosong, halaman detail kasus lama. Pemeriksaan kapasitas, pola waktu, dan kelengkapan bukti tetap hanya berlaku pada data contoh.
+- **Di-drop dari produk:** layar lama rawat (modul tetap sebagai masukan AI), halaman Evaluasi kosong, halaman detail kasus lama. Pemeriksaan kapasitas, pola waktu, dan kelengkapan bukti berlaku bila berkas memuat kolom operasional tambahan (`ID_FASKES`, `KAPASITAS_HARIAN`, `JENIS_LAYANAN`, `JUMLAH_LAYANAN`, `JAM_LAYANAN`, `BUKTI_WAJIB`, `BUKTI_TERCATAT`, `STATUS_BUKTI`). Kolom ini tidak ada di data sampel BPJS; pada berkas contoh nilainya sintetis, di produksi diambil dari data faskes dan rekam medis elektronik. Tanpa kolom itu ketiga pemeriksaan berstatus "tidak berlaku".
 
 ## Evaluasi pipeline saat ini (data sintetis berlabel)
 
-`scripts/evaluate_current_pipeline.py` menjalankan pipeline produksi (pemeriksaan aturan + AI + policy v3) pada generator sintetis v4 dan menggabungkan label setelah analisis. Hasil seed 2026, 30.000 klaim, 60 faskes, 4% kecurangan: 100% klaim kecurangan terdeteksi pemeriksaan aturan; 96,7% masuk risiko sedang/tinggi (cloning 83%, modus lain 100%); 2 dari 28.800 klaim jujur tertandai (keduanya kontrol pengulangan sah, berisiko tinggi); ketepatan risiko tinggi 99,7% (≈25× pemilihan acak); 12/12 faskes di 20% teratas adalah faskes yang disuntik kecurangan. Data sintetis sengaja berpola jelas, sehingga angka ini tidak mewakili kinerja pada data nyata. Evaluasi lama `record-level-v4-120000` (prioritas fasilitas versi lama) menunjukkan presisi setara pemilihan acak (3,9% vs 4%) dan digantikan oleh pengukuran ini.
+`scripts/evaluate_current_pipeline.py` menjalankan pipeline produksi (pemeriksaan aturan + AI + policy saat itu, v3) pada generator sintetis v4 dan menggabungkan label setelah analisis. Hasil seed 2026, 30.000 klaim, 60 faskes, 4% kecurangan: 100% klaim kecurangan terdeteksi pemeriksaan aturan; 96,7% masuk risiko sedang/tinggi (cloning 83%, modus lain 100%); 2 dari 28.800 klaim jujur tertandai (keduanya kontrol pengulangan sah, berisiko tinggi); ketepatan risiko tinggi 99,7% (≈25× pemilihan acak); 12/12 faskes di 20% teratas adalah faskes yang disuntik kecurangan. Data sintetis sengaja berpola jelas, sehingga angka ini tidak mewakili kinerja pada data nyata. Evaluasi lama `record-level-v4-120000` (prioritas fasilitas versi lama) menunjukkan presisi setara pemilihan acak (3,9% vs 4%) dan digantikan oleh pengukuran ini.
 
 **Stress test "jujur tapi mirip" (ditambahkan ke evaluasi):** 200 klaim terapi rutin bervolume tinggi dan 120 sesi terapi terjadwal, berlabel jujur, memakai kombinasi kode fisioterapi jujur yang paling umum. Menurut aturan saja seluruhnya berisiko sedang (satu temuan "pola identik"); setelah digabung AI pada data sintetis menjadi tinggi, karena kode sintetis acak membuat paket rutin tampak langka. Akibatnya ketepatan risiko tinggi pada uji sintetis turun dari 99,7% menjadi ±62%. Cek di data asli (4–10 Maret 2024): klaim dengan 10 kode INA-CBG paling umum (76,5% klaim) hanya 2,0% berpersentil AI ≥ 95%, kode langka 70,4%; jadi pada data asli AI tidak menilai klaim rutin sebagai anomali.
 
@@ -362,8 +362,80 @@ Perubahan dari versi awal setelah melihat catatan tulisan tangan: (1) selisih la
 
 | Cara memeriksa | Berkas diperiksa | Kecurangan per 100 berkas pertama | Kecurangan tertangkap | Klaim sah ikut diperiksa |
 |---|---|---|---|---|
-| Audit acak (beban sama dengan Radar) | 924 | 1,7 | 3,2% | 3,2% |
-| Aturan sederhana (satu aturan mana pun, tanpa AI/urutan) | 7.834 | 5,6 | 88,1% | 26,0% |
-| Claim Integrity Radar (risiko tinggi + sedang) | 924 | 63 | 87,1% | 1,73% |
+| Audit acak (beban sama dengan Radar) | 1.072 | 2,9 | 3,6% | 3,6% |
+| Aturan sederhana (satu aturan mana pun, tanpa AI/urutan) | 8.529 | 9,2 | 93,0% | 26,9% |
+| Claim Integrity Radar (risiko tinggi + sedang, policy v4) | 1.072 | 93 | 91,5% | 1,04% |
 
-Populasi 28.932 klaim, 495 curang (1,7%) dalam enam modus di 10 dari 40 RS yang tersebar di 17 provinsi; 15 RS pertama berbagi lima provinsi sehingga ada RS sekelas sebagai pembanding wilayah. Per modus (aturan saja): klaim salinan 100%, pemecahan rawat inap 100%, tambahan khusus fiktif 100%, tagihan ganda 77%, lama rawat diperpanjang 75%, *upcoding* 60% (sebagian pelaku sengaja ikut memalsukan diagnosis sekunder). Ketepatan risiko tinggi 48,6% (28× acak); 8 dari 8 faskes di 20% teratas adalah faskes curang. Pembanding wilayah menandai satu kelompok: RS penambah kode khusus (7,7% vs 1,3% faskes sekelas di provinsinya). Peta Risiko: dua provinsi di atas 2× rata-rata nasional (porsi berisiko nasional 3,2%). Data sintetis berpola jelas; bukan kinerja pada data JKN.
+Populasi 29.628 klaim, 846 curang (2,9%) dalam delapan modus di 12 dari 40 RS yang tersebar di 17 provinsi; 15 RS pertama berbagi lima provinsi sehingga ada RS sekelas sebagai pembanding wilayah. Delapan modus: enam modus kolom BPJS ditambah fisioterapi fiktif melebihi kapasitas dan obat/alkes tanpa bukti pemberian (memakai kolom operasional sintetis). Per modus (aturan saja): fisioterapi fiktif, obat/alkes tanpa bukti, klaim salinan, pemecahan rawat inap, dan tambahan khusus fiktif 100%; tagihan ganda 77%; lama rawat diperpanjang 75%; *upcoding* 60% (sebagian pelaku sengaja ikut memalsukan diagnosis sekunder). Ketepatan risiko tinggi 93,8% (32,9× acak); 8 dari 8 faskes di 20% teratas adalah faskes curang.
+
+Pembanding "jujur tapi mirip":
+
+- 504 klaim rutin bervolume tinggi dan 160 sesi terapi terjadwal: tidak ada yang berisiko sedang/tinggi.
+- Unit fisioterapi sibuk yang masih dalam kapasitas: 2 dari 280 berisiko sedang.
+- Sesi latihan kelompok (beberapa pasien pada menit yang sama): 24 dari 24 berisiko sedang. Ini positif palsu yang memang diperkirakan dan harus diputus peninjau.
+
+Data sintetis berpola jelas; bukan kinerja pada data JKN.
+
+## Kartu bukti (kit penilaian Workshop #3)
+
+Diuji dengan kit resmi `healthkathon-eval-kit` (github.com/Luche/healthkathon-eval-kit) tanpa mengubah kodenya. Masukan dibuat oleh `python -m scripts.export_eval_kit` ke `outputs/eval-kit/` (tidak di-commit). Kartu bukti lengkap: `outputs/eval-kit/kartu/kartu-bukti.html` dan `.md`.
+
+**Kondisi uji.**
+
+- Data sintetis demo-3 (29.628 klaim, 40 RS) ditambah satu jenis kecurangan yang **disisihkan**: penggelembungan prosedur (60 klaim) yang tidak punya aturan khusus.
+- Total 906 klaim curang (3,1%).
+- Kapasitas audit k = 880 klaim (asumsi tim: 2 verifikator × 20 klaim per hari × 22 hari kerja, bukan angka BPJS).
+- Generator data ditulis oleh tim yang sama dengan pembuat pemeriksa.
+
+**Hasil pada k = 880.**
+
+| Varian | Ketepatan@k (IK 95%) | Lift vs acak | PR-AUC | RS jujur ikut diaudit | Rupiah kecurangan tertangkap |
+|---|---|---|---|---|---|
+| AI saja | 0,22 (0,11–0,33) | 7,1× | 0,18 | 27 / 27 (100%) | 34,0% |
+| Aturan saja | 0,73 (0,32–0,98) | 23,7× | 0,73 | 8 / 27 (29,6%) | 60,8% |
+| **Aturan + AI (Radar, policy v4)** | **0,78 (0,38–0,95)** | **25,6×** | **0,82** | 9 / 27 (33,3%) | **83,5%** |
+| Aturan + AI (policy v3, sebelum perbaikan) | 0,57 (0,34–0,82) | 18,7× | 0,57 | 27 / 27 (100%) | 41,9% |
+
+- **Radar vs aturan saja:** selisih ketepatan +0,06, IK berpasangan −0,04 sampai +0,17, p = 0,29. **Tidak signifikan.** Menambah AI pada aturan belum terbukti menaikkan ketepatan. Yang jelas naik adalah rupiah tertangkap (60,8% → 83,5%): urutan antrean menaruh klaim bertemuan aturan yang lebih mahal di depan.
+- **Radar vs AI saja:** +0,56, IK +0,19 sampai +0,77, p < 0,001. AI tidak layak dipakai sendirian.
+- **Plasebo:** pada versi data yang sama tanpa kecurangan (28.968 klaim), dengan batas skor yang sama, 30 klaim di 12 dari 40 RS tetap ditandai (v3: 328 klaim di 40 RS).
+- **Uji permutasi:** PR-AUC teramati 0,815; label diacak 1.000 kali menghasilkan rata-rata 0,031 (kuantil 95% 0,033); p = 0,001.
+- **Uji kebocoran:** tidak ada kolom dengan AUC > 0,80. Tertinggi: tingkat keparahan INA-CBG 0,72, rawat inap 0,71, lama rawat 0,71. Pada percobaan pertama urutan baris berkas ber-AUC 0,80, karena generator menambahkan klaim curang di akhir. Sistem tidak membaca urutan baris (hasil analisis identik sebelum dan sesudah perbaikan), tetapi berkas demo kini diurutkan menurut tanggal masuk lalu referensi kasus; AUC urutan baris turun menjadi 0,52.
+
+**Recall per modus pada k = 880 (Radar v4).**
+
+| Modus | Klaim | Masuk 880 teratas |
+|---|---|---|
+| Fisioterapi fiktif melebihi kapasitas | 301 | 301 (100%) |
+| Pemecahan rawat inap | 152 | 148 (97%) |
+| Klaim salinan | 72 | 66 (92%) |
+| Tagihan ganda | 88 | 68 (77%) |
+| Lama rawat diperpanjang | 68 | 47 (69%) |
+| *Upcoding* | 55 | 24 (44%) |
+| Tambahan khusus fiktif | 60 | 25 (42%) |
+| Obat/alkes tanpa bukti pemberian | 50 | 9 (18%) |
+| **Penggelembungan prosedur (disisihkan)** | 60 | **0 (0%)** |
+
+- **Batas kapasitas, bukan tidak terdeteksi.** Obat/alkes tanpa bukti dan tambahan khusus fiktif seluruhnya terdeteksi aturan (risiko sedang). Sebagian berada di bawah batas 880 karena antrean merah + kuning berisi 1.072 klaim, lebih dari kapasitas.
+- **Jenis kecurangan baru tidak tertangkap.** Penggelembungan prosedur yang tidak punya aturan khusus tidak tertangkap sama sekali; AI saja juga tidak mengangkatnya. Sistem ini kuat pada pola yang sudah dikenal dan **lemah pada modus baru**; menambah modus berarti menambah pemeriksaan.
+
+**Uji penyamaran.** Pelaku *upcoding* menyalin diagnosis sekunder dari klaim jujur dengan INA-CBG yang sama (50 dari 55 klaim memperoleh sekunder sebaya). Hasilnya, *upcoding* di antrean turun dari 24 menjadi 9 dari 55. Pemeriksaan "keparahan tanpa diagnosis sekunder" mudah dihindari. Tahap 2 (pembacaan catatan klinis yang bertentangan dengan kode) dirancang untuk kasus seperti ini, tetapi tidak dipakai dalam urutan antrean dan tidak diukur dalam uji ini.
+
+**Perbaikan yang lahir dari uji ini (policy v4).**
+
+- **Temuan.** Pada policy v3, klaim yang hanya "mirip klaim lain" naik ke merah/kuning bila AI menilainya tidak biasa. Jumlahnya 424 klaim di antrean merah/kuning, dan hanya ±2,5% yang curang.
+- **Perubahan.** v4 tidak menaikkan klaim seperti itu ke antrean.
+- **Pengecekan di dunia demo lain** (tanpa penyesuaian lanjutan):
+  - demo-1 (semua RS jujur): klaim jujur di antrean turun dari 278 menjadi 39.
+  - demo-2: kecurangan di antrean 255 → 253 dari 262, klaim jujur 307 → 96.
+  - demo-3: kecurangan 782 → 774 dari 846, klaim jujur 705 → 298.
+- **Batasan.** Karena perbaikan disusun setelah melihat hasil uji ini, angka v4 di tabel di atas bukan ukuran yang sepenuhnya independen.
+
+**Aturan kartu bukti yang belum terpenuhi.**
+
+1. Data uji dibuat oleh tim yang sama dengan pembuat pemeriksa.
+2. Parameter generator (tingkat kecurangan, intensitas modus) tidak divariasikan.
+3. Tingkat kecurangan 3,1% adalah asumsi tim, bukan angka resmi.
+4. Belum ada penilaian ahli klinis atau verifikator.
+
+Semua angka di bagian ini berasal dari data sintetis; ini bukan kinerja pada data JKN.

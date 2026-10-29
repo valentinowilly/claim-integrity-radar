@@ -17,10 +17,14 @@ ACTION_POLICY_V1 = "action-policy-demo-v1-provisional"
 # v2: when too few checks apply to compute the rule index (e.g. the FKRTL sample), a rule-flagged
 # claim is laned by the independent ML signal: both signals agree -> red, ML moderately unusual -> yellow.
 ACTION_POLICY_V2 = "action-policy-two-signal-v2-provisional"
-# v3 (default): every flagged claim is laned by its evidence. Two or more specific rule findings, or any
-# finding confirmed by a very unusual AI score, is high; one specific finding is medium; the exploratory
+# v3: every flagged claim is laned by its evidence. Two or more specific rule findings, or any finding
+# confirmed by a very unusual AI score, is high; one specific finding is medium; the exploratory
 # similar-claim screen alone needs AI support. A specific rule finding is never laned as low risk.
-ACTION_POLICY_VERSION = "action-policy-evidence-v3-provisional"
+ACTION_POLICY_V3 = "action-policy-evidence-v3-provisional"
+# v4 (default): as v3, but the similar-claim screen confirmed only by the AI no longer enters the queue.
+# On the evaluation-kit benchmark those claims were fraud about as often as a random pick (about 2.5%
+# against a 3.1% base rate), and they pushed specific findings out of the audit capacity.
+ACTION_POLICY_VERSION = "action-policy-evidence-v4-provisional"
 EXPLORATORY_INDICATORS = frozenset({"near_duplicate_claim_candidate"})
 _VERSION_PATTERN = re.compile(r"^action-policy-[a-z0-9][a-z0-9._-]{0,60}-provisional$")
 _ASSESSABLE_STATES = {"triggered", "not_triggered"}
@@ -36,6 +40,7 @@ class ActionPolicyConfig:
     ml_red_min: float | None = None
     ml_yellow_min: float | None = None
     evidence_rule: bool = False
+    similarity_needs_rule: bool = False
 
     def __post_init__(self) -> None:
         if not _VERSION_PATTERN.fullmatch(self.version):
@@ -56,8 +61,9 @@ class ActionPolicyConfig:
 ACTION_POLICY_CONFIGURATIONS: dict[str, ActionPolicyConfig] = {
     ACTION_POLICY_V1: ActionPolicyConfig(version=ACTION_POLICY_V1),
     ACTION_POLICY_V2: ActionPolicyConfig(version=ACTION_POLICY_V2, ml_red_min=0.95, ml_yellow_min=0.90),
+    ACTION_POLICY_V3: ActionPolicyConfig(version=ACTION_POLICY_V3, ml_red_min=0.95, ml_yellow_min=0.90, evidence_rule=True),
     ACTION_POLICY_VERSION: ActionPolicyConfig(version=ACTION_POLICY_VERSION, ml_red_min=0.95, ml_yellow_min=0.90,
-                                              evidence_rule=True),
+                                              evidence_rule=True, similarity_needs_rule=True),
 }
 
 
@@ -192,6 +198,8 @@ def _evidence_lane(case: Mapping[str, Any], config: ActionPolicyConfig, limitati
     absolute = "reference_percentile" in ml
     if len(specific) >= 2:
         lane, reason = "red", f"{len(specific)} pemeriksaan aturan menemukan kejanggalan pada klaim ini."
+    elif not specific and config.similarity_needs_rule:
+        lane, reason = "green", "Hanya kemiripan dengan klaim lain, tanpa temuan pemeriksaan aturan yang spesifik."
     elif ai_high and (specific or absolute):
         lane, reason = "red", f"Terdeteksi pemeriksaan aturan dan AI menilai lebih tidak biasa dari {config.ml_red_min:.0%} klaim acuan."
     elif specific:

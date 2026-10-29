@@ -11,6 +11,9 @@ DEFAULT_REQUIRED_EVIDENCE: dict[str, tuple[str, ...]] = {
     "physiotherapy": ("therapy_session_log", "clinical_note"),
     "synthetic_supported_action": ("procedure_order", "clinical_note"),
     "synthetic_mixed_action": ("procedure_order", "clinical_note"),
+    # Special drugs and devices billed on top of the INA-CBG (FKL33-FKL46): the order and the proof of dispensing.
+    "special_drug": ("prescription", "dispensing_record"),
+    "special_device": ("device_order", "delivery_record"),
 }
 LIMITATIONS = [
     "Aturan bukti adalah aturan skenario sintetis dan belum divalidasi ahli domain.",

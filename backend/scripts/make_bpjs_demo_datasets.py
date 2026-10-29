@@ -27,6 +27,20 @@ severity-without-secondary check is not built to catch every upcoding. Special t
 of honest claims are drawn from the INA-CBG x special-code pairs of the reference (special_reference.json);
 the special top-up fraud mode attaches a special code to INA-CBGs it never accompanies there.
 
+Operational columns (not in the BPJS sample; synthetic here, in production from the facility register and the
+electronic medical record): ``ID_FASKES``, ``KAPASITAS_HARIAN`` (service units a facility can deliver per day for
+a recorded service type), ``JENIS_LAYANAN`` / ``JUMLAH_LAYANAN`` / ``JAM_LAYANAN`` and the evidence inventory
+``BUKTI_WAJIB`` / ``BUKTI_TERCATAT`` / ``STATUS_BUKTI``. They are filled only for the services they describe:
+physiotherapy (ICD-9 93.1x/93.3x outpatient claims) and special drugs (DD) and devices (YY); other claims leave
+them empty. Capacities are fixed per hospital class, never drawn from data. A separate random generator fills
+them, so every claim of the earlier build stays the same.
+
+Modes added with these columns, after the public KPK physiotherapy case (4,341 claims, 1,072 with a medical
+record): ``phantom_physiotherapy`` (sessions far above the facility's capacity, most without a session log,
+many entered at the same minute) and ``fictitious_drug_device`` (special drugs/devices with an ordinary
+INA-CBG pairing but no dispensing or delivery record). Honest lookalikes: a busy physiotherapy unit within its
+capacity, group sessions held at the same minute, and a hospital that has not recorded its evidence inventory.
+
 Usage: python -m scripts.make_bpjs_demo_datasets --out ../demo-data [--check]
 """
 
@@ -49,7 +63,17 @@ from app.data_sources.bpjs_fkrtl_adapter import pseudonymous_case_id
 
 COLUMNS = ("PSTV01", "FKL02", "FKL03", "FKL04", "FKL05", "FKL06", "FKL07", "FKL08", "FKL09", "FKL13",
            "FKL16", "FKL18", "FKL19", "FKL30", "FKL31", "FKL32", "FKL33", "FKL35", "FKL38", "FKL41", "FKL44",
-           "FKL47", "FKL24", "CATATAN_KLINIS")
+           "FKL47", "FKL24", "CATATAN_KLINIS",
+           # Operational columns (synthetic; not part of the BPJS sample).
+           "ID_FASKES", "KAPASITAS_HARIAN", "JENIS_LAYANAN", "JUMLAH_LAYANAN", "JAM_LAYANAN",
+           "BUKTI_WAJIB", "BUKTI_TERCATAT", "STATUS_BUKTI")
+OPERATIONAL = ("ID_FASKES", "KAPASITAS_HARIAN", "JENIS_LAYANAN", "JUMLAH_LAYANAN", "JAM_LAYANAN",
+               "BUKTI_WAJIB", "BUKTI_TERCATAT", "STATUS_BUKTI")
+# Evidence a service needs (same rules as app/analytics/evidence_completeness.py).
+EVIDENCE = {"physiotherapy": ("clinical_note", "therapy_session_log"), "special_drug": ("dispensing_record", "prescription"),
+            "special_device": ("delivery_record", "device_order")}
+PHYSIO = re.compile(r"^93[13]")  # ICD-9 93.1x exercise and 93.3x physical therapy (not dressings or speech)
+SPECIAL_SERVICE = {"DD": "special_drug", "YY": "special_device"}
 SPECIAL_COLUMN = {"SA": "FKL33", "YY": "FKL35", "RR": "FKL38", "II": "FKL41", "DD": "FKL44"}
 # Share of inpatient claims with at least one secondary diagnosis, and how many, by severity (2024 sample).
 SECONDARY_BY_SEVERITY = {"0": (0.38, 1, 2), "I": (0.38, 1, 2), "II": (0.998, 1, 3), "III": (0.9996, 2, 4)}
@@ -178,7 +202,12 @@ class World:
                 "FKL05": province, "FKL06": municipality, "FKL07": OWNERSHIP[index % len(OWNERSHIP)], "FKL08": "1",
                 "FKL09": klass, "FKL31": str(1 + index % 5), "patients": [],
                 "weight": {"1": 3.0, "2": 2.4, "5": 2.0, "6": 1.6, "3": 1.3, "7": 1.0, "4": 0.8}.get(klass, 1.0),
+                "ID_FASKES": f"SYNRS{id_base}{index:03d}",
             })
+            hospital = self.hospitals[-1]
+            # Physiotherapy sessions a hospital can deliver per day (therapists x sessions): larger classes, more.
+            hospital["capacity"] = 10 + round(hospital["weight"] * 6)
+            hospital["evidence_status"] = "tercatat"
 
     # ---- codes
     def _pick(self, table: tuple[list[str], list[int]]) -> str:
@@ -304,6 +333,7 @@ class World:
         if not options:
             return False
         old = case_reference(row)
+        row["_orig_tariff"] = row["FKL47"]  # for the overpayment in evaluations; never written to the file
         row["FKL19"] = options[-1]
         row["FKL47"] = str(self.tariff(row["FKL19"]))
         if not row.get("FKL24") and self.rng.random() < 0.4:
@@ -361,6 +391,122 @@ class World:
         self.labels[case_reference(row)] = "special_topup"
         return True
 
+    # ---- operational columns (capacity, service time, evidence)
+    def _ops(self) -> random.Random:
+        if not hasattr(self, "_ops_rng"):
+            self._ops_rng = random.Random(9000 + self.next_patient // 10_000_000)
+        return self._ops_rng
+
+    def _physio_codes(self, hospital: dict[str, Any]) -> dict[str, str] | None:
+        """Codes of an existing physiotherapy claim of any hospital, reused for added sessions."""
+        if not hasattr(self, "_physio_rows"):
+            self._physio_rows = [row for row in self.rows if row["FKL03"] == row["FKL04"]
+                                 and any(PHYSIO.match(token.strip()) for token in row["FKL30"].split(";") if token.strip())]
+        if not self._physio_rows:
+            return None
+        template = self._ops().choice(self._physio_rows)
+        return {key: template[key] for key in ("FKL19", "FKL18", "FKL16", "FKL30", "FKL13")} | {"stay": "0"}
+
+    def _service(self, row: dict[str, str], service: str, *, units: int = 1, time: str | None = None,
+                 recorded: tuple[str, ...] | None = None, status: str | None = None) -> None:
+        hospital = self._hospital_of(row)
+        rng = self._ops()
+        required = EVIDENCE[service]
+        row.update({
+            "ID_FASKES": hospital["ID_FASKES"], "KAPASITAS_HARIAN": str(hospital["capacity"]), "JENIS_LAYANAN": service,
+            "JUMLAH_LAYANAN": str(units), "JAM_LAYANAN": time or f"{rng.randint(7, 16):02d}:{rng.randint(0, 59):02d}",
+            "BUKTI_WAJIB": ";".join(required),
+            "BUKTI_TERCATAT": ";".join(required if recorded is None else recorded) or "-",
+            "STATUS_BUKTI": status or hospital["evidence_status"],
+        })
+
+    def phantom_physiotherapy(self, hospital: dict[str, Any], days: int, per_day: int, capacity: int) -> None:
+        """Sessions billed far above what the unit can deliver; about a quarter carry a session log (KPK case)."""
+        hospital["capacity"] = capacity
+        rng = self._ops()
+        for offset in range(days):
+            day = START + timedelta(days=offset)
+            bulk_time = f"{rng.randint(8, 11):02d}:00"
+            for index in range(per_day):
+                codes = self._physio_codes(hospital)
+                if codes is None:
+                    return
+                real = rng.random() < 0.25
+                row = self.add(hospital, day, codes=codes, stay=0, label=None if real else "phantom_physiotherapy")
+                # Fictitious sessions are often entered in bulk: several at the very same minute.
+                self._service(row, "physiotherapy", units=rng.choice((1, 2)),
+                              time=bulk_time if not real and index % 3 == 0 else None,
+                              recorded=None if real else ("clinical_note",))
+
+    def drug_device_without_proof(self, hospital: dict[str, Any], count: int) -> None:
+        """Special drugs or devices billed with an ordinary INA-CBG pairing but no dispensing/delivery record."""
+        rng = self._ops()
+        pairs = [(group, code) for group, (codes, _weights, _share) in self.vocab.special_by_cbg.items()
+                 for code in codes if code[:2] in SPECIAL_SERVICE]
+        candidates = [row for row in self.rows if row["FKL06"] == hospital["FKL06"] and case_reference(row) not in self.labels
+                      and not any(row[column] for column in SPECIAL_COLUMN.values())
+                      and any(row["FKL19"] == group for group, _code in pairs)]
+        rng.shuffle(candidates)
+        for row in candidates[:count]:
+            code = rng.choice([code for group, code in pairs if group == row["FKL19"]])
+            row[SPECIAL_COLUMN.get(code[:2], "FKL35")] = code
+            service = SPECIAL_SERVICE[code[:2]]
+            self.labels[case_reference(row)] = "fictitious_drug_device"
+            self._service(row, service, recorded=EVIDENCE[service][1:] if service == "special_drug" else ("device_order",))
+
+    def busy_physiotherapy(self, hospital: dict[str, Any], days: int, per_day: int) -> None:
+        """Honest: a busy physiotherapy unit that stays within its capacity."""
+        for offset in range(days):
+            day = START + timedelta(days=offset)
+            for _ in range(per_day):
+                codes = self._physio_codes(hospital)
+                if codes is None:
+                    return
+                row = self.add(hospital, day, codes=codes, stay=0, label="honest_busy_physiotherapy")
+                self._service(row, "physiotherapy")
+
+    def group_sessions(self, hospital: dict[str, Any], sessions: int, size: int) -> None:
+        """Honest: group exercise sessions, several patients at the same minute."""
+        rng = self._ops()
+        for _ in range(sessions):
+            day = START + timedelta(days=rng.randrange(28))
+            time = f"{rng.randint(8, 15):02d}:30"
+            for _ in range(size):
+                codes = self._physio_codes(hospital)
+                if codes is None:
+                    return
+                row = self.add(hospital, day, codes=codes, stay=0, label="honest_group_session")
+                self._service(row, "physiotherapy", time=time)
+
+    def operations(self) -> None:
+        """Fill the operational columns of the claims they describe (physiotherapy, special drugs and devices)."""
+        for row in self.rows:
+            if row.get("JENIS_LAYANAN"):
+                continue
+            special = next((row[column][:2] for column in SPECIAL_COLUMN.values() if row[column]), "")
+            if special in SPECIAL_SERVICE:
+                self._service(row, SPECIAL_SERVICE[special])
+            elif row["FKL03"] == row["FKL04"] and any(PHYSIO.match(token.strip()) for token in row["FKL30"].split(";") if token.strip()):
+                self._service(row, "physiotherapy")
+            else:
+                for column in OPERATIONAL:
+                    row.setdefault(column, "")
+        for row in self.rows:
+            if row.get("STATUS_BUKTI") == "belum_tercatat":
+                row["BUKTI_TERCATAT"] = "-"
+
+    def procedure_inflation(self, hospital: dict[str, Any], count: int) -> None:
+        """Evaluation only (held out: no rule was written for it): a procedure that never accompanies the INA-CBG."""
+        rng = self._ops()
+        procedures = sorted({code for codes, _weights in self.vocab.procedure_by_cbg.values() for code in codes if code != MISSING})
+        rows = [row for row in self.rows if row["FKL06"] == hospital["FKL06"] and case_reference(row) not in self.labels
+                and row["FKL19"] in self.vocab.procedure_by_cbg]
+        rng.shuffle(rows)
+        for row in rows[:count]:
+            usual = set(self.vocab.procedure_by_cbg[row["FKL19"]][0])
+            row["FKL30"] = rng.choice([code for code in procedures if code not in usual])
+            self.labels[case_reference(row)] = "procedure_inflation"
+
     # ---- clinical notes
     def note(self, row: dict[str, str]) -> str:
         """A synthetic note from the row as first recorded; each note gets its own vital signs and labs."""
@@ -412,19 +558,28 @@ def case_reference(row: dict[str, str]) -> str:
     return pseudonymous_case_id(row["PSTV01"], row["FKL02"], secret=UPLOAD_PSEUDONYM_SECRET)
 
 
-def build(name: str, vocabulary: Vocabulary | None = None) -> World:
-    world = _build(name, vocabulary or Vocabulary())
+def build(name: str, vocabulary: Vocabulary | None = None, *, fraud: bool = True, held_out: bool = False) -> World:
+    """``fraud=False`` (demo-3): the same world without fraud, for the placebo test; ``held_out=True`` adds a fraud
+    type no rule was written for. Both are for evaluations only; the demo files use the defaults."""
+    world = _build(name, vocabulary or Vocabulary(), fraud=fraud, held_out=held_out)
     world.copy_details()
     world.write_notes()
+    world.operations()
+    # File order by admission day, then by the pseudonymous reference: injected claims were appended last,
+    # and the order of the rows must not tell which ones they are (evaluation-kit leakage scan).
+    world.rows.sort(key=lambda row: (row["FKL03"], case_reference(row)))
     return world
 
 
-def _build(name: str, vocabulary: Vocabulary) -> World:
+def _build(name: str, vocabulary: Vocabulary, *, fraud: bool = True, held_out: bool = False) -> World:
     if name == "demo-1-faskes-jujur":
         world = World(101, 24, vocabulary, id_base=1)
         world.honest_month(14, 820)
         world.routine_high_volume(world.hospitals[0], 14, 12)
         world.scheduled_therapy(world.hospitals[1], 25, 2)
+        world.busy_physiotherapy(world.hospitals[3], 14, 10)
+        world.group_sessions(world.hospitals[4], 4, 4)
+        world.hospitals[6]["evidence_status"] = "belum_tercatat"
         return world
     if name == "demo-2-kasus-kpk":
         world = World(202, 24, vocabulary, id_base=2)
@@ -446,6 +601,8 @@ def _build(name: str, vocabulary: Vocabulary) -> World:
         for row in world.rng.sample(outpatient, len(outpatient) // 6):
             world.labels[case_reference(row)] = "repeat_billing"
             world.repeat_billing(row)
+        world.phantom_physiotherapy(suspect, 14, 14, capacity=8)
+        world.busy_physiotherapy(world.hospitals[3], 14, 10)
         return world
     if name == "demo-3-operasional":
         world = World(303, 40, vocabulary, id_base=3)
@@ -453,6 +610,11 @@ def _build(name: str, vocabulary: Vocabulary) -> World:
         world.routine_high_volume(world.hospitals[0], 28, 10)
         world.routine_high_volume(world.hospitals[2], 28, 8)
         world.scheduled_therapy(world.hospitals[1], 40, 4)
+        if not fraud:
+            world.busy_physiotherapy(world.hospitals[3], 28, 10)
+            world.group_sessions(world.hospitals[4], 6, 4)
+            world.hospitals[17]["evidence_status"] = "belum_tercatat"
+            return world
         fraud_hospitals = world.hospitals[5:13]
         for index, hospital in enumerate(fraud_hospitals):
             rows = world.inpatient_rows(hospital)
@@ -476,6 +638,13 @@ def _build(name: str, vocabulary: Vocabulary) -> World:
         world.rng.shuffle(topup)
         for row in topup[:60]:
             world.special_topup(row)
+        world.phantom_physiotherapy(world.hospitals[15], 28, 14, capacity=8)
+        world.drug_device_without_proof(world.hospitals[16], 50)
+        if held_out:
+            world.procedure_inflation(world.hospitals[18], 60)
+        world.busy_physiotherapy(world.hospitals[3], 28, 10)
+        world.group_sessions(world.hospitals[4], 6, 4)
+        world.hospitals[17]["evidence_status"] = "belum_tercatat"
         return world
     raise SystemExit(f"Demo tidak dikenal: {name}")
 

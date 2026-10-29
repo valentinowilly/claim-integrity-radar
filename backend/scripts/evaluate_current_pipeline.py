@@ -85,7 +85,8 @@ def _demo_inputs() -> dict[str, Any]:
     batch = {"source_type": "synthetic_csv", "schema_version": BPJS_CSV_SCHEMA_VERSION, "mapping_version": BPJS_CSV_MAPPING_VERSION,
              "status": "ready", "batch_version": 1, "content_checksum": "0" * 64}
     _, snapshot = execute_provider_snapshot(SyntheticBatchProvider(batch=batch, normalized_records=records), get_action_policy_config())
-    lookalike_names = {"honest_routine_high_volume": "routine_high_volume", "honest_scheduled_therapy": "scheduled_therapy"}
+    lookalike_names = {"honest_routine_high_volume": "routine_high_volume", "honest_scheduled_therapy": "scheduled_therapy",
+                       "honest_busy_physiotherapy": "busy_physiotherapy", "honest_group_session": "group_session"}
     facility_of = {case_reference(row): row["FKL06"] for row in world.rows}
     labels = {case_id: {"is_synthetic_anomaly": False, "primary_scenario": None} for case_id in facility_of}
     lookalikes: dict[str, list[str]] = defaultdict(list)

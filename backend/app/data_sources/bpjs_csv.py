@@ -38,6 +38,19 @@ MAX_NOTE_LENGTH = 4000
 SECONDARY_COLUMN = "FKL24"
 MAX_SECONDARY_CODES = 30
 _SECONDARY_SPLIT = re.compile(r"[;|,\s]+")
+# Optional operational columns, not in the BPJS sample: facility capacity, service type and time, and the
+# supporting-evidence inventory. In production they come from the facility register and the electronic
+# medical record; in the example files they are synthetic. They feed the capacity, service-time and
+# evidence checks, which stay "not applicable" for files without them.
+OPERATIONAL_COLUMNS = {
+    "ID_FASKES": "facility_id", "KAPASITAS_HARIAN": "facility_daily_capacity", "JENIS_LAYANAN": "service_type",
+    "JUMLAH_LAYANAN": "service_units", "JAM_LAYANAN": "service_timestamp", "BUKTI_WAJIB": "supporting_evidence_required",
+    "BUKTI_TERCATAT": "supporting_evidence_types", "STATUS_BUKTI": "supporting_evidence_recording_status",
+}
+_LIST_SPLIT = re.compile(r"[;|,]+")
+_TIME = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+EVIDENCE_STATUSES = {"tercatat": "recorded", "recorded": "recorded", "belum_tercatat": "not_recorded",
+                     "not_recorded": "not_recorded"}
 # Example data has no secret identities; a fixed key keeps case references stable across
 # uploads (the same claim in two daily files gets the same reference).
 UPLOAD_PSEUDONYM_SECRET = hashlib.sha256(b"cir-example-upload-pseudonym-v1").digest()
@@ -88,8 +101,10 @@ def parse_bpjs_csv(raw: bytes, *, max_rows: int = 120_000) -> tuple[list[dict[st
             add_error(None, None, "ground_truth_column_forbidden")
         if counts:
             raise CsvImportError(_error_summary(counts, errors, None))
-        unknown = sorted(set(headers) - set(FKRTL_SOURCE_COLUMNS) - {NOTE_COLUMN, SECONDARY_COLUMN})
+        unknown = sorted(set(headers) - set(FKRTL_SOURCE_COLUMNS) - {NOTE_COLUMN, SECONDARY_COLUMN} - set(OPERATIONAL_COLUMNS))
         has_secondary = SECONDARY_COLUMN in headers
+        operational_headers = [column for column in OPERATIONAL_COLUMNS if column in headers]
+        operations: list[dict[str, Any]] = []
         notes: list[str | None] = []
         secondaries: list[list[str] | None] = []
         seen_visits: set[tuple[str, str]] = set()
@@ -116,6 +131,11 @@ def parse_bpjs_csv(raw: bytes, *, max_rows: int = 120_000) -> tuple[list[dict[st
                 add_error(row_count, "FKL02", "duplicate_visit")
                 continue
             seen_visits.add((participant, visit))
+            operational = _operational_values(raw_row, operational_headers, row.get("FKL03"))
+            if isinstance(operational, str):
+                add_error(row_count, operational, "invalid_operational_value")
+                continue
+            operations.append(operational)
             rows.append(row)
             note = raw_row.get(NOTE_COLUMN)
             note = note.strip()[:MAX_NOTE_LENGTH] if isinstance(note, str) else ""
@@ -140,10 +160,14 @@ def parse_bpjs_csv(raw: bytes, *, max_rows: int = 120_000) -> tuple[list[dict[st
     invalid_dates = coverage["invalid_service_date_count"]
     if invalid_dates:
         raise CsvImportError(_error_summary({"invalid_service_date": invalid_dates}, [], parsed_rows))
-    for record, note, secondary in zip(records, notes, secondaries):
+    for record, note, secondary, operational in zip(records, notes, secondaries, operations):
         record["claim_id"] = record["case_id"]
         record["clinical_note"] = note
         record["secondary_diagnoses"] = secondary
+        record.update(operational)
+    conflict = _capacity_conflict(records)
+    if conflict:
+        raise CsvImportError(_error_summary({"facility_capacity_conflict": 1}, [{"code": "facility_capacity_conflict", "column": "KAPASITAS_HARIAN"}], parsed_rows))
     warnings = {key: value for key, value in (
         ("unknown_columns_ignored", len(unknown)),
         # Special top-up columns are rarely present in a file; their absence is not worth a warning.
@@ -152,3 +176,58 @@ def parse_bpjs_csv(raw: bytes, *, max_rows: int = 120_000) -> tuple[list[dict[st
         ("invalid_provider_amount", coverage["invalid_provider_amount_count"]),
     ) if value}
     return records, _error_summary({}, [], parsed_rows, warnings)
+
+
+def _operational_values(raw_row: dict[str, Any], columns: list[str], service_date: str | None) -> dict[str, Any] | str:
+    """Values of the optional operational columns of one row, or the name of the first invalid column."""
+    values: dict[str, Any] = {}
+    for column in columns:
+        text = raw_row.get(column)
+        text = text.strip() if isinstance(text, str) else ""
+        if not text:
+            continue
+        field = OPERATIONAL_COLUMNS[column]
+        if field in ("facility_daily_capacity", "service_units"):
+            if not text.isdigit() or int(text) < 1 or int(text) > 100_000:
+                return column
+            values[field] = int(text)
+        elif field == "service_timestamp":
+            match = _TIME.match(text)
+            if not match or not service_date:
+                return column
+            values[field] = f"{service_date[:10]}T{int(match.group(1)):02d}:{match.group(2)}:00"
+        elif field in ("supporting_evidence_required", "supporting_evidence_types"):
+            if text == "-":
+                values[field] = []
+                continue
+            items = [item.strip().lower() for item in _LIST_SPLIT.split(text) if item.strip()]
+            if not items or any(len(item) > 60 for item in items):
+                return column
+            values[field] = sorted(set(items))
+        elif field == "supporting_evidence_recording_status":
+            status = EVIDENCE_STATUSES.get(text.lower())
+            if status is None:
+                return column
+            values[field] = status
+        else:
+            if len(text) > 60:
+                return column
+            values[field] = text
+    if "supporting_evidence_required" in values:
+        # An inventory row: recorded unless the file says otherwise; presence follows the recorded list.
+        values.setdefault("supporting_evidence_types", [])
+        values.setdefault("supporting_evidence_recording_status", "recorded")
+        values["supporting_evidence_present"] = bool(values["supporting_evidence_types"])
+    return values
+
+
+def _capacity_conflict(records: list[dict[str, Any]]) -> bool:
+    """One facility must have one daily capacity within a file."""
+    seen: dict[str, int] = {}
+    for record in records:
+        facility, capacity = record.get("facility_id"), record.get("facility_daily_capacity")
+        if facility is None or capacity is None:
+            continue
+        if seen.setdefault(facility, capacity) != capacity:
+            return True
+    return False

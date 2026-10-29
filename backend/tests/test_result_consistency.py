@@ -149,15 +149,14 @@ def test_fkrtl_run_keeps_unsupported_checks_not_applicable_and_lanes_by_two_sign
         assert extra <= {*CLINICAL_INDICATORS, NOTE_INDICATOR, *DETAIL_INDICATORS}
         assessed = len(case["assessed_indicators"])
         assert case["risk_score"] == (round(len(case["indicators"]) / assessed, 6) if assessed >= 3 else None)
-        # v3 lanes the flagged claim by its evidence, not by the index: specific rule findings, or the
-        # similar-claim screen confirmed by the AI signal.
+        # v4 lanes the flagged claim by its evidence, not by the index: specific rule findings; the
+        # similar-claim screen alone (even with the AI agreeing) stays green.
         lane = result["action_policy"]["cases"][case["case_id"]]
-        assert lane["policy_version"] == "action-policy-evidence-v3-provisional"
+        assert lane["policy_version"] == "action-policy-evidence-v4-provisional"
         specific = [code for code in case["indicators"] if code != "near_duplicate_claim_candidate"]
         percentile = case["ml_anomaly"].get("reference_percentile", case["ml_anomaly"].get("anomaly_percentile"))
-        absolute = "reference_percentile" in case["ml_anomaly"]
-        expected = ("red" if len(specific) >= 2 or (percentile >= 0.95 and (specific or absolute))
-                    else "yellow" if specific or (percentile >= 0.90 and absolute) else "green")
+        expected = ("red" if len(specific) >= 2 or (percentile >= 0.95 and specific)
+                    else "yellow" if specific else "green")
         assert lane["lane"] == expected
     blank = next(item for item in result["indicators"] if item["code"] == "repeat_billing_candidate")
     assert blank["unassessed_count"] == 1

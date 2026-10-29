@@ -158,13 +158,14 @@ def _bpjs_format_dataset(batch: Mapping[str, Any], records: Sequence[Mapping[str
     from scripts.fkrtl_dta_provider import FKRTL_NOT_APPLICABLE_DETECTORS, FKRTL_REPEAT_SIGNATURE_PROFILE
 
     features = adapt_bpjs_batch_features(batch, records)
+    facilities, not_applicable, operational = _operational_inputs(features, FKRTL_NOT_APPLICABLE_DETECTORS)
     dates = sorted(record["service_date"] for record in features)
     current = {record["case_id"] for record in features}
     earlier = [dict(record) for record in earlier if record.get("case_id") not in current]
     return FeatureDataset(
         earlier_records=earlier,
         records=features,
-        facilities=(),
+        facilities=facilities,
         source_metadata={
             "kind": "synthetic",
             "label": "synthetic_data_batch",
@@ -172,13 +173,41 @@ def _bpjs_format_dataset(batch: Mapping[str, Any], records: Sequence[Mapping[str
             "source_schema_profile": FKRTL_SCHEMA_PROFILE,
             "mapping_version": BPJS_CSV_MAPPING_VERSION,
             "repeat_signature_profile": FKRTL_REPEAT_SIGNATURE_PROFILE,
-            "not_applicable_detectors": dict(FKRTL_NOT_APPLICABLE_DETECTORS),
+            "not_applicable_detectors": not_applicable,
             "selection": {"strategy": "uploaded_file", "date_from": dates[0], "date_to": dates[-1],
                           "date_field": "FKL03", "processed_rows": len(features),
                           "earlier_claims_compared": len(earlier), "lookback_days": LOOKBACK_DAYS},
             "category_labels": category_labels(),
             "limitations": [
                 "Berkas unggahan berformat kolom data klaim FKRTL; nomor peserta anonim (berawalan SYN).",
+                *([OPERATIONAL_NOTE] if operational else []),
             ],
         },
     )
+
+
+# Detector -> fields it needs from the optional operational columns of an upload.
+OPERATIONAL_DETECTOR_FIELDS = {
+    "synthetic_capacity_candidate": ("facility_id", "facility_daily_capacity", "service_type", "service_units"),
+    "temporal_pattern_candidate": ("facility_id", "service_type", "service_timestamp"),
+    "supporting_evidence_completeness_candidate": ("service_type", "supporting_evidence_recording_status"),
+}
+OPERATIONAL_NOTE = ("Kolom tambahan kapasitas faskes, jenis/jumlah/jam layanan, dan bukti pendukung bukan bagian data sampel BPJS; "
+                    "pada berkas contoh nilainya sintetis, di produksi diambil dari data faskes dan rekam medis elektronik.")
+
+
+def _operational_inputs(features: Sequence[Mapping[str, Any]], declared: Mapping[str, str]
+                        ) -> tuple[list[dict[str, Any]], dict[str, str], bool]:
+    """Facility capacities and the detectors that apply, from the operational columns the file carries."""
+    not_applicable = dict(declared)
+    used = False
+    for detector, fields in OPERATIONAL_DETECTOR_FIELDS.items():
+        if any(all(record.get(field) is not None for field in fields) for record in features):
+            not_applicable.pop(detector, None)
+            used = True
+    capacities: dict[str, int] = {}
+    for record in features:
+        if record.get("facility_id") is not None and record.get("facility_daily_capacity") is not None:
+            capacities.setdefault(record["facility_id"], record["facility_daily_capacity"])
+    facilities = [{"facility_id": key, "daily_capacity_units": capacities[key]} for key in sorted(capacities)]
+    return facilities, not_applicable, used

@@ -57,6 +57,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   missing_required_column: "Kolom wajib tidak ada",
   missing_required_value: "Isian wajib kosong",
   duplicate_visit: "Kunjungan yang sama tercatat dua kali",
+  invalid_operational_value: "Nilai kolom tambahan (kapasitas, jenis/jumlah/jam layanan, atau bukti) tidak valid",
+  facility_capacity_conflict: "Satu faskes memiliki lebih dari satu kapasitas harian",
   invalid_service_date: "Tanggal masuk tidak valid",
   ground_truth_column_forbidden: "File berisi kolom kunci jawaban; hapus kolom itu",
   malformed_row_width: "Jumlah kolom pada baris tidak sesuai",

@@ -133,3 +133,69 @@ def test_a_real_export_is_refused_at_upload(tmp_path):
     assert batch["status"] == "rejected"
     assert batch["validation"]["error_counts"]["real_participant_not_allowed"] == 41
     assert "0000000001" not in response.text
+
+
+# ---- optional operational columns (synthetic; not part of the BPJS sample)
+
+OPS = COLUMNS + ("ID_FASKES", "KAPASITAS_HARIAN", "JENIS_LAYANAN", "JUMLAH_LAYANAN", "JAM_LAYANAN",
+                 "BUKTI_WAJIB", "BUKTI_TERCATAT", "STATUS_BUKTI")
+
+
+def _with_ops(rows, **values):
+    for row in rows:
+        row.update({"ID_FASKES": "SYNRS1", "KAPASITAS_HARIAN": "8", "JENIS_LAYANAN": "physiotherapy", "JUMLAH_LAYANAN": "2",
+                    "JAM_LAYANAN": "09:00", "BUKTI_WAJIB": "clinical_note;therapy_session_log", "BUKTI_TERCATAT": "clinical_note",
+                    "STATUS_BUKTI": "tercatat"} | values)
+    return rows
+
+
+def test_operational_columns_fill_capacity_time_and_evidence():
+    rows = _with_ops(_rows(3))
+    records, _summary = parse_bpjs_csv(_csv(rows, OPS))
+    record = records[0]
+    assert record["facility_id"] == "SYNRS1" and record["facility_daily_capacity"] == 8 and record["service_units"] == 2
+    assert record["service_type"] == "physiotherapy" and record["service_timestamp"].endswith("T09:00:00")
+    assert record["supporting_evidence_required"] == ["clinical_note", "therapy_session_log"]
+    assert record["supporting_evidence_types"] == ["clinical_note"] and record["supporting_evidence_present"] is True
+    assert record["supporting_evidence_recording_status"] == "recorded"
+    # Without the columns the fields stay empty and the checks are not applicable.
+    plain, _ = parse_bpjs_csv(_csv(_rows(3)))
+    assert plain[0]["facility_id"] is None and plain[0]["service_timestamp"] is None
+
+
+@pytest.mark.parametrize(("column", "value", "code"), [
+    ("KAPASITAS_HARIAN", "nol", "invalid_operational_value"),
+    ("JAM_LAYANAN", "25:00", "invalid_operational_value"),
+    ("STATUS_BUKTI", "mungkin", "invalid_operational_value"),
+])
+def test_invalid_operational_values_are_rejected_by_row_without_the_value(column, value, code):
+    rows = _with_ops(_rows(3))
+    rows[1][column] = value
+    with pytest.raises(CsvImportError) as raised:
+        parse_bpjs_csv(_csv(rows, OPS))
+    assert raised.value.summary["error_counts"] == {code: 1}
+    assert value not in json.dumps(raised.value.summary)
+
+
+def test_one_facility_cannot_have_two_capacities():
+    rows = _with_ops(_rows(3))
+    rows[2]["KAPASITAS_HARIAN"] = "9"
+    with pytest.raises(CsvImportError) as raised:
+        parse_bpjs_csv(_csv(rows, OPS))
+    assert raised.value.summary["error_counts"] == {"facility_capacity_conflict": 1}
+
+
+def test_checks_apply_only_when_the_file_carries_their_columns():
+    from app.data_sources.providers import SyntheticBatchProvider
+
+    batch = {"source_type": "synthetic_csv", "schema_version": BPJS_CSV_SCHEMA_VERSION, "mapping_version": BPJS_CSV_MAPPING_VERSION,
+             "status": "ready", "batch_version": 1, "content_checksum": "0" * 64}
+    with_ops, _ = parse_bpjs_csv(_csv(_with_ops(_rows(4)), OPS))
+    dataset = SyntheticBatchProvider(batch=batch, normalized_records=with_ops).load()
+    declared = dataset.source_metadata["not_applicable_detectors"]
+    assert {"synthetic_capacity_candidate", "temporal_pattern_candidate", "supporting_evidence_completeness_candidate"}.isdisjoint(declared)
+    assert dataset.facilities == [{"facility_id": "SYNRS1", "daily_capacity_units": 8}]
+    assert any("bukan bagian data sampel BPJS" in text for text in dataset.source_metadata["limitations"])
+    plain, _ = parse_bpjs_csv(_csv(_rows(4)))
+    declared = SyntheticBatchProvider(batch=batch, normalized_records=plain).load().source_metadata["not_applicable_detectors"]
+    assert "synthetic_capacity_candidate" in declared and "supporting_evidence_completeness_candidate" in declared

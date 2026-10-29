@@ -21,8 +21,10 @@ def _specific(percentile):
 def test_evidence_lanes_and_v1_unchanged():
     snapshot = {"execution_status": "completed", "indicator_coverage": [],
                 "cases": {"a": _case(0.97), "b": _case(0.92), "c": _case(0.5)}}
-    lanes = evaluate_action_policy(snapshot, get_action_policy_config())["cases"]
+    lanes = evaluate_action_policy(snapshot, get_action_policy_config("action-policy-evidence-v3-provisional"))["cases"]
     assert [lanes[key]["lane"] for key in "abc"] == ["red", "yellow", "green"]
+    current = evaluate_action_policy(snapshot, get_action_policy_config())["cases"]
+    assert {item["lane"] for item in current.values()} == {"green"}  # v4: similarity alone stays out
     v1 = evaluate_action_policy(snapshot, ActionPolicyConfig())["cases"]
     assert {item["lane"] for item in v1.values()} == {"cannot_recommend"}
     # A specific rule finding is never low risk; two findings are high.
@@ -102,8 +104,15 @@ def test_a_run_relative_ai_score_cannot_confirm_the_exploratory_screen():
     relative = {**_case(0.99), "ml_anomaly": {"anomaly_percentile": 0.99}}
     absolute = _case(0.99)
     snapshot = {"execution_status": "completed", "indicator_coverage": [], "cases": {"r": relative, "a": absolute}}
-    lanes = evaluate_action_policy(snapshot, get_action_policy_config())["cases"]
+    lanes = evaluate_action_policy(snapshot, get_action_policy_config("action-policy-evidence-v3-provisional"))["cases"]
     assert lanes["r"]["lane"] == "green" and lanes["a"]["lane"] == "red"
+
+
+def test_the_ai_alone_cannot_lift_the_exploratory_screen_into_the_queue():
+    # v4: on the evaluation-kit benchmark these claims were fraud about as often as a random pick.
+    snapshot = {"execution_status": "completed", "indicator_coverage": [], "cases": {"a": _case(0.99), "s": _specific(0.99)}}
+    lanes = evaluate_action_policy(snapshot, get_action_policy_config())["cases"]
+    assert lanes["a"]["lane"] == "green" and lanes["s"]["lane"] == "red"
 
 
 
