@@ -275,10 +275,11 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
   </>;
 }
 
-export function FacilityTable({ groups, runQuery }: { groups: FacilityGroup[]; runQuery: string }) {
+export function FacilityTable({ groups, runQuery, showPriority = false }: { groups: FacilityGroup[]; runQuery: string; showPriority?: boolean }) {
   return <div className="table-scroll">
     <table className="data-table facility-table">
-      <thead><tr><th>Kelompok faskes</th><th>Risiko tinggi</th><th>Risiko sedang</th><th>Nilai tagihan berisiko</th><th>Tingkat</th><th><span className="sr-only">Aksi</span></th></tr></thead>
+      <thead><tr><th>Kelompok faskes</th><th>Risiko tinggi</th><th>Risiko sedang</th><th>Nilai tagihan berisiko</th>
+        {showPriority && <th>Indeks prioritas</th>}<th>Tingkat</th><th><span className="sr-only">Aksi</span></th></tr></thead>
       <tbody>{groups.map(group => (
         <tr key={group.group_id} data-group-id={group.group_id}>
           <td><div className="cell-flex"><span className="icon-circle"><Building2 size={16} /></span>
@@ -286,11 +287,21 @@ export function FacilityTable({ groups, runQuery }: { groups: FacilityGroup[]; r
           <td><span className="status-dot-text"><LaneDot lane="red" />{formatCount(group.lane_counts.red)}</span></td>
           <td><span className="status-dot-text"><LaneDot lane="yellow" />{formatCount(group.lane_counts.yellow)}</span></td>
           <td>{group.billed_high_or_medium !== undefined ? formatRupiah(group.billed_high_or_medium) : "—"}</td>
+          {showPriority && <td><PriorityIndex group={group} /></td>}
           <td><span className={`status-pill tone-${LEVELS[group.level].tone}`}>{LEVELS[group.level].label}</span></td>
           <td><Link className="card-link" to={`/facilities/${group.group_id}${runQuery}`} aria-label={`Lihat ${group.title}`}><ArrowUpRight size={16} /></Link></td>
         </tr>))}</tbody>
     </table>
   </div>;
+}
+
+/** The proposal's audit priority index with its parts, so the number can be checked by hand. */
+export function PriorityIndex({ group }: { group: FacilityGroup }) {
+  if (group.audit_priority_index == null || group.risk_score == null) return <span className="fine-print">—</span>;
+  const millions = (group.billed_high_or_medium ?? 0) / 1_000_000;
+  const parts = `${group.risk_score.toLocaleString("id-ID", { maximumFractionDigits: 2 })} × Rp${millions.toLocaleString("id-ID", { maximumFractionDigits: 1 })} juta ÷ ${formatCount(group.records_to_request)} berkas`;
+  return <span className="priority-index" title={`Skor risiko × nilai klaim berisiko ÷ berkas yang perlu diminta: ${parts}`}>
+    <strong>{group.audit_priority_index.toLocaleString("id-ID", { maximumFractionDigits: 2 })}</strong><small>{parts}</small></span>;
 }
 
 /** What a new user sees before any analysis: three steps, starting with bringing in claim data. */

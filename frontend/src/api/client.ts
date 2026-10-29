@@ -234,6 +234,8 @@ export interface FacilityGroup {
   peer_signals?: Array<{ kind: "severity" | "special"; share: number; peer_share: number; ratio: number | null; peer_groups: number; text: string }>;
   /** Display only: billed value of the group's high/medium-risk claims (absent on older runs). */
   billed_high_or_medium?: number;
+  /** Proposal priority: weighted share of claims at risk (0–1) and risk × value (Rp million) ÷ records to request. */
+  risk_score?: number; audit_priority_index?: number | null;
   level: "high" | "medium" | "low"; verdict: string;
 }
 export interface DailyActivity {

@@ -148,8 +148,9 @@ def _verdict(group: Mapping[str, Any]) -> str:
     return f"{LEVEL_TEXT[group['level']]}. Alasan: {numbered or 'tidak ada temuan'}. Saran: {advice}"
 
 
-# Display only: the billed amount (FKL47 for FKRTL, billed_amount for synthetic batches) is summed to
-# show how much billing awaits re-verification. It never enters scoring, lanes, ordering or the AI.
+# The billed amount (FKL47 for FKRTL, billed_amount for synthetic batches) is summed to show how much billing
+# awaits re-verification, and feeds the proposal's audit priority index (an optional ordering of facility
+# groups). It never enters the risk score, lanes, the default order, the risk level or the AI.
 AMOUNT_FIELDS = ("provider_billed_amount_unverified", "billed_amount")
 
 
@@ -313,6 +314,12 @@ def build_facility_groups(
         group["red_with_specific_finding"] = sum(
             lane_of[case_id] == "red" and any(code not in EXPLORATORY_INDICATORS for code in cases[case_id].get("indicators") or [])
             for case_id in flagged)
+        # Proposal priority (pages 9 and 15): risk x value of the flagged claims / audit effort (records to request).
+        # Risk = weighted share of the group's claims at risk (high 2, medium 1); value in millions of rupiah.
+        group["risk_score"] = round(weighted / (2 * claim_count), 4)
+        group["audit_priority_index"] = (
+            round(group["risk_score"] * at_risk_amount[key] / 1_000_000 / records_to_request, 2)
+            if records_to_request and at_risk_amount[key] else None)
         group["level"] = _level(lane_counts["red"], lane_counts["yellow"], claim_count, overall_red_share,
                                 group["red_with_specific_finding"])
         group["verdict"] = _verdict(group)

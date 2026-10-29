@@ -1221,3 +1221,10 @@ details[open] > *:not(summary) { animation: cir-page-in 0.24s ease both; }
 @media (min-width: 1100px) {
   .today-brief ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
 }
+
+/* Facilities: order switch and the proposal's priority index with its parts. */
+.facility-order { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 12px; }
+.facility-order > .fine-print:last-child { flex: 1 1 320px; }
+.priority-index { display: inline-grid; gap: 1px; }
+.priority-index strong { font-size: 15px; color: var(--brand-ink); }
+.priority-index small { color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }

@@ -10,7 +10,7 @@ import {
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { provinceName } from "../components/provinces";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
-import { FacilityTable } from "./OverviewPage";
+import { FacilityTable, PriorityIndex } from "./OverviewPage";
 
 type Level = FacilityGroup["level"];
 const LEVEL_FILTERS: Array<[Level | "", string]> = [["", "Semua"], ["high", "Risiko tinggi"], ["medium", "Risiko sedang"], ["low", "Risiko rendah"]];
@@ -48,7 +48,15 @@ export default function FacilitiesPage() {
   const province = params.get("provinsi");
   const clearProvince = () => { const next = new URLSearchParams(params); next.delete("provinsi"); setParams(next, { replace: true }); };
   const groups = result?.facility_groups;
-  const shown = (groups?.groups ?? []).filter(group => (!level || group.level === level) && (!province || group.province_code === province));
+  // Default order: risk level and findings (the analysis rank). "Prioritas audit" is the proposal's formula:
+  // risk × value of the flagged claims ÷ records to request; available when the data carries billed amounts.
+  const [order, setOrder] = useState<"risk" | "priority">("risk");
+  const hasPriority = (groups?.groups ?? []).some(group => group.audit_priority_index != null);
+  const byPriority = order === "priority" && hasPriority;
+  const filtered = (groups?.groups ?? []).filter(group => (!level || group.level === level) && (!province || group.province_code === province));
+  const shown = byPriority
+    ? [...filtered].sort((a, b) => (b.audit_priority_index ?? -1) - (a.audit_priority_index ?? -1) || a.rank - b.rank)
+    : filtered;
   return <>
     <Head title="Faskes" text="Kelompok faskes diurutkan dari yang paling layak diperiksa lebih dulu." snapshot={snapshot} />
     {state.status !== "success" && <RunStateMessage state={state} retry={reload} />}
@@ -76,8 +84,16 @@ export default function FacilitiesPage() {
             <button type="button" onClick={clearProvince} aria-label="Hapus saringan provinsi"><X size={13} /></button></span>
           <Link className="fine-link" to={`/map${runQuery}&provinsi=${encodeURIComponent(province)}`}>Kembali ke peta</Link>
         </div>}
+        {hasPriority && <div className="facility-order">
+          <span className="fine-print">Urutkan</span>
+          <div className="segmented-pill" role="group" aria-label="Urutan kelompok faskes">
+            <button type="button" aria-pressed={!byPriority} onClick={() => setOrder("risk")}>Tingkat risiko</button>
+            <button type="button" aria-pressed={byPriority} onClick={() => setOrder("priority")}>Prioritas audit</button>
+          </div>
+          {byPriority && <span className="fine-print">Skor risiko × nilai klaim berisiko ÷ berkas yang perlu diminta. Nilai tagihan belum diverifikasi; indeks ini membantu memilih faskes yang paling efisien diperiksa, bukan menaksir kerugian.</span>}
+        </div>}
         {shown.length === 0 ? <EmptyState title="Tidak ada kelompok faskes" message={province ? "Tidak ada kelompok faskes yang cukup besar di provinsi ini pada tingkat yang dipilih." : "Tidak ada kelompok pada tingkat ini."} />
-          : <FacilityTable groups={shown} runQuery={runQuery} />}
+          : <FacilityTable groups={shown} runQuery={runQuery} showPriority={byPriority} />}
         {groups.groups_truncated && <p className="fine-print" style={{ marginTop: 10 }}>Ditampilkan {formatCount(groups.groups.length)} kelompok teratas dari {formatCount(groups.group_count)}.</p>}
       </section>
     </>)}
@@ -167,6 +183,7 @@ export function FacilityDetailPage() {
             </li>))}
           </ul>
           <p className="fine-print" style={{ marginTop: 10 }}>Rekam medis yang disarankan diminta: <strong>{formatCount(group.records_to_request)}</strong> klaim.</p>
+          {group.audit_priority_index != null && <p className="fine-print">Indeks prioritas audit: <PriorityIndex group={group} /></p>}
         </section>
         <section className="card span-7">
           <div className="card-head"><div><h2>Klaim yang perlu diminta rekam medisnya</h2><p>Risiko tinggi lebih dulu, lalu skor AI tertinggi.</p></div>

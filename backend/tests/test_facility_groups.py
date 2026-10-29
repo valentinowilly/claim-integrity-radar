@@ -134,3 +134,19 @@ def test_similarity_alone_never_makes_a_facility_high_risk():
     group = next(g for g in build_facility_groups(records, cases, lanes, {}, min_claims=30)["groups"]
                  if g["region"].startswith("2"))
     assert group["level"] == "medium" and group["red_with_specific_finding"] == 0
+
+
+def test_audit_priority_index_follows_the_proposal_formula_and_never_changes_the_rank():
+    # Proposal: risk x value of the flagged claims (Rp million) / records to request. The rank stays the risk order.
+    records = ([_record(f"x{i}") for i in range(40)] + [_record(f"y{i}", municipality="2") for i in range(40)])
+    for record in records:
+        record["billed_amount"] = "10000000" if record["case_id"].startswith("y") else "1000000"
+    cases = {f"x{i}": _specific(0.99) for i in range(6)} | {f"y{i}": _specific(0.99) for i in range(2)}
+    lanes = {case_id: {"lane": "red"} for case_id in cases}
+    groups = {g["region"].split(",")[0]: g for g in build_facility_groups(records, cases, lanes, {}, min_claims=30)["groups"]}
+    x, y = groups["1"], groups["2"]
+    assert x["risk_score"] == round(12 / 80, 4) and y["risk_score"] == round(4 / 80, 4)
+    assert x["audit_priority_index"] == round(x["risk_score"] * 6 / 6, 2)
+    assert y["audit_priority_index"] == round(y["risk_score"] * 20 / 2, 2)
+    # y is the more efficient audit, but x keeps the higher rank: more high-risk claims.
+    assert y["audit_priority_index"] > x["audit_priority_index"] and x["rank"] < y["rank"]
