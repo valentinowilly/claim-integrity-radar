@@ -573,13 +573,16 @@ export function mlTechnicalItems(ml: MlAnomaly): TechnicalItem[] {
 }
 
 /** A number that counts up once when it first appears (skipped when the user prefers reduced motion). */
+const prefersReducedMotion = () => typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** A number that counts up from zero when it first appears, and glides to a new value when it changes. */
 export function CountUp({ value, format = formatCount }: { value: number; format?: (value: number) => string }) {
-  const [shown, setShown] = useState(value);
+  // Start at zero (not at the final value), so the first paint does not flash the end number before counting.
+  const [shown, setShown] = useState(() => prefersReducedMotion() || !Number.isFinite(value) ? value : 0);
   const from = useRef(0);
   useEffect(() => {
-    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduce || !Number.isFinite(value) || value === 0) { setShown(value); from.current = value; return; }
-    const start = performance.now(), begin = from.current, duration = 700;
+    if (prefersReducedMotion() || !Number.isFinite(value) || value === 0) { setShown(value); from.current = value; return; }
+    const start = performance.now(), begin = from.current, duration = 1100;
     let frame = 0;
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / duration);

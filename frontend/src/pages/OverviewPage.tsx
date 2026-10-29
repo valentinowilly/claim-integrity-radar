@@ -218,7 +218,7 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
           <p>Belum ada klaim yang ditinjau pada analisis ini.</p>
           <Link className="button button-secondary row-button" to={`/cases${runQuery}&lane=${red > 0 ? "red" : "yellow"}`}>Mulai dari risiko {red > 0 ? "tinggi" : "sedang"} <ArrowRight size={13} /></Link>
         </div> : <>
-          <div className="stat-big">{formatCount(reviewed)}<small> / {formatCount(flagged)}</small></div>
+          <div className="stat-big"><CountUp value={reviewed} /><small> / {formatCount(flagged)}</small></div>
           <div className="chart-box" style={{ height: 150 }}>
             <ResponsiveContainer>
               <PieChart>
@@ -255,7 +255,7 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
           {aiOnly.length > 0 && <Link className="card-link" to={`/cases${runQuery}&lane=ai`} aria-label="Lihat temuan tambahan AI"><ArrowUpRight size={16} /></Link>}
         </div>
         {ml?.status !== "available" ? <p className="fine-print">AI tidak tersedia pada analisis ini.</p> : <>
-          <div className="stat-big" style={{ marginBottom: 12 }}>{formatCount(ml.records_scored)}<small> klaim dinilai</small></div>
+          <div className="stat-big" style={{ marginBottom: 12 }}><CountUp value={ml.records_scored} /><small> klaim dinilai</small></div>
           <ul className="check-rows ai-stats">
             {ml.share_above_training_p99 !== undefined && <li className="check-row"><span>Sangat tidak biasa menurut AI</span>
               <strong>{formatCount(Math.round(ml.share_above_training_p99 * ml.records_scored))}</strong></li>}

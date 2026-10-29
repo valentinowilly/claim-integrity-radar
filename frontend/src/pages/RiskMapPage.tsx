@@ -3,7 +3,7 @@ import { ArrowRight, ArrowUpRight, Building2, LayoutGrid, Map as MapIcon, MapPin
 import { Link, useSearchParams } from "react-router-dom";
 import type { FacilityGroup, Fairness } from "../api/client";
 import { EmptyState } from "../components/DataStates";
-import { LEVELS, LaneDot, formatCount, formatRupiah } from "../components/Display";
+import { CountUp, LEVELS, LaneDot, formatCount, formatRupiah } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { METRICS, RiskMap, formatPercent, type MapMetric, type MapView, type ProvinceValue } from "../components/RiskMap";
 import { PROVINCE_MAP, provinceName } from "../components/provinces";
@@ -73,11 +73,11 @@ function MapWorkspace({ rows, fairness, groups, runId, metric, setMetric, hasBil
   return <>
     <section className="map-stats" aria-label="Ringkasan wilayah">
       <div className="map-stat card"><span className="map-stat-icon"><MapPinned size={18} aria-hidden="true" /></span>
-        <div><span>Provinsi dinilai</span><strong>{formatCount(mapped)}<small> dari 34</small></strong></div></div>
+        <div><span>Provinsi dinilai</span><strong><CountUp value={mapped} /><small> dari 34</small></strong></div></div>
       <div className="map-stat card"><span className="map-stat-icon"><Scale size={18} aria-hidden="true" /></span>
         <div><span>Porsi berisiko nasional</span><strong>{formatPercent(fairness.overall_share)}</strong></div></div>
       <div className="map-stat card"><span className="map-stat-icon tone-warn"><ArrowUpRight size={18} aria-hidden="true" /></span>
-        <div><span>Provinsi ≥ 2× rata-rata nasional</span><strong>{formatCount(above)}</strong></div></div>
+        <div><span>Provinsi ≥ 2× rata-rata nasional</span><strong><CountUp value={above} /></strong></div></div>
     </section>
 
     <section className="dash-grid">

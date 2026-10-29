@@ -3,7 +3,7 @@ import { CalendarDays, CalendarRange, Flame, TrendingUp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { DailyActivity } from "../api/client";
 import { EmptyState } from "../components/DataStates";
-import { LaneDot, formatCount, formatRupiah } from "../components/Display";
+import { CountUp, LaneDot, formatCount, formatRupiah } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { formatPercent } from "../components/RiskMap";
 import { ReviewAccuracy } from "../components/ReviewAccuracy";
@@ -66,7 +66,7 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
       <div className="map-stat card"><span className="map-stat-icon"><CalendarRange size={18} aria-hidden="true" /></span>
         <div><span>Rentang tanggal layanan</span><strong>{formatCount(rows.length)}<small> hari · {short(rows[0].date)} – {short(rows[rows.length - 1].date)}</small></strong></div></div>
       <div className="map-stat card"><span className="map-stat-icon"><CalendarDays size={18} aria-hidden="true" /></span>
-        <div><span>Hari tersibuk</span><strong>{formatCount(busiest.claims)}<small> klaim · {short(busiest.date)}</small></strong></div></div>
+        <div><span>Hari tersibuk</span><strong><CountUp value={busiest.claims} /><small> klaim · {short(busiest.date)}</small></strong></div></div>
       <div className="map-stat card"><span className="map-stat-icon tone-warn"><Flame size={18} aria-hidden="true" /></span>
         <div><span>Porsi berisiko tertinggi</span><strong>{peak ? formatPercent(peak.share ?? 0) : "—"}<small>{peak ? ` · ${short(peak.date)} (rata-rata ${formatPercent(average)})` : ""}</small></strong></div></div>
     </section>
