@@ -42,3 +42,15 @@ File `*.answers.json` adalah kunci jawaban untuk pengujian. **Jangan diunggah.**
 
 Membuat ulang (butuh model AI dan `category_labels.json` di `backend/models/`):
 `cd backend && python -m scripts.make_bpjs_demo_datasets --out ../demo-data --check`
+
+## Database demo yang sudah terisi
+
+`backend/scripts/seed_demo_database.py` mengisi instalasi demo yang masih kosong lewat API, seperti pengguna biasa:
+
+1. mengunggah dan menganalisis demo-1, demo-2, lalu demo-3, sehingga Beranda bisa membandingkan analisis;
+2. mencatat contoh keputusan tinjauan pada beberapa klaim demo-3, sehingga Status tinjauan dan Ketepatan temuan sistem berisi;
+3. bila diminta (`--ai-readings N`), menyiapkan pembacaan AI untuk N catatan klinis.
+
+Skrip menolak server selain localhost dan database yang sudah berisi analisis. Jalankan backend pada database demo tersendiri (SQLite), bukan database kerja:
+
+`python -m scripts.seed_demo_database --username <nama> --ai-readings 3`
