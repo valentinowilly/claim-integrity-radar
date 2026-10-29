@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, CheckCircle2, ClipboardCheck, Copy, FileText, Sparkles, TriangleAlert } from "lucide-react";
+import { ArrowRight, CheckCircle2, ClipboardCheck, Copy, FileText, Loader2, Sparkles, TriangleAlert } from "lucide-react";
 import {
   getClinicalNote, getNoteMatches, requestClinicalAnalysis, type ClinicalAnalysis, type ClinicalNoteResponse, type ClinicalVerdictCode,
   type NoteHighlight, type NoteMatchesResponse,
@@ -210,11 +210,13 @@ export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded }: {
           <span className="fine-print">{data.ai_configured
             ? "AI membaca catatan ini lalu mencocokkannya dengan diagnosis, tingkat keparahan, dan lama rawat yang ditagihkan."
             : "Layanan AI sedang tidak aktif; pembacaan memakai pemeriksaan teks otomatis."}</span></div>
-        {canAsk && <button type="button" className="button button-primary row-button" disabled={busy}
-          onClick={() => void ask()} data-testid="clinical-ai-ask">{busy ? "Sedang membaca…" : analysis ? "Baca ulang" : "Baca dengan AI"}</button>}
+        {canAsk && <button type="button" className="button button-primary row-button" disabled={busy} aria-busy={busy || undefined}
+          onClick={() => void ask()} data-testid="clinical-ai-ask">
+          {busy ? <Loader2 size={14} className="spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
+          {busy ? "Sedang membaca…" : analysis ? "Baca ulang" : "Baca dengan AI"}</button>}
       </div>
       {error && <p className="notice-inline" role="alert">{error}</p>}
-      {busy && <div className="clinical-ai-wait" role="status"><span /><span /><span /><em>AI sedang membaca catatan; biasanya kurang dari satu menit.</em></div>}
+      {busy && <AiWait />}
       {analysis && !busy && <div className={`clinical-ai-result tone-${VERDICTS[analysis.verdict].tone}`} data-testid="clinical-ai-result">
         <div className="clinical-ai-verdict">
           <span className={`status-pill tone-${VERDICTS[analysis.verdict].tone}`}>{VERDICTS[analysis.verdict].label}</span>
@@ -280,5 +282,20 @@ function NoteMatches({ runId, caseId }: { runId: string; caseId: string }) {
       </tr>)}</tbody>
     </table>
     {data.matches_truncated && <p className="fine-print">Ditampilkan {formatCount(data.matches.length)} klaim pertama.</p>}
+  </div>;
+}
+
+/** While the AI reads: what it is doing, how long it has taken, and a moving strip (a reading can take ±40 s). */
+function AiWait() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setSeconds(value => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const step = seconds < 4 ? "Mengirim catatan ke AI" : seconds < 30 ? "AI membaca catatan dan mencocokkannya dengan data klaim" : "Hampir selesai";
+  return <div className="clinical-ai-wait" role="status" aria-live="polite">
+    <div className="clinical-ai-wait-row"><span /><span /><span /><em>{step}… {seconds} detik</em></div>
+    <div className="busy-strip" aria-hidden="true" />
+    <small className="fine-print">Biasanya kurang dari satu menit.</small>
   </div>;
 }

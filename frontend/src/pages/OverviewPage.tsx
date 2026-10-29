@@ -185,7 +185,7 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
 
       <article className="card span-5">
         <div className="card-head">
-          <div><h2><BarChart3 size={16} className="head-icon" aria-hidden="true" />Klaim per kelompok faskes</h2><p>Enam kelompok dengan klaim risiko {chartLane === "red" ? "tinggi" : "sedang"} terbanyak. #1, #2, … = peringkat di halaman Faskes.</p></div>
+          <div><h2><BarChart3 size={16} className="head-icon" aria-hidden="true" />Klaim per kelompok faskes</h2><p>Enam kelompok faskes dengan klaim risiko {chartLane === "red" ? "tinggi" : "sedang"} terbanyak.</p></div>
           <div className="segmented-pill" role="group" aria-label="Pilih tingkat risiko grafik">
             <button type="button" aria-pressed={chartLane === "red"} onClick={() => setChartLane("red")}>Tinggi</button>
             <button type="button" aria-pressed={chartLane === "yellow"} onClick={() => setChartLane("yellow")}>Sedang</button>

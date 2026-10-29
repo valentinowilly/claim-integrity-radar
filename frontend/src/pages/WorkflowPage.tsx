@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Archive, ArchiveRestore, ArrowRight, Inbox, Check, FileUp, Play, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowRight, Inbox, Check, FileUp, Loader2, Play, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useNotify } from "../notifications/NotificationCenter";
 import {
@@ -325,8 +325,8 @@ export default function WorkflowPage() {
                   <span>Nama data <small>(opsional)</small></span>
                   <input value={batchKey} maxLength={60} placeholder="mis. Klaim RS 1–7 Maret" onChange={(event) => setBatchKey(event.target.value)} disabled={busy} />
                 </label>
-                <button className="button button-primary upload-submit" type="submit" disabled={busy || !file}>
-                  <FileUp size={15} />{busy ? "Memproses…" : "Unggah dan analisis"}
+                <button className="button button-primary upload-submit" type="submit" disabled={busy || !file} aria-busy={busy || undefined}>
+                  {busy ? <Loader2 size={15} className="spin" aria-hidden="true" /> : <FileUp size={15} />}{busy ? "Memeriksa dan menganalisis…" : "Unggah dan analisis"}
                 </button>
               </form>
             ) : <p className="fine-print">Unggah berkas hanya dapat dilakukan oleh operator data.</p>}
@@ -785,7 +785,7 @@ function ProcessCard({ status, validation, latestRun, canRun, canValidate, busy,
           <div className="inline-actions">
             {canValidate && (
               <button className="button button-primary button-large" disabled={busy || jobActive || !status.configured} onClick={onProcess}>
-                <Play size={16} />{jobActive ? "Sedang memeriksa data…" : busy ? "Sedang menganalisis…" : "Proses data klaim"}
+                {jobActive || busy ? <Loader2 size={16} className="spin" aria-hidden="true" /> : <Play size={16} />}{jobActive ? "Sedang memeriksa data…" : busy ? "Sedang menganalisis…" : "Proses data klaim"}
               </button>
             )}
             {canRun && passed && !jobActive && (

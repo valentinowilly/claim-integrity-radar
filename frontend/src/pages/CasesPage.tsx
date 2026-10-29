@@ -188,12 +188,12 @@ export default function CasesPage() {
                 <QueueSearch value={search} onSearch={text => updateList({ q: text })} />
                 <button type="button" className={`queue-filter-toggle${activeFilters.length ? " has-active" : ""}`} aria-expanded={filtersOpen}
                   aria-controls="queue-filter-panel" onClick={() => setFiltersOpen(open => !open)}>
-                  <SlidersHorizontal size={15} aria-hidden="true" />Saring{activeFilters.length > 0 && <span className="filter-count">{activeFilters.length}</span>}
+                  <SlidersHorizontal size={15} aria-hidden="true" />Filter{activeFilters.length > 0 && <span className="filter-count">{activeFilters.length}</span>}
                 </button>
               </div>
               <div id="queue-filter-panel" className="queue-filter-panel" hidden={!filtersOpen}>
                 <label><span>Pemeriksaan</span>
-                  <select aria-label="Saring jenis pemeriksaan" value={indicator} onChange={event => updateList({ check: event.target.value })}>
+                  <select aria-label="Filter jenis pemeriksaan" value={indicator} onChange={event => updateList({ check: event.target.value })}>
                     <option value="">Semua pemeriksaan</option>
                     {result.indicators.map(item => <option key={item.code} value={item.code}>{indicatorLabel(item.code)}</option>)}
                   </select></label>
@@ -204,17 +204,17 @@ export default function CasesPage() {
                       .map(key => <option key={key} value={key}>{SORTS[key]}</option>)}
                   </select></label>
                 {reviewMap && <label><span>Status</span>
-                  <select aria-label="Saring status tinjauan" value={reviewFilter} onChange={event => updateList({ state: event.target.value })}>
+                  <select aria-label="Filter status tinjauan" value={reviewFilter} onChange={event => updateList({ state: event.target.value })}>
                     {REVIEW_FILTERS.map(([value, label]) => <option key={value || "all"} value={value}>{label}</option>)}
                   </select></label>}
                 {reviewMap && <label><span>Penanggung jawab</span>
-                  <select aria-label="Saring penanggung jawab" value={assigned ?? ""} onChange={event => updateList({ who: event.target.value })}>
+                  <select aria-label="Filter penanggung jawab" value={assigned ?? ""} onChange={event => updateList({ who: event.target.value })}>
                     <option value="">Semua petugas</option>
                     <option value="me">Klaim saya</option>
                     <option value="none">Belum diambil</option>
                   </select></label>}
               </div>
-              {activeFilters.length > 0 && <div className="queue-active-filters" aria-label="Saringan aktif">
+              {activeFilters.length > 0 && <div className="queue-active-filters" aria-label="Filter aktif">
                 {activeFilters.map(item => <span key={item.key} className="filter-chip">{item.label}
                   <button type="button" onClick={() => updateList({ [item.key]: "" })} aria-label={`Hapus saringan ${item.label}`}><X size={12} /></button></span>)}
               </div>}

@@ -1013,9 +1013,11 @@ body, .app-shell, .main-panel { background: var(--canvas); }
 .clinical-ai-summary { margin: 0; font-weight: 600; }
 .clinical-ai-label { font-size: 12.5px; color: var(--text-muted); }
 .clinical-ai-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
-.clinical-ai-wait { display: flex; gap: 6px; padding: 6px 2px; }
-.clinical-ai-wait span { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); opacity: 0.3; animation: cir-dot 1s ease-in-out infinite; }
-.clinical-ai-wait span:nth-child(2) { animation-delay: 0.15s; } .clinical-ai-wait span:nth-child(3) { animation-delay: 0.3s; }
+.clinical-ai-wait { display: grid; gap: 8px; padding: 6px 2px; }
+.clinical-ai-wait-row { display: flex; gap: 6px; align-items: center; }
+.clinical-ai-wait-row em { margin-left: 6px; color: var(--text-secondary); font-style: normal; font-size: 13px; }
+.clinical-ai-wait-row span { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); opacity: 0.3; animation: cir-dot 1s ease-in-out infinite; }
+.clinical-ai-wait-row span:nth-child(2) { animation-delay: 0.15s; } .clinical-ai-wait-row span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes cir-dot { 50% { opacity: 1; transform: translateY(-3px); } }
 .clinical-claim-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 16px; margin: 4px 0 10px; }
 .clinical-claim-facts div { display: grid; gap: 2px; min-width: 0; }
@@ -1188,3 +1190,21 @@ body, .app-shell, .main-panel { background: var(--canvas); }
 .quality-notes .plain-list { margin: 0; }
 .upload-format { margin-top: 4px; }
 .upload-format .plain-list { margin: 8px 0 0; display: grid; gap: 4px; font-size: 13px; color: var(--text-muted); }
+
+/* Busy buttons and long steps: a turning icon, a soft pulse and a moving strip (never a frozen screen). */
+.button[aria-busy="true"] { cursor: progress; opacity: 1; position: relative; overflow: hidden; }
+.button[aria-busy="true"]::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.22), transparent); background-size: 200% 100%;
+  animation: cir-shimmer 1.4s linear infinite; }
+.busy-strip { position: relative; height: 4px; overflow: hidden; border-radius: 999px; background: var(--brand-line); }
+.busy-strip::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: inherit; background: var(--brand);
+  animation: cir-busy-strip 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+@keyframes cir-busy-strip { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+
+/* Small motion so the workspace does not feel static: cards lift on hover, tabs and pills ease between states. */
+.kpi2 { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.kpi2:hover { transform: translateY(-2px); box-shadow: 0 16px 32px -22px rgb(6 78 59 / 0.45); }
+.segmented-pill button, .queue-tabs button, .queue-tabs a { transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease; }
+details > summary { transition: color 0.15s ease; }
+details[open] > *:not(summary) { animation: cir-page-in 0.24s ease both; }
+.status-pill { transition: background-color 0.2s ease, color 0.2s ease; }

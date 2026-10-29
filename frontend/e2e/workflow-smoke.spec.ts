@@ -308,7 +308,7 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
   await expect(page.getByText("Pilih klaim di kiri")).toBeVisible();
   await captureVisual(page, "cases-desktop");
   await openFilters(page);
-  const indicatorFilter = page.getByLabel("Saring jenis pemeriksaan");
+  const indicatorFilter = page.getByLabel("Filter jenis pemeriksaan");
   expect(await indicatorFilter.locator("option").count()).toBeGreaterThan(1);
   const firstIndicator = await indicatorFilter.locator("option").nth(1).getAttribute("value");
   expect(firstIndicator).toBeTruthy();
@@ -422,7 +422,7 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
   // The queue shows the saved human review state next to the (unchanged) check results.
   await page.goto(uiUrl + "/cases?run_id=" + encodeURIComponent(runId));
   await openFilters(page);
-  const reviewFilter = page.getByLabel("Saring status tinjauan");
+  const reviewFilter = page.getByLabel("Filter status tinjauan");
   const reviewedRow = page.locator(`li[data-case-id="${caseId}"]`);
   await reviewFilter.selectOption("has_outcome");
   await expect(page.locator(".queue-items > li")).toHaveCount(1);
@@ -695,7 +695,7 @@ test("FKRTL sample runs from Data & Analisis with repeat-service-v1, explicit co
 
   await page.goto(uiUrl + "/cases?run_id=" + encodeURIComponent(run.run_id));
   await openFilters(page);
-  await page.getByLabel("Saring jenis pemeriksaan").selectOption("repeat_billing_candidate");
+  await page.getByLabel("Filter jenis pemeriksaan").selectOption("repeat_billing_candidate");
   await expect(page.getByRole("heading", { name: "2 klaim" })).toBeVisible();
   await expect(page.getByTestId("queue-review-cell").filter({ hasText: "Belum ditinjau" })).toHaveCount(2);
   const firstRow = page.locator(".queue-items > li").first();
@@ -832,7 +832,7 @@ test("an uploaded BPJS-format file shows the clinical note, the cloned-note find
   await page.unroute(analysisPath);
 });
 
-/** The queue's filters sit in a folded panel behind the "Saring" button. */
+/** The queue's filters sit in a folded panel behind the "Filter" button. */
 async function openFilters(page: Page) {
   const toggle = page.locator("button.queue-filter-toggle");
   await toggle.waitFor();
