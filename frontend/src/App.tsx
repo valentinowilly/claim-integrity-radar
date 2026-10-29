@@ -345,6 +345,7 @@ export function displayRole(role: string) {
     data_operator: "Operator data",
     verifikator: "Verifikator",
     audit_lead: "Verifikator senior",
+    demo_tester: "Penguji demo",
   };
   return labels[role] ?? "Pengguna";
 }

@@ -169,17 +169,17 @@ def test_backend_permission_matrix_enforced_for_all_roles(tmp_path, role):
     analysis = call(app, "GET", "/api/v1/analysis", cookies=cookies)
     assert analysis.status_code == 200
     cases = call(app, "GET", "/api/v1/cases", cookies=cookies)
-    assert cases.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead"} else 403)
+    assert cases.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead", "demo_tester"} else 403)
     case_id = sorted(build_analytics_snapshot()["cases"])[0]
     review = call(app, "GET", f"/api/v1/cases/{case_id}/review", cookies=cookies)
-    assert review.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead"} else 403)
+    assert review.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead", "demo_tester"} else 403)
     review_update = call(app, "POST", f"/api/v1/cases/{case_id}/review",
                          json_body={"status": "needs_more_evidence"}, cookies=cookies, csrf=True)
-    assert review_update.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead"} else 403)
+    assert review_update.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead", "demo_tester"} else 403)
     permissions = call(app, "GET", "/api/v1/auth/me", cookies=cookies).json()["permissions"]
-    assert ("runs:results:read" in permissions) == (role in {"platform_admin", "verifikator", "audit_lead"})
-    assert ("batches:write" in permissions) == (role in {"platform_admin", "data_operator"})
-    assert ("review:manage" in permissions) == (role in {"platform_admin", "verifikator", "audit_lead"})
+    assert ("runs:results:read" in permissions) == (role in {"platform_admin", "verifikator", "audit_lead", "demo_tester"})
+    assert ("batches:write" in permissions) == (role in {"platform_admin", "data_operator", "demo_tester"})
+    assert ("review:manage" in permissions) == (role in {"platform_admin", "verifikator", "audit_lead", "demo_tester"})
     create_user = call(app, "POST", "/api/v1/auth/users", json_body={
         "username": f"created-{role}", "password": "Synthetic-created-password-2026!", "role": "data_operator",
     }, cookies=cookies, csrf=True)
@@ -273,3 +273,10 @@ def test_session_cookie_is_secure_by_default(tmp_path):
         set_cookie.load(header)
     assert response.status_code == 200
     assert set_cookie["cir_session"]["secure"]
+
+
+def test_demo_tester_has_every_workflow_but_no_account_management():
+    from app.security.auth import ROLE_PERMISSIONS
+    tester, admin = ROLE_PERMISSIONS["demo_tester"], ROLE_PERMISSIONS["platform_admin"]
+    assert admin - tester == {"users:manage", "security_audit:read"}
+    assert tester < admin

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.security.auth import validate_password, validate_username
 
-Role = Literal["platform_admin", "data_operator", "verifikator", "audit_lead"]
+Role = Literal["platform_admin", "data_operator", "verifikator", "audit_lead", "demo_tester"]
 
 
 class LoginRequest(BaseModel):

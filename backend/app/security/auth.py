@@ -29,7 +29,7 @@ SESSION_TTL_SECONDS = 8 * 60 * 60
 PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 1024
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._@+-]{2,79}$")
-ROLES = ("platform_admin", "data_operator", "verifikator", "audit_lead")
+ROLES = ("platform_admin", "data_operator", "verifikator", "audit_lead", "demo_tester")
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     # The local synthetic-demo administrator is intentionally the sole full-workflow
@@ -42,6 +42,14 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "users:manage", "security_audit:read",
     }),
     "data_operator": frozenset({"dashboard:read", "analytics:read", "batches:read", "batches:write", "runs:read", "runs:write"}),
+    # One shared account for judges and testers of the public demo: every workflow of the administrator, but no
+    # account management and no security log, so one tester cannot lock the others out.
+    "demo_tester": frozenset({
+        "dashboard:read", "analytics:read", "cases:read",
+        "batches:read", "batches:write",
+        "runs:read", "runs:write", "runs:results:read",
+        "review:read", "review:write", "review:manage",
+    }),
     # One reviewer role fills every review step (status, outcome, authorized audit result) for the prototype.
     "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
     "audit_lead": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),

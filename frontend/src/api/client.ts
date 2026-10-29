@@ -11,7 +11,7 @@ export type ReviewOutcome = "signal_supported" | "signal_not_supported" | "incon
 /** Result of an authorized audit; recorded separately from the reviewer outcome. */
 export type AuditResult = "confirmed_issue" | "confirmed_no_issue";
 export type RiskLevel = "high" | "medium" | "low" | null;
-export type AppRole = "platform_admin" | "data_operator" | "verifikator" | "audit_lead";
+export type AppRole = "platform_admin" | "data_operator" | "verifikator" | "audit_lead" | "demo_tester";
 export interface AuthUser { user_id: string; username: string; role: AppRole; is_active: boolean; }
 export interface AuthSession { user: AuthUser; permissions: string[]; expires_at: string; csrf_token: string; }
 
@@ -21,7 +21,8 @@ export function isAuthSession(value: unknown): value is AuthSession {
   if (!isRecord(value) || !isRecord(value.user)) return false;
   const user = value.user;
   return isString(user.user_id) && isString(user.username)
-    && (user.role === "platform_admin" || user.role === "data_operator" || user.role === "verifikator" || user.role === "audit_lead")
+    && (user.role === "platform_admin" || user.role === "data_operator" || user.role === "verifikator" || user.role === "audit_lead"
+      || user.role === "demo_tester")
     && typeof user.is_active === "boolean" && isStringArray(value.permissions)
     && isString(value.expires_at) && isString(value.csrf_token);
 }
