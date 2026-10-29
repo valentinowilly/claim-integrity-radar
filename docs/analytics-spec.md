@@ -362,11 +362,11 @@ Perubahan dari versi awal setelah melihat catatan tulisan tangan: (1) selisih la
 
 | Cara memeriksa | Berkas diperiksa | Kecurangan per 100 berkas pertama | Kecurangan tertangkap | Klaim sah ikut diperiksa |
 |---|---|---|---|---|
-| Audit acak (beban sama dengan Radar) | 1.072 | 2,9 | 3,6% | 3,6% |
-| Aturan sederhana (satu aturan mana pun, tanpa AI/urutan) | 8.529 | 9,2 | 93,0% | 26,9% |
-| Claim Integrity Radar (risiko tinggi + sedang, policy v4) | 1.072 | 93 | 91,5% | 1,04% |
+| Audit acak (beban sama dengan Radar) | 1.092 | 2,9 | 3,7% | 3,7% |
+| Aturan sederhana (satu aturan mana pun, tanpa AI/urutan) | 8.549 | 9,4 | 95,4% | 26,9% |
+| Claim Integrity Radar (risiko tinggi + sedang, policy v4) | 1.092 | 94 | 93,9% | 1,04% |
 
-Populasi 29.628 klaim, 846 curang (2,9%) dalam delapan modus di 12 dari 40 RS yang tersebar di 17 provinsi; 15 RS pertama berbagi lima provinsi sehingga ada RS sekelas sebagai pembanding wilayah. Delapan modus: enam modus kolom BPJS ditambah fisioterapi fiktif melebihi kapasitas dan obat/alkes tanpa bukti pemberian (memakai kolom operasional sintetis). Per modus (aturan saja): fisioterapi fiktif, obat/alkes tanpa bukti, klaim salinan, pemecahan rawat inap, dan tambahan khusus fiktif 100%; tagihan ganda 77%; lama rawat diperpanjang 75%; *upcoding* 60% (sebagian pelaku sengaja ikut memalsukan diagnosis sekunder). Ketepatan risiko tinggi 93,8% (32,9× acak); 8 dari 8 faskes di 20% teratas adalah faskes curang.
+Populasi 29.628 klaim, 846 curang (2,9%) dalam delapan modus di 12 dari 40 RS yang tersebar di 17 provinsi; 15 RS pertama berbagi lima provinsi sehingga ada RS sekelas sebagai pembanding wilayah. Delapan modus: enam modus kolom BPJS ditambah fisioterapi fiktif melebihi kapasitas dan obat/alkes tanpa bukti pemberian (memakai kolom operasional sintetis). Per modus (aturan saja): fisioterapi fiktif, obat/alkes tanpa bukti, klaim salinan, pemecahan rawat inap, tambahan khusus fiktif, dan tagihan ganda 100%; lama rawat diperpanjang 75%; *upcoding* 60% (sebagian pelaku sengaja ikut memalsukan diagnosis sekunder). Ketepatan risiko tinggi 94,1% (32,9× acak); 8 dari 8 faskes di 20% teratas adalah faskes curang.
 
 Pembanding "jujur tapi mirip":
 
@@ -392,14 +392,14 @@ Diuji dengan kit resmi `healthkathon-eval-kit` (github.com/Luche/healthkathon-ev
 | Varian | Ketepatan@k (IK 95%) | Lift vs acak | PR-AUC | RS jujur ikut diaudit | Rupiah kecurangan tertangkap |
 |---|---|---|---|---|---|
 | AI saja | 0,22 (0,11–0,33) | 7,1× | 0,18 | 27 / 27 (100%) | 34,0% |
-| Aturan saja | 0,73 (0,32–0,98) | 23,7× | 0,73 | 8 / 27 (29,6%) | 60,8% |
-| **Aturan + AI (Radar, policy v4)** | **0,78 (0,38–0,95)** | **25,6×** | **0,82** | 9 / 27 (33,3%) | **83,5%** |
+| Aturan saja | 0,71 (0,33–0,98) | 23,1× | 0,75 | 8 / 27 (29,6%) | 65,0% |
+| **Aturan + AI (Radar, policy v4)** | **0,80 (0,38–0,95)** | **26,2×** | **0,83** | 8 / 27 (29,6%) | **90,6%** |
 | Aturan + AI (policy v3, sebelum perbaikan) | 0,57 (0,34–0,82) | 18,7× | 0,57 | 27 / 27 (100%) | 41,9% |
 
-- **Radar vs aturan saja:** selisih ketepatan +0,06, IK berpasangan −0,04 sampai +0,17, p = 0,29. **Tidak signifikan.** Menambah AI pada aturan belum terbukti menaikkan ketepatan. Yang jelas naik adalah rupiah tertangkap (60,8% → 83,5%): urutan antrean menaruh klaim bertemuan aturan yang lebih mahal di depan.
-- **Radar vs AI saja:** +0,56, IK +0,19 sampai +0,77, p < 0,001. AI tidak layak dipakai sendirian.
-- **Plasebo:** pada versi data yang sama tanpa kecurangan (28.968 klaim), dengan batas skor yang sama, 30 klaim di 12 dari 40 RS tetap ditandai (v3: 328 klaim di 40 RS).
-- **Uji permutasi:** PR-AUC teramati 0,815; label diacak 1.000 kali menghasilkan rata-rata 0,031 (kuantil 95% 0,033); p = 0,001.
+- **Radar vs aturan saja:** selisih ketepatan +0,09, IK berpasangan −0,04 sampai +0,17, p = 0,29. **Tidak signifikan.** Menambah AI pada aturan belum terbukti menaikkan ketepatan. Yang jelas naik adalah rupiah tertangkap (65,0% → 90,6%): urutan antrean menaruh klaim bertemuan aturan yang lebih mahal di depan.
+- **Radar vs AI saja:** +0,58, IK +0,19 sampai +0,77, p < 0,001. AI tidak layak dipakai sendirian.
+- **Plasebo:** pada versi data yang sama tanpa kecurangan (28.968 klaim), dengan batas skor yang sama, 27 klaim di 11 dari 40 RS tetap ditandai (v3: 328 klaim di 40 RS).
+- **Uji permutasi:** PR-AUC teramati 0,828; label diacak 1.000 kali menghasilkan rata-rata 0,031 (kuantil 95% 0,033); p = 0,001.
 - **Uji kebocoran:** tidak ada kolom dengan AUC > 0,80. Tertinggi: tingkat keparahan INA-CBG 0,72, rawat inap 0,71, lama rawat 0,71. Pada percobaan pertama urutan baris berkas ber-AUC 0,80, karena generator menambahkan klaim curang di akhir. Sistem tidak membaca urutan baris (hasil analisis identik sebelum dan sesudah perbaikan), tetapi berkas demo kini diurutkan menurut tanggal masuk lalu referensi kasus; AUC urutan baris turun menjadi 0,52.
 
 **Recall per modus pada k = 880 (Radar v4).**
@@ -409,10 +409,10 @@ Diuji dengan kit resmi `healthkathon-eval-kit` (github.com/Luche/healthkathon-ev
 | Fisioterapi fiktif melebihi kapasitas | 301 | 301 (100%) |
 | Pemecahan rawat inap | 152 | 148 (97%) |
 | Klaim salinan | 72 | 66 (92%) |
-| Tagihan ganda | 88 | 68 (77%) |
+| Tagihan ganda | 88 | 88 (100%) |
 | Lama rawat diperpanjang | 68 | 47 (69%) |
 | *Upcoding* | 55 | 24 (44%) |
-| Tambahan khusus fiktif | 60 | 25 (42%) |
+| Tambahan khusus fiktif | 60 | 21 (35%) |
 | Obat/alkes tanpa bukti pemberian | 50 | 9 (18%) |
 | **Penggelembungan prosedur (disisihkan)** | 60 | **0 (0%)** |
 
@@ -420,6 +420,8 @@ Diuji dengan kit resmi `healthkathon-eval-kit` (github.com/Luche/healthkathon-ev
 - **Jenis kecurangan baru tidak tertangkap.** Penggelembungan prosedur yang tidak punya aturan khusus tidak tertangkap sama sekali; AI saja juga tidak mengangkatnya. Sistem ini kuat pada pola yang sudah dikenal dan **lemah pada modus baru**; menambah modus berarti menambah pemeriksaan.
 
 **Uji penyamaran.** Pelaku *upcoding* menyalin diagnosis sekunder dari klaim jujur dengan INA-CBG yang sama (50 dari 55 klaim memperoleh sekunder sebaya). Hasilnya, *upcoding* di antrean turun dari 24 menjadi 9 dari 55. Pemeriksaan "keparahan tanpa diagnosis sekunder" mudah dihindari. Tahap 2 (pembacaan catatan klinis yang bertentangan dengan kode) dirancang untuk kasus seperti ini, tetapi tidak dipakai dalam urutan antrean dan tidak diukur dalam uji ini.
+
+**Tagihan ganda tanpa kode tindakan (`repeat-service-v2`).** Pada percobaan awal 34 dari 88 salinan tagihan ganda tidak dinilai pemeriksa layanan berulang, karena kode tindakannya kosong dan definisi untuk data sampel BPJS menganggap kosong "tidak diketahui". Pada berkas unggahan, kode tindakan kosong berarti tanpa tindakan, sehingga dua klaim peserta yang sama pada tanggal yang sama dengan diagnosis primer dan INA-CBG identik yang sama-sama tanpa tindakan kini juga dicocokkan. Alasan temuannya menyebut "sama-sama tanpa kode tindakan". Hasilnya 88 dari 88 tertangkap; klaim jujur yang ikut ditandai: 2 klaim di demo-1 dan 0 di demo-3. Sumber data sampel BPJS tetap memakai `repeat-service-v1`.
 
 **Perbaikan yang lahir dari uji ini (policy v4).**
 

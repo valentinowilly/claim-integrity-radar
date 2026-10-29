@@ -153,3 +153,19 @@ def test_unrelated_synthetic_flow_keeps_the_amount_profile():
     result = detect_repeat_billing_candidates([_record("case_a", billed_amount="10"), _record("case_b", billed_amount="10")])
     assert result["signature_profile"] == "repeat-billing-exact-v1"
     assert "context_unavailable_attributes" not in result["candidate_groups"][0]
+
+
+def test_uploaded_files_match_claims_that_both_carry_no_procedure():
+    # Two same-day claims of one participant, same diagnosis and INA-CBG, no procedure on either.
+    from app.analytics.repeat_billing import REPEAT_SERVICE_NO_PROCEDURE_PROFILE
+
+    records = [_record("case_a", procedure_code=None), _record("case_b", procedure_code=None), _record("case_c")]
+    v1 = detect_repeat_billing_candidates(records, CORE, REPEAT_SERVICE_PROFILE)
+    assert v1["candidate_groups"] == [] and {item["case_id"] for item in v1["ineligible_cases"]} == {"case_a", "case_b"}
+    v2 = detect_repeat_billing_candidates(records, CORE, REPEAT_SERVICE_NO_PROCEDURE_PROFILE)
+    assert v2["signature_profile"] == REPEAT_SERVICE_NO_PROCEDURE_PROFILE and v2["ineligible_cases"] == []
+    [group] = v2["candidate_groups"]
+    assert group["case_ids"] == ["case_a", "case_b"] and group["no_procedure_recorded"] is True
+    assert "tanpa kode tindakan" in group["reason"]
+    # A blank procedure never matches a recorded one.
+    assert "case_c" not in group["case_ids"]

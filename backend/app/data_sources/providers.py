@@ -157,7 +157,8 @@ def _bpjs_format_dataset(batch: Mapping[str, Any], records: Sequence[Mapping[str
     from app.analytics.ml_model import category_labels
     from app.data_sources.bpjs_csv import BPJS_CSV_MAPPING_VERSION
     from app.data_sources.fkrtl_local_source import FKRTL_SCHEMA_PROFILE
-    from scripts.fkrtl_dta_provider import FKRTL_NOT_APPLICABLE_DETECTORS, FKRTL_REPEAT_SIGNATURE_PROFILE
+    from app.analytics.repeat_billing import REPEAT_SERVICE_NO_PROCEDURE_PROFILE
+    from scripts.fkrtl_dta_provider import FKRTL_NOT_APPLICABLE_DETECTORS
 
     features = adapt_bpjs_batch_features(batch, records)
     facilities, not_applicable, operational = _operational_inputs(features, FKRTL_NOT_APPLICABLE_DETECTORS)
@@ -174,7 +175,8 @@ def _bpjs_format_dataset(batch: Mapping[str, Any], records: Sequence[Mapping[str
             "classification": "synthetic_only_declared",
             "source_schema_profile": FKRTL_SCHEMA_PROFILE,
             "mapping_version": BPJS_CSV_MAPPING_VERSION,
-            "repeat_signature_profile": FKRTL_REPEAT_SIGNATURE_PROFILE,
+            # In an uploaded file a blank procedure means "no procedure" (see repeat_billing.py).
+            "repeat_signature_profile": REPEAT_SERVICE_NO_PROCEDURE_PROFILE,
             "not_applicable_detectors": not_applicable,
             "selection": {"strategy": "uploaded_file", "date_from": dates[0], "date_to": dates[-1],
                           "date_field": "FKL03", "processed_rows": len(features),

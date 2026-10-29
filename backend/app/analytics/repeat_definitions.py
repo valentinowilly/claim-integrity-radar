@@ -15,6 +15,8 @@ repeat patterns, never cross-participant similarity):
   ``run_fkrtl_real_detection.py`` (archived outside the repo): missing values are matched as a literal
   value and a missing/invalid FKL47 counts as 0. Kept only to reconcile the
   earlier 81-group / 20-group report; it is not used by the application.
+* ``repeat-service-v2`` (uploaded BPJS-format files) - the ``repeat_service_v1`` key, but a blank procedure
+  means "no procedure": two claims that both carry none still match on the other key fields.
 * ``repeat-service-v1`` (FKRTL), ``repeat-billing-exact-v1`` (synthetic) and
   the former ``repeat-visit-exact-no-amount-v1`` - the detector profiles (see
   ``repeat_billing.py``). ``repeat-service-v1`` uses the ``repeat_service_v1``
@@ -36,6 +38,7 @@ from app.analytics.normalization import normalize_amount, normalize_date, normal
 from app.analytics.records import validate_case_records
 
 MISSING = "<MISSING>"
+NONE_RECORDED = "<NONE>"
 DATE_FIELDS = frozenset({"service_date", "discharge_date"})
 AMOUNT_FIELDS = frozenset({"billed_amount", "provider_billed_amount_unverified"})
 
@@ -52,6 +55,8 @@ class RepeatDefinition:
     # "exclude": records without a valid amount are left out of the subset.
     # "zero": missing/invalid amounts count as 0 (legacy script only).
     amount_missing_policy: str = "exclude"
+    # Key fields whose blank value is itself a value ("none recorded"), matched like any other value.
+    none_value_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if "participant_token" not in self.key_fields:
@@ -100,7 +105,8 @@ def group_repeat_patterns(records: Sequence[Mapping[str, Any]], definition: Repe
     keyed: dict[tuple[Any, ...], list[str]] = defaultdict(list)
     ineligible: list[tuple[str, list[str]]] = []
     for case_id, record in validated:
-        values = tuple(normalize_value(field, record.get(field)) for field in definition.key_fields)
+        values = tuple(NONE_RECORDED if value is None and field in definition.none_value_fields else value
+                       for field, value in ((field, normalize_value(field, record.get(field))) for field in definition.key_fields))
         missing = [field for field, value in zip(definition.key_fields, values) if value is None]
         if missing and definition.missing_policy == "ineligible":
             ineligible.append((case_id, missing))

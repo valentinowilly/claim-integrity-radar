@@ -36,13 +36,20 @@ AMOUNT_WITHHELD_SIGNATURE_FIELDS = tuple(field for field in SIGNATURE_FIELDS if 
 # identity, so they are compared only as reviewer context and never decide
 # eligibility or hide a candidate.
 REPEAT_SERVICE_PROFILE = "repeat-service-v1"
+# Uploaded BPJS-format files: the same key, but a blank procedure means "no procedure" (the files say so; the
+# BPJS sample has not confirmed it, so the FKRTL source keeps v1). Two same-day claims of one participant with
+# the same diagnosis and INA-CBG and no procedure on either are then a repeat pattern too.
+REPEAT_SERVICE_NO_PROCEDURE_PROFILE = "repeat-service-v2"
 REPEAT_CONTEXT_FIELDS = tuple(field for field in AMOUNT_WITHHELD_SIGNATURE_FIELDS if field not in REPEAT_SERVICE_KEY)
 SIGNATURE_PROFILES = {
     "repeat-billing-exact-v1": SIGNATURE_FIELDS,
     "repeat-visit-exact-no-amount-v1": AMOUNT_WITHHELD_SIGNATURE_FIELDS,
     REPEAT_SERVICE_PROFILE: REPEAT_SERVICE_KEY,
+    REPEAT_SERVICE_NO_PROCEDURE_PROFILE: REPEAT_SERVICE_KEY,
 }
-PROFILE_CONTEXT_FIELDS = {REPEAT_SERVICE_PROFILE: REPEAT_CONTEXT_FIELDS}
+PROFILE_CONTEXT_FIELDS = {REPEAT_SERVICE_PROFILE: REPEAT_CONTEXT_FIELDS,
+                          REPEAT_SERVICE_NO_PROCEDURE_PROFILE: REPEAT_CONTEXT_FIELDS}
+PROFILE_NONE_VALUE_FIELDS = {REPEAT_SERVICE_NO_PROCEDURE_PROFILE: ("procedure_code",)}
 # Machine-readable interpretation carried by every result and candidate so the API
 # and UI cannot present a pattern as a billing finding.
 SIGNAL_TYPE = "repeated_service_pattern"
@@ -63,6 +70,7 @@ LIMITATIONS = [
 def detect_repeat_billing_candidates(
     records: Sequence[Mapping[str, Any]],
     signature_fields: Sequence[str] = SIGNATURE_FIELDS,
+    profile: str | None = None,
 ) -> dict[str, Any]:
     """Group complete exact signatures repeated at least twice.
 
@@ -72,16 +80,18 @@ def detect_repeat_billing_candidates(
     of ``SIGNATURE_PROFILES``.
     """
     signature_fields = tuple(signature_fields)
-    if signature_fields not in SIGNATURE_PROFILES.values():
+    if signature_fields not in SIGNATURE_PROFILES.values() or (profile is not None and SIGNATURE_PROFILES.get(profile) != signature_fields):
         raise ValueError("Unknown repeat signature profile.")
     with_amount = "billed_amount" in signature_fields
-    profile = next(name for name, fields in SIGNATURE_PROFILES.items() if fields == signature_fields)
+    profile = profile or next(name for name, fields in SIGNATURE_PROFILES.items() if fields == signature_fields)
+    none_value_fields = PROFILE_NONE_VALUE_FIELDS.get(profile, ())
     context_fields = PROFILE_CONTEXT_FIELDS.get(profile, ())
     # Grouping is defined once in repeat_definitions; missing key values make a
     # record ineligible rather than matching each other. Context fields are
     # never part of the key.
-    grouping = group_repeat_patterns(records, RepeatDefinition(name=profile, key_fields=signature_fields))
-    by_case = dict(validate_case_records(records)) if context_fields else {}
+    grouping = group_repeat_patterns(records, RepeatDefinition(name=profile, key_fields=signature_fields,
+                                                               none_value_fields=none_value_fields))
+    by_case = dict(validate_case_records(records)) if context_fields or none_value_fields else {}
     ineligible = [
         {
             "case_id": case_id,
@@ -95,7 +105,9 @@ def detect_repeat_billing_candidates(
     candidates = []
     for number, case_ids in enumerate(candidate_case_groups, start=1):
         if context_fields:
-            candidates.append(_context_candidate(number, case_ids, signature_fields, context_fields, by_case))
+            no_procedure = "procedure_code" in none_value_fields and all(
+                normalize_value("procedure_code", by_case[case_id].get("procedure_code")) is None for case_id in case_ids)
+            candidates.append(_context_candidate(number, case_ids, signature_fields, context_fields, by_case, no_procedure))
             continue
         candidates.append({
             "group_id": f"repeat-billing-{number:04d}",
@@ -130,7 +142,8 @@ def detect_repeat_billing_candidates(
 
 
 def _context_candidate(number: int, case_ids: list[str], key_fields: Sequence[str],
-                       context_fields: Sequence[str], by_case: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+                       context_fields: Sequence[str], by_case: Mapping[str, Mapping[str, Any]],
+                       no_procedure: bool = False) -> dict[str, Any]:
     """Core-key candidate with context compared by field name only (values are never returned)."""
     matched, differing, unavailable = [], [], []
     for field in context_fields:
@@ -152,12 +165,14 @@ def _context_candidate(number: int, case_ids: list[str], key_fields: Sequence[st
         "candidate_record_count": len(case_ids),
         "matched_attributes": [*key_fields, *matched],
         "differing_attributes": differing,
+        "no_procedure_recorded": no_procedure,
         "context_unavailable_attributes": unavailable,
         "interpretation": SIGNAL_TYPE,
         "billing_status_evidence": BILLING_STATUS_EVIDENCE,
         "reason": (
             f"{len(case_ids)} kunjungan berbeda dari peserta yang sama memiliki tanggal datang, diagnosis primer, "
-            "kode INA-CBG, dan prosedur yang identik (definisi repeat_service_v1); nilai tidak ditampilkan dan "
+            + ("dan kode INA-CBG yang identik, dan sama-sama tanpa kode tindakan; " if no_procedure else
+               "kode INA-CBG, dan prosedur yang identik (definisi repeat_service_v1); ") + "nilai tidak ditampilkan dan "
             f"nilai tagih tidak dibandingkan. {context} Periksa apakah kunjungan ini episode terpisah yang sah "
             "(mis. rujukan atau layanan berbeda pada hari sama), cocokkan tanggal pulang, resume medis, dan berkas "
             "klaim. Ini sinyal tinjauan, bukan bukti tagihan ganda atau fraud."

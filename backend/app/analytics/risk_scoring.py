@@ -105,6 +105,7 @@ def run_detector_suite(
     near_duplicate_candidate_pair_observer: Callable[[str, str], None] | None = None,
     near_duplicate_similarity_observer: Callable[[str, str, bool], None] | None = None,
     repeat_signature_fields: Sequence[str] = REPEAT_SIGNATURE_FIELDS,
+    repeat_profile: str | None = None,
     not_applicable: Mapping[str, str] | None = None,
     clinical_rules: bool = False,
     clinical_reference: Mapping[str, Any] | None = None,
@@ -128,7 +129,7 @@ def run_detector_suite(
     if set(not_applicable) - set(DETECTOR_ORDER):
         raise ValueError("Unknown detector declared not applicable.")
     calls = (
-        ("repeat_billing_candidate", lambda: detect_repeat_billing_candidates(records, repeat_signature_fields)),
+        ("repeat_billing_candidate", lambda: detect_repeat_billing_candidates(records, repeat_signature_fields, repeat_profile)),
         ("similar_claim_pattern_candidate", lambda: detect_similar_claim_patterns(records)),
         ("near_duplicate_claim_candidate", lambda: detect_near_duplicate_claims(
             records,

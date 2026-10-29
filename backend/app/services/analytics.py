@@ -114,6 +114,11 @@ _REPEAT_PROFILE_DEFINITIONS = {
         "(repeat_service_v1); prosedur kosong berarti tidak dinilai. Wilayah, kategori fasilitas, dan diagnosis "
         "masuk hanya ditampilkan sebagai konteks; nilai tagih tidak dibandingkan karena belum terverifikasi."
     ),
+    "repeat-service-v2": (
+        "Seperti repeat_service_v1, tetapi pada berkas unggahan kode tindakan kosong berarti tanpa tindakan: dua "
+        "kunjungan peserta yang sama pada tanggal yang sama dengan diagnosis primer dan INA-CBG identik yang "
+        "sama-sama tanpa tindakan juga dicocokkan. Nilai tagih tidak dibandingkan."
+    ),
     "repeat-visit-exact-no-amount-v1": (
         "Exact match kunjungan untuk peserta yang sama pada tanggal datang, wilayah/kategori fasilitas, "
         "diagnosis masuk/primer, kode INA-CBG, dan prosedur; nilai tagih tidak dibandingkan karena belum terverifikasi."
@@ -350,13 +355,13 @@ def build_analytics_snapshot(
             clinical_reference = None  # the stay and severity checks then report themselves unavailable
         special = special_reference() or None  # without it the special top-up check reports itself unavailable
     detector_results = run_detector_suite(
-        source_records, facility_metadata, repeat_signature_fields=SIGNATURE_PROFILES[repeat_profile],
+        source_records, facility_metadata, repeat_signature_fields=SIGNATURE_PROFILES[repeat_profile], repeat_profile=repeat_profile,
         not_applicable=declared, clinical_rules=bpjs_columns, clinical_reference=clinical_reference,
         special_reference=special,
     )
     if earlier_records:
         _compare_with_earlier_claims(detector_results, source_records, earlier_records,
-                                     SIGNATURE_PROFILES[repeat_profile])
+                                     SIGNATURE_PROFILES[repeat_profile], repeat_profile)
     if stage_observer:
         stage_observer("detectors_complete")
     # The snapshot and priority queue only expose signaled claims. Avoid
@@ -615,14 +620,15 @@ def _keep_current(result: Mapping[str, Any], current: set[str], current_count: i
 
 
 def _compare_with_earlier_claims(results: dict[str, Any], records: Sequence[Mapping[str, Any]],
-                                 earlier: Sequence[Mapping[str, Any]], signature_fields: Sequence[str]) -> None:
+                                 earlier: Sequence[Mapping[str, Any]], signature_fields: Sequence[str],
+                                 profile: str | None = None) -> None:
     """Re-run the repeat and readmission checks over this file plus earlier claims (cross-day duplicates)."""
     current = {str(record.get("case_id")) for record in records}
     combined = list(records) + [record for record in earlier if record.get("case_id") not in current]
     if len(combined) == len(records):
         return
     calls = {
-        "repeat_billing_candidate": lambda: detect_repeat_billing_candidates(combined, signature_fields),
+        "repeat_billing_candidate": lambda: detect_repeat_billing_candidates(combined, signature_fields, profile),
         "rapid_readmission_candidate": lambda: detect_rapid_readmission(combined),
     }
     for code, call in calls.items():
