@@ -5,7 +5,7 @@ import { getRunCase, type FacilityGroup, type RunCase, type RunResult } from "..
 import { useAuth } from "../auth/AuthContext";
 import { EmptyState } from "../components/DataStates";
 import {
-  LANES, LEVELS, LaneDot, ReadingGuide, formatCount, formatDateTime, indicatorLabel, mlLevel, runTitle, shortRef,
+  LANES, LEVELS, LaneDot, formatCount, formatDateTime, indicatorLabel, mlLevel, runTitle, shortRef,
 } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { provinceName } from "../components/provinces";
@@ -53,13 +53,6 @@ export default function FacilitiesPage() {
     <Head title="Faskes" text="Kelompok faskes diurutkan dari yang paling layak diperiksa lebih dulu." snapshot={snapshot} />
     {state.status !== "success" && <RunStateMessage state={state} retry={reload} />}
     {state.status === "success" && (!groups ? <NoGroups result={result} /> : <>
-      <ReadingGuide title="Cara membaca daftar faskes" items={[
-        ["Kelompok faskes", "Gabungan wilayah, kepemilikan, jenis, dan kelas faskes. Satu kelompok dapat berisi lebih dari satu rumah sakit."],
-        ["Urutan", "Kelompok dengan temuan terbanyak per rekam medis yang perlu diminta ada di atas. Nilai tagihan tidak memengaruhi urutan."],
-        ["Tingkat risiko", "Prioritas pemeriksaan, bukan kesimpulan adanya kecurangan."],
-        ["Pembanding wilayah", "Kelompok dibandingkan dengan faskes sekelas di provinsi yang sama, sebagai petunjuk tambahan."],
-        ["Kelompok kecil", `Kelompok dengan kurang dari ${formatCount(groups.min_claims)} klaim tidak ditampilkan agar faskes tidak dapat dikenali.`],
-      ]} />
       <section className="lane-cards" aria-label="Tingkat risiko faskes">
         {(["high", "medium", "low"] as const).map(key => (
           <button key={key} type="button" className={`lane-card ${key === "high" ? "red" : key === "medium" ? "yellow" : "green"}`}

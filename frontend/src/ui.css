@@ -1208,3 +1208,16 @@ body, .app-shell, .main-panel { background: var(--canvas); }
 details > summary { transition: color 0.15s ease; }
 details[open] > *:not(summary) { animation: cir-page-in 0.24s ease both; }
 .status-pill { transition: background-color 0.2s ease, color 0.2s ease; }
+
+/* Page head on wide screens: title left, data source and analysis picker right, on one line and aligned to
+   the subtitle; the subtitle wraps instead of pushing the picker to a second row. */
+@media (min-width: 1051px) {
+  .page-head { flex-wrap: nowrap; align-items: flex-end; }
+  .page-head > div:first-child { flex: 1 1 auto; }
+  .page-head-actions { flex-shrink: 0; align-items: center; }
+}
+
+/* Today's brief: two columns on wide screens, so four lines take two rows. */
+@media (min-width: 1100px) {
+  .today-brief ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
+}

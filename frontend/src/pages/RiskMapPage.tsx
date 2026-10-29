@@ -3,7 +3,7 @@ import { ArrowRight, ArrowUpRight, Building2, LayoutGrid, Map as MapIcon, MapPin
 import { Link, useSearchParams } from "react-router-dom";
 import type { FacilityGroup, Fairness } from "../api/client";
 import { EmptyState } from "../components/DataStates";
-import { LEVELS, LaneDot, ReadingGuide, formatCount, formatRupiah } from "../components/Display";
+import { LEVELS, LaneDot, formatCount, formatRupiah } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { METRICS, RiskMap, formatPercent, type MapMetric, type MapView, type ProvinceValue } from "../components/RiskMap";
 import { PROVINCE_MAP, provinceName } from "../components/provinces";
@@ -71,13 +71,6 @@ function MapWorkspace({ rows, fairness, groups, runId, metric, setMetric, hasBil
   const [view, setView] = useState<MapView>("map");
 
   return <>
-    <ReadingGuide title="Cara membaca peta" items={[
-      ["Warna", "Makin pekat, makin tinggi nilainya: porsi klaim berisiko, jumlah klaim berisiko, atau nilai tagihan, sesuai pilihan di atas peta."],
-      ["Peta atau Petak", "Peta memakai bentuk wilayah sebenarnya. Petak memberi satu kotak sama besar per provinsi, agar provinsi kecil seperti DKI Jakarta tetap terlihat."],
-      ["Dibanding nasional", "2× berarti porsi klaim berisiko provinsi itu dua kali rata-rata nasional. Di atas 2× atau di bawah setengahnya perlu dicek: bisa karena perbedaan data, bisa juga pola wilayah yang nyata."],
-      ["Abu-abu", `Provinsi dengan kurang dari ${formatCount(fairness.min_claims)} klaim tidak dinilai.`],
-      ["Arti warna", "Prioritas pemeriksaan, bukan bukti kecurangan."],
-    ]} />
     <section className="map-stats" aria-label="Ringkasan wilayah">
       <div className="map-stat card"><span className="map-stat-icon"><MapPinned size={18} aria-hidden="true" /></span>
         <div><span>Provinsi dinilai</span><strong>{formatCount(mapped)}<small> dari 34</small></strong></div></div>
