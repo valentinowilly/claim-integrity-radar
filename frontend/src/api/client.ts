@@ -180,6 +180,7 @@ export interface DurationScreen {
   unassessed_reason_counts?: Record<string, number>; peer_groups_assessed?: number; peer_groups_below_support?: number;
   candidate_count: number; candidates_per_1000_assessed?: number | null; candidates: DurationCandidate[]; limitations: string[];
 }
+export type FraudPattern = "phantom_billing" | "cloning" | "repeat_billing" | "fictitious_claim" | "upcoding_stay";
 export interface RunCase {
   ml_anomaly?: MlAnomalyRank | null;
   ml_inference?: MlInferenceStatus;
@@ -188,6 +189,8 @@ export interface RunCase {
   /** Present on scoring v2 runs; absent on persisted v1 runs. */
   score_basis?: { assessed_indicator_count: number; minimum_assessed_indicators: number } | null;
   case_id: string; risk_score: number | null; score_status: string; indicators: string[];
+  /** Proposal patterns named by the findings, strongest first (absent on runs before this field). */
+  fraud_patterns?: FraudPattern[];
   indicator_coverage: Array<{ indicator: string; status: string; reason: string | null }>;
   reasons: Array<{ indicator: string; summary: string; evidence: string[]; limitations: string[]; supporting_values?: Record<string, unknown> }>;
   limitations: string[];

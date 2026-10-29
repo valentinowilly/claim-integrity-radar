@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, MousePointerClick, Search, SlidersHorizontal, X } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/DataStates";
-import { LANES, LaneDot, formatCount, indicatorLabel, mlFeatureLabel, mlLevel, shortRef } from "../components/Display";
+import { FRAUD_PATTERNS, LANES, LaneDot, PatternTags, formatCount, indicatorLabel, mlFeatureLabel, mlLevel, shortRef } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { useAuth } from "../auth/AuthContext";
@@ -116,7 +116,8 @@ export default function CasesPage() {
   };
   const queryKey = JSON.stringify([runId, query]);
   const activeFilters = [
-    ...(indicator ? [{ key: "check", label: `Pemeriksaan: ${indicatorLabel(indicator)}` }] : []),
+    ...(indicator ? [{ key: "check", label: indicator.startsWith("modus:")
+      ? `Modus: ${FRAUD_PATTERNS[indicator.slice(6)]?.label ?? indicator.slice(6)}` : `Pemeriksaan: ${indicatorLabel(indicator)}` }] : []),
     ...(reviewFilter && reviewMap ? [{ key: "state", label: `Status: ${REVIEW_FILTERS.find(([value]) => value === reviewFilter)?.[1] ?? reviewFilter}` }] : []),
     ...(assigned && reviewMap ? [{ key: "who", label: assigned === "me" ? "Klaim saya" : "Belum diambil" }] : []),
   ];
@@ -192,8 +193,13 @@ export default function CasesPage() {
                 </button>
               </div>
               <div id="queue-filter-panel" className="queue-filter-panel" hidden={!filtersOpen}>
+                <label><span>Modus</span>
+                  <select aria-label="Filter modus" value={indicator.startsWith("modus:") ? indicator : ""} onChange={event => updateList({ check: event.target.value })}>
+                    <option value="">Semua modus</option>
+                    {Object.entries(FRAUD_PATTERNS).map(([code, item]) => <option key={code} value={`modus:${code}`}>{item.label}</option>)}
+                  </select></label>
                 <label><span>Pemeriksaan</span>
-                  <select aria-label="Filter jenis pemeriksaan" value={indicator} onChange={event => updateList({ check: event.target.value })}>
+                  <select aria-label="Filter jenis pemeriksaan" value={indicator.startsWith("modus:") ? "" : indicator} onChange={event => updateList({ check: event.target.value })}>
                     <option value="">Semua pemeriksaan</option>
                     {result.indicators.map(item => <option key={item.code} value={item.code}>{indicatorLabel(item.code)}</option>)}
                   </select></label>
@@ -232,6 +238,7 @@ export default function CasesPage() {
                       <LaneDot lane={lane?.lane ?? "none"} />
                       <span className="queue-item-body">
                         <strong>{item.indicators.map(indicatorLabel).join(" + ") || "Klaim ditandai"}</strong>
+                        <PatternTags patterns={item.fraud_patterns} />
                         <small>Ref. {shortRef(item.case_id)}{lane && lane.lane in LANES ? ` · ${LANES[lane.lane as Lane].name}` : ""}</small>
                         {review?.audit_result && <small data-testid="queue-audit-result">{auditResultLabels[review.audit_result]}</small>}
                       </span>

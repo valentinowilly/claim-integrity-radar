@@ -248,16 +248,16 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
           : <FacilityTable groups={groups.groups.slice(0, 5)} runQuery={runQuery} />}
       </article>
 
-      <article className="card span-4" aria-label="Analisis AI">
+      <article className="card span-4" aria-label="AI Pola Klaim">
         <div className="card-head">
-          <div><h2><Sparkles size={16} className="head-icon" aria-hidden="true" />Analisis AI</h2>
+          <div><h2><Sparkles size={16} className="head-icon" aria-hidden="true" />AI Pola Klaim</h2>
             <p>Mendeteksi pola klaim yang tidak biasa</p></div>
           {aiOnly.length > 0 && <Link className="card-link" to={`/cases${runQuery}&lane=ai`} aria-label="Lihat temuan tambahan AI"><ArrowUpRight size={16} /></Link>}
         </div>
         {ml?.status !== "available" ? <p className="fine-print">AI tidak tersedia pada analisis ini.</p> : <>
           <div className="stat-big" style={{ marginBottom: 12 }}><CountUp value={ml.records_scored} /><small> klaim dinilai</small></div>
           <ul className="check-rows ai-stats">
-            {ml.share_above_training_p99 !== undefined && <li className="check-row"><span>Sangat tidak biasa menurut AI</span>
+            {ml.share_above_training_p99 !== undefined && <li className="check-row"><span>Pola sangat jarang menurut AI</span>
               <strong>{formatCount(Math.round(ml.share_above_training_p99 * ml.records_scored))}</strong></li>}
             <li className="check-row"><span title="Klaim risiko tinggi yang juga dinilai sangat tidak biasa oleh AI">Menguatkan klaim risiko tinggi</span><strong>{formatCount(aiConfirmedRed)}</strong></li>
             <li className="check-row"><span title="Klaim yang lolos pemeriksaan aturan tetapi dinilai sangat tidak biasa oleh AI">Temuan tambahan AI</span><strong>{formatCount(aiOnly.length)}{ml.items_truncated ? "+" : ""}</strong></li>

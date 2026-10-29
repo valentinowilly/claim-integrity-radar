@@ -132,8 +132,10 @@ function codeWithName(code: string | null, name: string | null): string {
 }
 
 /** The claim's clinical note and the AI's reading of it next to the billed codes. */
-export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded }: {
+export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded, patternPercentile = null }: {
   runId: string; caseId: string; canAsk: boolean; onLoaded?: (hasNote: boolean) => void;
+  /** AI Pola Klaim percentile of this claim, to explain when the two AIs disagree. */
+  patternPercentile?: number | null;
 }) {
   const notify = useNotify();
   const [data, setData] = useState<ClinicalNoteResponse | null>(null);
@@ -206,7 +208,7 @@ export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded }: {
 
     <div className="clinical-ai" data-testid="clinical-ai">
       <div className="clinical-ai-head">
-        <div><strong><Sparkles size={15} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> Pembacaan AI</strong>
+        <div><strong><Sparkles size={15} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> AI Pembaca Catatan</strong>
           <span className="fine-print">{data.ai_configured
             ? "AI membaca catatan ini lalu mencocokkannya dengan diagnosis, tingkat keparahan, dan lama rawat yang ditagihkan."
             : "Layanan AI sedang tidak aktif; pembacaan memakai pemeriksaan teks otomatis."}</span></div>
@@ -222,6 +224,7 @@ export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded }: {
           <span className={`status-pill tone-${VERDICTS[analysis.verdict].tone}`}>{VERDICTS[analysis.verdict].label}</span>
           <strong>{VERDICTS[analysis.verdict].headline}</strong>
         </div>
+        <TwoAiNote verdict={analysis.verdict} percentile={patternPercentile} />
         <p className="clinical-ai-summary">{analysis.ringkasan.replace(/^Fakta yang dibaca dari catatan bertentangan dengan data klaim\.\s*/, "")}</p>
 
         {analysis.fakta_catatan && <div className="clinical-facts" data-testid="clinical-ai-facts">
@@ -298,4 +301,16 @@ function AiWait() {
     <div className="busy-strip" aria-hidden="true" />
     <small className="fine-print">Biasanya kurang dari satu menit.</small>
   </div>;
+}
+
+/** When the two AIs point different ways, say why that is possible and who decides. */
+function TwoAiNote({ verdict, percentile }: { verdict: ClinicalVerdictCode; percentile: number | null }) {
+  if (percentile === null) return null;
+  if (verdict === "sesuai" && percentile >= 0.95) return <p className="two-ai-note" data-testid="two-ai-note">
+    Menurut AI Pola Klaim, kombinasi kode klaim ini jarang; AI Pembaca Catatan menilai catatannya mendukung kode tersebut.
+    Kemungkinan kasus langka yang sah. Putuskan setelah melihat berkas.</p>;
+  if (verdict === "mencurigakan" && percentile < 0.8) return <p className="two-ai-note" data-testid="two-ai-note">
+    Menurut AI Pola Klaim, kombinasi kodenya wajar, tetapi AI Pembaca Catatan menemukan catatan yang bertentangan dengan tagihan.
+    Kode yang tampak biasa tetap perlu dicocokkan dengan catatan klinis.</p>;
+  return null;
 }

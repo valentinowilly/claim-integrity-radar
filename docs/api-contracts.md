@@ -584,3 +584,19 @@ Kode pemeriksaan (`IndicatorCode`) bertambah: `length_of_stay_extreme_candidate`
 - Kode pemeriksaan baru: `severity_without_secondary_candidate` dan `unusual_special_topup_candidate` (temuan spesifik). Yang kedua membutuhkan `special_reference.json` di folder model (`scripts/export_special_reference.py`); tanpanya `unavailable`.
 - `facility_groups.groups[].peer_signals[]`: `{kind: "severity"|"special", share, peer_share, ratio, peer_groups, text}`; muncul bila porsi kelompok jauh di atas kelompok sekelas di provinsi yang sama (lihat analytics-spec). Hanya alasan tambahan; tidak mengubah `level` atau urutan.
 - Laporan evaluasi `cir-current-pipeline-synthetic-v1` memuat `method_comparison = {k, methods[]}`; tiap metode: `name, description, reviewed_claims, precision_at_k, fraud_per_100, recall, honest_kept_green, honest_flagged`.
+
+## Modus kecurangan per klaim (`fraud_patterns`)
+
+Setiap klaim yang ditandai memuat `fraud_patterns`: daftar modus proposal yang ditunjukkan temuannya, yang paling kuat lebih dulu (paling banyak pemeriksaan terpicu). Field ini tidak ada pada analisis lama.
+
+| Kode | Label di layar | Pemeriksaan |
+|---|---|---|
+| `phantom_billing` | Phantom billing | kapasitas layanan, pola waktu, kelengkapan bukti untuk fisioterapi |
+| `cloning` | Cloning | catatan klinis kembar |
+| `repeat_billing` | Repeat billing | layanan berulang, rawat inap ulang cepat |
+| `fictitious_claim` | Klaim fiktif obat/alkes | tambahan khusus tidak lazim, kelengkapan bukti untuk obat/alkes khusus |
+| `upcoding_stay` | Upcoding / lama rawat | lama rawat ekstrem, keparahan tidak lazim, keparahan tanpa diagnosis sekunder |
+
+Pemeriksaan eksploratif kemiripan klaim saja tidak menghasilkan modus. Antrean memfilter modus lewat parameter `indicator=modus:<kode>` pada `GET /api/v1/runs/{run_id}/cases`. Modus adalah label dari temuan aturan, bukan putusan kecurangan.
+
+AI tahap 1 tampil di layar sebagai **AI Pola Klaim** (seberapa jarang pola kode klaim), dan pembacaan catatan klinis sebagai **AI Pembaca Catatan**.

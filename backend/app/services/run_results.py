@@ -15,6 +15,7 @@ import sqlite3
 import threading
 from typing import Any
 
+from app.analytics.fraud_patterns import fraud_patterns
 from app.db import UndefinedTable, cache_key, is_missing_table, table_exists
 
 _CACHE_SIZE = 2  # a large FKRTL result parses to a few hundred MB; keep at most two
@@ -166,7 +167,7 @@ def case_page(
     needle = (search or "").strip().lower()
     selected = []
     for case_id, case in cases.items():
-        if indicator and indicator not in (case.get("indicators") or []):
+        if indicator and indicator not in [*(case.get("indicators") or []), *(f"modus:{code}" for code in fraud_patterns(case))]:
             continue
         if needle and needle not in case_id.lower():
             continue
@@ -278,7 +279,8 @@ def write_case_rows(connection: sqlite3.Connection, run_id: str, stored: Any) ->
         "sort_rule_index,sort_checks,sort_ml_rank,sort_similarity_rarity) VALUES (?,?,?,?,?,?,?,?,?,?)",
         ((run_id, position, case_id, _dumps(case),
           _dumps(lanes[case_id]) if case_id in lanes else None,
-          "|" + "|".join(case.get("indicators") or []) + "|",
+          # Checks and proposal patterns ("modus:<code>"), so the queue filters on either.
+          "|" + "|".join([*(case.get("indicators") or []), *(f"modus:{code}" for code in fraud_patterns(case))]) + "|",
           _sort_value(case, "rule_index", {}), _sort_value(case, "checks", {}),
           _sort_value(case, "ml_rank", {}), _sort_value(case, "similarity_rarity", {}))
          for position, (case_id, case) in enumerate(stored["cases"].items())),

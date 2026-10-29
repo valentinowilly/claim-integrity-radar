@@ -1228,3 +1228,21 @@ details[open] > *:not(summary) { animation: cir-page-in 0.24s ease both; }
 .priority-index { display: inline-grid; gap: 1px; }
 .priority-index strong { font-size: 15px; color: var(--brand-ink); }
 .priority-index small { color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
+
+/* Proposal fraud patterns on queue items and the claim page. */
+.pattern-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0 2px; }
+.pattern-tag { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 650;
+  line-height: 1.5; border: 1px solid transparent; }
+.pattern-phantom_billing { background: rgb(220 38 38 / 0.1); color: #b42318; border-color: rgb(220 38 38 / 0.25); }
+.pattern-cloning { background: rgb(124 58 237 / 0.1); color: #6d28d9; border-color: rgb(124 58 237 / 0.25); }
+.pattern-repeat_billing { background: rgb(37 99 235 / 0.1); color: #1d4ed8; border-color: rgb(37 99 235 / 0.25); }
+.pattern-fictitious_claim { background: rgb(217 119 6 / 0.12); color: #a15c07; border-color: rgb(217 119 6 / 0.3); }
+.pattern-upcoding_stay { background: var(--surface-muted, var(--canvas)); color: var(--text-secondary); border-color: var(--border-subtle); }
+:root[data-theme="dark"] .pattern-phantom_billing { color: #fca5a5; }
+:root[data-theme="dark"] .pattern-cloning { color: #c4b5fd; }
+:root[data-theme="dark"] .pattern-repeat_billing { color: #93c5fd; }
+:root[data-theme="dark"] .pattern-fictitious_claim { color: #fcd34d; }
+.case-hero .pattern-tags { margin-top: 8px; }
+.case-hero .pattern-tag { background: rgb(255 255 255 / 0.16); color: #fff; border-color: rgb(255 255 255 / 0.3); }
+.two-ai-note { margin: 0; padding: 10px 12px; border-left: 3px solid var(--status-info-border, var(--brand-line)); border-radius: 0 10px 10px 0;
+  background: var(--status-info-bg, var(--canvas)); color: var(--text-secondary); font-size: 13px; line-height: 1.55; }

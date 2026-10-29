@@ -12,7 +12,7 @@ import {
 import { ClinicalNoteCard } from "../components/ClinicalNoteCard";
 import { VisitTimeline } from "../components/VisitTimeline";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
-import {
+import { PatternTags,
   EvidenceList, mlQualification, PatternOnlyNotice, TechnicalDetails, aiScore, formatCount, formatDate, formatDateTime, indicatorDefinition,
   indicatorGuidance, indicatorLabel, mlFeatureLabel, mlLevel, ruleIndexText, runTitle, shortRef, statusText, LANES, LaneDot,
   attributeLabel,
@@ -216,9 +216,9 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
   // Plain-language reason: never the raw policy band text.
   const verdictReason = candidate.risk_score !== null
     ? `Skor temuan ${Math.round(candidate.risk_score * 100)} dari 100.`
-    : laneKey === "red" ? "Ditandai pemeriksaan aturan dan dinilai sangat tidak biasa oleh AI."
-    : laneKey === "yellow" ? "Ditandai pemeriksaan aturan dan dinilai tidak biasa oleh AI."
-    : laneKey === "green" ? "Ditandai pemeriksaan aturan, tetapi AI menilai polanya wajar." : "";
+    : laneKey === "red" ? "Ditandai pemeriksaan aturan; AI Pola Klaim menilai polanya sangat jarang."
+    : laneKey === "yellow" ? "Ditandai pemeriksaan aturan; AI Pola Klaim menilai polanya jarang."
+    : laneKey === "green" ? "Ditandai pemeriksaan aturan, tetapi AI Pola Klaim menilai polanya wajar." : "";
   // Factors behind the AI score: per-claim signals against the training data, else the stored top-list deviations.
   const factors = (mlRank?.supporting_signals ?? []).map(item => ({ feature: item.feature, description: item.description, percentile: item.training_percentile }))
     .concat(!(mlRank?.supporting_signals?.length) ? (mlItem?.top_deviations ?? []) : []).slice(0, 4);
@@ -238,6 +238,7 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
         <div>
           <span className="eyebrow-text">{runTitle(run.run)} · Ref. klaim {shortRef(caseId)}</span>
           <h2>{heading}</h2>
+          {ruleCandidate && <PatternTags patterns={ruleCandidate.fraud_patterns} />}
         </div>
         <div className="case-hero-badges"><StatusBadge status={review.review_status} />{review.review_outcome && <span className="status-pill tone-neutral">{reviewOutcomeLabels[review.review_outcome]}</span>}</div>
       </div>
@@ -280,23 +281,23 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
 
     {(mlRank || mlNotAssessed) && <section className="card run-case-reasons" aria-label="Penilaian AI">
       <div className="card-head">
-        <div><h2><Sparkles size={16} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> Analisis AI</h2>
+        <div><h2><Sparkles size={16} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> AI Pola Klaim</h2>
           <p>{trainingText}</p></div>
       </div>
       {mlNotAssessed && !mlRank && <p>AI tidak dapat menilai klaim ini karena data {mlNotAssessed.reason.replace(/^missing:/, "").split("+").map(field => attributeLabel(field)).join(", ")} kosong.</p>}
       {mlRank && percentile !== null && <div className="ai-card">
         <div className="ai-score">
-          <span className="fine-print">Skor AI</span>
+          <span className="fine-print">Skor pola</span>
           <span className="ai-num">{aiScore(percentile)}<small> / 100</small></span>
           {level && <span className={`status-pill tone-${level.tone}`} style={{ justifySelf: "start" }}>{level.label}</span>}
           <span className="ai-meta">Peringkat {formatCount(mlRank.rank)} dari {formatCount(scored)} klaim pada periode ini{mlRank.tie_count && mlRank.tie_count > 1 ? ` (nilainya sama dengan ${formatCount(mlRank.tie_count - 1)} klaim lain)` : ""}.</span>
         </div>
         <div>
-          <strong style={{ display: "block", marginBottom: 12 }}>Faktor yang membuat klaim ini tidak biasa</strong>
+          <strong style={{ display: "block", marginBottom: 12 }}>Faktor yang membuat pola klaim ini jarang</strong>
           {factors.length > 0 ? <ul className="ai-factors">{factors.map(item => (
             <li className="ai-factor" key={item.feature}>
               <div className="ai-factor-head"><span>{mlFeatureLabel(item.feature, item.description)}</span>
-                <span>lebih tidak biasa daripada {Math.floor(item.percentile * 100)}% klaim lain</span></div>
+                <span>lebih jarang daripada {Math.floor(item.percentile * 100)}% klaim lain</span></div>
               <div className="ai-bar" aria-hidden="true"><span style={{ width: `${Math.max(4, item.percentile * 100)}%` }} /></div>
             </li>))}</ul>
             : <p className="fine-print">Tidak ada satu faktor yang menonjol; yang tidak biasa adalah gabungan beberapa data.</p>}
@@ -310,7 +311,7 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
       <p>Catatan klinis dan riwayat kunjungan yang mendasari temuan di atas.</p>
     </div>}
     <div id="bukti-catatan" className="evidence-anchor">
-      <ClinicalNoteCard runId={runId} caseId={caseId} canAsk={canUpdateStatus} onLoaded={hasNote => setEvidence(current => ({ ...current, note: hasNote }))} />
+      <ClinicalNoteCard runId={runId} caseId={caseId} canAsk={canUpdateStatus} patternPercentile={percentile} onLoaded={hasNote => setEvidence(current => ({ ...current, note: hasNote }))} />
     </div>
     <div id="bukti-kunjungan" className="evidence-anchor">
       <VisitTimeline runId={runId} caseId={caseId} relevant={candidate.indicators.some(code => VISIT_FINDINGS.has(code))}

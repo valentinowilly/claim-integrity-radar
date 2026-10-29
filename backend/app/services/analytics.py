@@ -18,6 +18,7 @@ from app.analytics.repeat_billing import (
     INTERPRETATION as REPEAT_INTERPRETATION, LIMITATIONS as REPEAT_LIMITATIONS, SIGNATURE_PROFILES,
     detect_repeat_billing_candidates,
 )
+from app.analytics.fraud_patterns import fraud_patterns
 from app.analytics.risk_scoring import DETECTOR_ORDER, run_detector_suite, score_claims
 from app.analytics.similar_claim_pattern import LIMITATIONS as SIMILAR_LIMITATIONS
 from app.analytics.temporal_patterns import LIMITATIONS as TEMPORAL_LIMITATIONS
@@ -533,6 +534,8 @@ def build_analytics_snapshot(
             "status": "pending",
             "detected_at": None,
             "reasons": reasons,
+            # Proposal patterns (phantom billing, cloning, repeat billing, fictitious claim) named by the findings.
+            "fraud_patterns": fraud_patterns({"indicators": triggered, "reasons": reasons}),
             "limitations": list(dict.fromkeys(limitations)),
             "review": {"decision": None, "reviewed_at": None},
             # Scored records carry their rank; a record the model could not score carries its

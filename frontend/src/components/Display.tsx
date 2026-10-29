@@ -534,12 +534,26 @@ export function mlRankText(rank: number, total: number, tieCount?: number): stri
   return `Peringkat ${formatCount(rank)} dari ${formatCount(total)}${tie}`;
 }
 
-/** Level words for the AI score percentile against the training data. */
+/** Level words for the AI Pola Klaim percentile against the training data: how rare the claim's pattern is. */
 export function mlLevel(percentile: number): { label: string; tone: Tone } {
-  if (percentile >= 0.99) return { label: "Sangat tidak biasa", tone: "danger" };
-  if (percentile >= 0.95) return { label: "Tidak biasa", tone: "warn" };
-  if (percentile >= 0.8) return { label: "Agak tidak biasa", tone: "info" };
-  return { label: "Wajar", tone: "neutral" };
+  if (percentile >= 0.99) return { label: "Pola sangat jarang", tone: "danger" };
+  if (percentile >= 0.95) return { label: "Pola jarang", tone: "warn" };
+  if (percentile >= 0.8) return { label: "Pola agak jarang", tone: "info" };
+  return { label: "Pola wajar", tone: "neutral" };
+}
+
+/** The proposal's fraud patterns, as named on screen. */
+export const FRAUD_PATTERNS: Record<string, { label: string; hint: string }> = {
+  phantom_billing: { label: "Phantom billing", hint: "Layanan melebihi kapasitas, tanpa bukti, atau dicatat serentak" },
+  cloning: { label: "Cloning", hint: "Catatan klinis disalin dari klaim lain" },
+  repeat_billing: { label: "Repeat billing", hint: "Layanan yang sama ditagih lagi atau episode dipecah" },
+  fictitious_claim: { label: "Klaim fiktif obat/alkes", hint: "Obat atau alat khusus tanpa bukti pemberian, atau tidak lazim untuk INA-CBG-nya" },
+  upcoding_stay: { label: "Upcoding / lama rawat", hint: "Keparahan atau lama rawat tidak sesuai klaim sejenis" },
+};
+export function PatternTags({ patterns }: { patterns?: string[] | null }) {
+  if (!patterns?.length) return null;
+  return <span className="pattern-tags">{patterns.map(code => <span key={code} className={`pattern-tag pattern-${code}`}
+    title={FRAUD_PATTERNS[code]?.hint}>{FRAUD_PATTERNS[code]?.label ?? code}</span>)}</span>;
 }
 /** AI anomaly score 0–100: the share of reference claims that are less unusual than this one. */
 export function aiScore(percentile: number): string {
