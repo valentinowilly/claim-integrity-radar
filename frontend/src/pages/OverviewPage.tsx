@@ -125,7 +125,9 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
     const percentile = score ? score.reference_percentile ?? score.anomaly_percentile : null;
     return typeof percentile === "number" && percentile >= aiRedMin;
   }).length;
-  const [chartLane, setChartLane] = useState<"red" | "yellow">("red");
+  // Until the user picks one, the chart shows high risk, or medium risk when there is no high-risk claim.
+  const [chartChoice, setChartLane] = useState<"red" | "yellow" | null>(null);
+  const chartLane = chartChoice ?? (red > 0 ? "red" : "yellow");
 
   let reviewed = 0;
   const statusCounts: Record<string, number> = { in_review: 0, awaiting_evidence: 0, escalated: 0, closed: 0 };
@@ -183,13 +185,13 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
 
       <article className="card span-5">
         <div className="card-head">
-          <div><h2><BarChart3 size={16} className="head-icon" aria-hidden="true" />Klaim per kelompok faskes</h2><p>Enam kelompok dengan klaim risiko {chartLane === "red" ? "tinggi" : "sedang"} terbanyak. Nomor = peringkat di daftar faskes; arahkan kursor untuk melihat namanya.</p></div>
+          <div><h2><BarChart3 size={16} className="head-icon" aria-hidden="true" />Klaim per kelompok faskes</h2><p>Enam kelompok dengan klaim risiko {chartLane === "red" ? "tinggi" : "sedang"} terbanyak. #1, #2, … = peringkat di halaman Faskes.</p></div>
           <div className="segmented-pill" role="group" aria-label="Pilih tingkat risiko grafik">
             <button type="button" aria-pressed={chartLane === "red"} onClick={() => setChartLane("red")}>Tinggi</button>
             <button type="button" aria-pressed={chartLane === "yellow"} onClick={() => setChartLane("yellow")}>Sedang</button>
           </div>
         </div>
-        {bars.length === 0 || peak === 0 ? <div className="detail-placeholder" style={{ minHeight: 230 }}><strong>Tidak ada klaim risiko {chartLane === "red" ? "tinggi" : "sedang"}</strong><span>{bars.length === 0 ? "Kelompok faskes belum tersedia untuk analisis ini." : "Belum ada kelompok faskes dengan klaim pada tingkat ini."}</span></div> : <div className="chart-box" style={{ height: 250 }}
+        {bars.length === 0 || peak === 0 ? <div className="detail-placeholder" style={{ minHeight: 230 }}><strong>Tidak ada klaim risiko {chartLane === "red" ? "tinggi" : "sedang"}</strong><span>{bars.length === 0 ? "Kelompok faskes belum tersedia untuk analisis ini." : `Tidak ada kelompok faskes dengan klaim risiko ${chartLane === "red" ? "tinggi" : "sedang"} pada analisis ini.`}</span></div> : <div className="chart-box" style={{ height: 250 }}
           role="img" aria-label={bars.map(bar => `${bar.title}: ${bar.value}`).join(", ")}>
           <ResponsiveContainer>
             <BarChart data={bars} margin={{ top: 28, right: 4, bottom: 0, left: -24 }}>
@@ -214,7 +216,7 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
         {reviews === null ? <p className="fine-print">Hanya terlihat oleh peninjau.</p> : reviewed === 0 ? <div className="review-empty">
           <div className="stat-big">0<small> / {formatCount(flagged)}</small></div>
           <p>Belum ada klaim yang ditinjau pada analisis ini.</p>
-          <Link className="button button-secondary row-button" to={`/cases${runQuery}&lane=red`}>Mulai dari risiko tinggi <ArrowRight size={13} /></Link>
+          <Link className="button button-secondary row-button" to={`/cases${runQuery}&lane=${red > 0 ? "red" : "yellow"}`}>Mulai dari risiko {red > 0 ? "tinggi" : "sedang"} <ArrowRight size={13} /></Link>
         </div> : <>
           <div className="stat-big">{formatCount(reviewed)}<small> / {formatCount(flagged)}</small></div>
           <div className="chart-box" style={{ height: 150 }}>

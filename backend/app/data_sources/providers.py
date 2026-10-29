@@ -32,9 +32,11 @@ CANONICAL_FEATURE_FIELDS = (
     "clinical_note",
     # Optional BPJS-format details: secondary diagnoses (FKL24) and special top-up codes (FKL33-FKL44).
     "secondary_diagnoses", "special_codes",
+    # Optional marker of an uploaded file: "none" = operational columns present but empty for this claim.
+    "operational_scope",
 )
 _CANONICAL_FIELD_SET = frozenset(CANONICAL_FEATURE_FIELDS)
-OPTIONAL_FEATURE_FIELDS = frozenset({"clinical_note", "secondary_diagnoses", "special_codes"})
+OPTIONAL_FEATURE_FIELDS = frozenset({"clinical_note", "secondary_diagnoses", "special_codes", "operational_scope"})
 _CANONICAL_REQUIRED = _CANONICAL_FIELD_SET - OPTIONAL_FEATURE_FIELDS
 _FORBIDDEN_LABEL_FIELDS = frozenset({
     "is_anomaly", "is_synthetic_anomaly", "scenario", "scenario_label",

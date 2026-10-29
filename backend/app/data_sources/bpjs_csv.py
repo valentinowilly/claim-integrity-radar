@@ -165,6 +165,10 @@ def parse_bpjs_csv(raw: bytes, *, max_rows: int = 120_000) -> tuple[list[dict[st
         record["clinical_note"] = note
         record["secondary_diagnoses"] = secondary
         record.update(operational)
+        if operational_headers and not operational:
+            # The file carries operational columns but this claim has none: it is not a recorded service session
+            # (e.g. an ordinary inpatient claim), so the capacity and service-time checks do not apply to it.
+            record["operational_scope"] = "none"
     conflict = _capacity_conflict(records)
     if conflict:
         raise CsvImportError(_error_summary({"facility_capacity_conflict": 1}, [{"code": "facility_capacity_conflict", "column": "KAPASITAS_HARIAN"}], parsed_rows))

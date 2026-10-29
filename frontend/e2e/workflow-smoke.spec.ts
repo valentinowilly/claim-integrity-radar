@@ -243,7 +243,8 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
   await expect(page.getByRole("heading", { name: "Data & Analisis", exact: true })).toBeVisible();
   await captureVisual(page, "workflow-desktop");
   // Upload is one step: a valid file is checked and analysed right away.
-  await expect(page.getByText(/Kebijakan data: nomor peserta harus anonim/)).toBeVisible();
+  await page.getByText("Format berkas yang diterima", { exact: true }).click();
+  await expect(page.getByText(/Nomor peserta harus sudah disamarkan/)).toBeVisible();
   await expect(page.getByRole("region", { name: "Sambungan otomatis" }).getByText("Belum diatur", { exact: true })).toBeVisible();
   await page.locator('input[type="file"]').setInputFiles(rejectedCsv);
   await page.getByLabel("Nama data").fill("synthetic-e2e-rejected");
@@ -655,7 +656,7 @@ test("FKRTL sample runs from Data & Analisis with repeat-service-v1, explicit co
   expect(created.status()).toBe(201);
   const createdText = await created.text();
   const run = (JSON.parse(createdText) as { run: { run_id: string; source_type: string; configuration: { source: { repeat_signature_profile: string } } } }).run;
-  await expect(summary).toContainText("Kualitas data baik, ada catatan");
+  await expect(summary).toContainText("Kualitas data baik, dengan catatan");
   // The finished event comes from the server (polled every 15 s), not from the click.
   await expect(page.getByTestId("toast").filter({ hasText: "Pemeriksaan kualitas data selesai dengan catatan" }))
     .toBeVisible({ timeout: 40_000 });

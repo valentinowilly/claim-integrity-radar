@@ -39,7 +39,7 @@ export default function AnalysisPage() {
           <Kpi className="span-3" icon={<Database size={18} />} label="Klaim dianalisis" value={formatCount(available.records_considered)} foot="Seluruh klaim di data ini" />
           <Kpi className="span-3" icon={<ShieldAlert size={18} />} label="Klaim ditandai" value={formatCount(flaggedCaseCount(available))} foot="Oleh pemeriksaan aturan" />
           <Kpi className="span-3" icon={<ListChecks size={18} />} label="Pemeriksaan berlaku" value={`${formatCount(applicable.length)} dari ${formatCount(available.indicators.length)}`} foot="Sisanya dilewati karena datanya tidak ada" />
-          <Kpi className="span-3" icon={<Activity size={18} />} label="Status analisis" value={available.execution_status === "partial" ? "Sebagian" : statusText(available.execution_status)} foot={available.execution_status === "partial" ? "Ada klaim yang belum dapat diperiksa" : "Semua pemeriksaan berjalan"} />
+          <Kpi className="span-3" icon={<Activity size={18} />} label="Status analisis" value={available.execution_status === "partial" ? "Selesai" : statusText(available.execution_status)} foot={available.execution_status === "partial" ? "Sebagian klaim dilewati pemeriksaan tertentu" : "Semua pemeriksaan berjalan"} />
         </section>
 
         <section className="card">

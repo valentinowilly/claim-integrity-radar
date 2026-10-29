@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, MousePointerClick, Search, SlidersHorizontal, X } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/DataStates";
-import { Callout, LANES, LaneDot, formatCount, indicatorLabel, mlFeatureLabel, mlLevel, shortRef } from "../components/Display";
+import { LANES, LaneDot, formatCount, indicatorLabel, mlFeatureLabel, mlLevel, shortRef } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { useAuth } from "../auth/AuthContext";
@@ -163,10 +163,6 @@ export default function CasesPage() {
     {state.status === "success" && (!result ? <EmptyState title="Hasil analisis tidak tersedia" message="Analisis yang dipilih belum memiliki hasil tersimpan." />
       : result.availability !== "available" ? <EmptyState title="Antrean belum tersedia" message="Hasil analisis ini belum siap. Tidak ada klaim yang ditampilkan dari hasil yang belum lengkap." />
       : <>
-        {result.execution_status === "partial" && <Callout tone="info" title="Sebagian klaim tidak diperiksa penuh">
-          <p>Data beberapa klaim tidak lengkap (misalnya kode prosedur kosong), sehingga tidak semua pemeriksaan dapat diterapkan.
-            Rinciannya ada di <Link to={`/analysis?run_id=${encodeURIComponent(state.detail.run.run_id)}`}>hasil analisis</Link>.</p>
-        </Callout>}
         <div className={`queue-layout${selected ? " has-detail" : ""}`}>
           <section className="card queue-list-card" aria-label="Daftar klaim">
             <div className="queue-head">

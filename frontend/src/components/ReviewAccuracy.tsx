@@ -51,7 +51,7 @@ export function ReviewAccuracy() {
     {data.totals.decided === 0
       ? <div className="accuracy-empty">
         <strong>Belum ada klaim yang diputuskan petugas dalam 12 minggu terakhir.</strong>
-        <span>Angka ini muncul setelah petugas mengisi langkah 2 di halaman klaim: <em>Benar, perlu ditindaklanjuti</em> atau <em>Ternyata wajar</em>.</span>
+        <span>Angka ini terisi setelah petugas memberi keputusan pada klaim yang ditinjau, yaitu <em>Benar, perlu ditindaklanjuti</em> atau <em>Ternyata wajar</em>.</span>
       </div>
       : <>
         <div className="trend-legend" aria-hidden="true" style={{ marginBottom: 8 }}>

@@ -125,7 +125,7 @@ BPJS_RECORD_FIELDS = frozenset({
 })
 
 
-BPJS_OPTIONAL_FIELDS = frozenset({"clinical_note", "secondary_diagnoses", "special_codes"})
+BPJS_OPTIONAL_FIELDS = frozenset({"clinical_note", "secondary_diagnoses", "special_codes", "operational_scope"})
 
 
 def adapt_bpjs_batch_features(batch: Mapping[str, Any], records: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -154,6 +154,8 @@ def adapt_bpjs_batch_features(batch: Mapping[str, Any], records: Sequence[Mappin
         note = record.get("clinical_note")
         if note is not None and not isinstance(note, str):
             raise BatchAdapterError("A clinical note is invalid.")
+        if record.get("operational_scope") not in (None, "none"):
+            raise BatchAdapterError("An operational scope marker is invalid.")
         for field in ("secondary_diagnoses", "special_codes"):
             value = record.get(field)
             if value is not None and not (isinstance(value, list) and all(isinstance(code, str) for code in value)):

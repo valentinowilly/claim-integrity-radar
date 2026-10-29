@@ -62,11 +62,16 @@ def detect_capacity_candidates(
 
     grouped: dict[tuple[str, str, Any], dict[str, Any]] = defaultdict(lambda: {"units": Decimal(0), "case_ids": []})
     ineligible: list[dict[str, str]] = []
+    not_applicable: list[dict[str, str]] = []
     for case_id, row in validated:
         facility_id = text_value(row.get("facility_id"))
         service_type = text_value(row.get("service_type"))
         service_day = date_value(row.get("service_date"))
         units = nonnegative_decimal(row.get("service_units"))
+        if row.get("operational_scope") == "none":
+            # The source marks this claim as no recorded service (operational columns present but empty).
+            not_applicable.append({"case_id": case_id, "reason": "Klaim ini tidak memuat data layanan berkapasitas."})
+            continue
         if facility_id is None or service_type is None or service_day is None or units is None:
             ineligible.append({"case_id": case_id, "reason": "Fasilitas, jenis layanan, tanggal, atau unit layanan tidak lengkap/tidak valid."})
             continue
@@ -116,6 +121,7 @@ def detect_capacity_candidates(
         "candidate_count": len(candidates),
         "candidates": candidates,
         "ineligible_cases": sorted(ineligible, key=lambda item: item["case_id"]),
+        "not_applicable_cases": sorted(not_applicable, key=lambda item: item["case_id"]),
         "capacity_unit": "synthetic service units per facility per day",
         "limitations": LIMITATIONS.copy(),
     }

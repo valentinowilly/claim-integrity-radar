@@ -60,7 +60,9 @@ function Delta({ change, previous, format, direction }: {
   if (change === 0) return <span className="kpi2-delta tone-neutral"><Minus size={13} aria-hidden="true" />Sama dengan analisis sebelumnya</span>;
   const up = change > 0;
   const tone = direction === "neutral" ? "neutral" : (up === (direction === "up-is-bad")) ? "bad" : "good";
-  const percent = previous > 0 ? ` (${up ? "+" : "−"}${Math.round(Math.abs(change) / previous * 100)}%)` : "";
+  // A share above 3x says little (the earlier analysis was often of another file); the count change stays.
+  const ratio = previous > 0 ? Math.abs(change) / previous : Infinity;
+  const percent = ratio <= 3 ? ` (${up ? "+" : "−"}${Math.round(ratio * 100)}%)` : "";
   return <><span className={`kpi2-delta tone-${tone}`} title="Dibandingkan dengan analisis sebelumnya">
     {up ? <ArrowUpRight size={13} aria-hidden="true" /> : <ArrowDownRight size={13} aria-hidden="true" />}
     {up ? "+" : "−"}{format(Math.abs(change))}{percent}

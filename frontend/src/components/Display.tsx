@@ -73,7 +73,7 @@ const STATUS: Record<string, [string, Tone]> = {
   failed: ["Gagal", "danger"],
   // check coverage
   complete: ["Semua klaim diperiksa", "good"],
-  partial: ["Sebagian data tidak lengkap", "info"],
+  partial: ["Sebagian klaim dilewati", "info"],
   partial_coverage: ["Sebagian klaim belum diperiksa", "warn"],
   unavailable: ["Tidak tersedia", "neutral"],
   not_applicable: ["Tidak berlaku untuk data ini", "neutral"],
@@ -119,9 +119,13 @@ export function statusText(value: string): string {
 export function statusTone(value: string): Tone {
   return STATUS[value]?.[1] ?? "neutral";
 }
-/** Run-level wording: a "partial" run still finished; only some claims could not be checked. */
+/** Run-level wording: a "partial" run still finished; only some claims could not be checked by every check
+ * (claim data always has gaps, e.g. claims without a procedure code), so it reads as finished. */
 export function runStatusText(value: string): string {
-  return value === "partial" ? "Selesai · sebagian data tidak lengkap" : statusText(value);
+  return value === "partial" ? "Selesai" : statusText(value);
+}
+export function RunStatusPill({ value }: { value: string }) {
+  return <StatusPill value={value === "partial" ? "completed" : value} label={runStatusText(value)} />;
 }
 export function StatusPill({ value, label }: { value: string; label?: string }) {
   return <span className={`status-pill tone-${statusTone(value)}`}>{label ?? statusText(value)}</span>;

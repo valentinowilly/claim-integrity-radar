@@ -34,7 +34,7 @@ import { EmptyState, LoadingState } from "../components/DataStates";
 import {
   MoreInfo, StatusPill, TechnicalDetails,
   unassessedReasonText,
-  formatCount, formatDate, formatDateTime, indicatorLabel, runStatusText, runTitle, sourceLabel,
+  formatCount, formatDate, formatDateTime, indicatorLabel, RunStatusPill, runTitle, sourceLabel,
 } from "../components/Display";
 import { useAuth } from "../auth/AuthContext";
 
@@ -311,7 +311,7 @@ export default function WorkflowPage() {
           <section className="card upload-section" aria-label="Tambah data klaim" id="unggah" data-open={openUpload || undefined}>
             <div className="card-head">
               <div><h2><FileUp size={17} style={{ verticalAlign: "-3px", color: "var(--brand-ink)" }} /> Tambah data klaim</h2>
-                <p>Unggah berkas CSV berformat kolom data klaim FKRTL (PSTV01, FKL02, FKL03, …). Berkas diperiksa lalu langsung dianalisis.</p></div>
+                <p>Unggah berkas klaim rumah sakit (CSV). Sistem memeriksa kelengkapan isinya, lalu langsung menganalisis.</p></div>
             </div>
             {canWriteBatches ? (
               <form className="upload-form" onSubmit={(event) => void submitImport(event)}>
@@ -330,8 +330,15 @@ export default function WorkflowPage() {
                 </button>
               </form>
             ) : <p className="fine-print">Unggah berkas hanya dapat dilakukan oleh operator data.</p>}
-            <p className="fine-print upload-policy">Kebijakan data: nomor peserta harus anonim (berawalan SYN); kolom biaya pasca-verifikasi (FKL48) tidak diterima.</p>
-            <p className="fine-print">Kolom tambahan opsional: catatan klinis (CATATAN_KLINIS), diagnosis sekunder (FKL24), serta data faskes dan rekam medis (ID_FASKES, KAPASITAS_HARIAN, JENIS_LAYANAN, JUMLAH_LAYANAN, JAM_LAYANAN, BUKTI_WAJIB, BUKTI_TERCATAT, STATUS_BUKTI) untuk pemeriksaan kapasitas, waktu layanan, dan kelengkapan bukti.</p>
+            <details className="tech-details upload-format">
+              <summary>Format berkas yang diterima</summary>
+              <ul className="plain-list">
+                <li>Kolom sama dengan data klaim FKRTL BPJS (PSTV01, FKL02, FKL03, dan seterusnya).</li>
+                <li>Nomor peserta harus sudah disamarkan (diawali SYN).</li>
+                <li>Kolom biaya setelah verifikasi (FKL48) tidak boleh ada, karena sistem hanya menilai klaim sebelum verifikasi.</li>
+                <li>Boleh ditambah: catatan klinis, diagnosis sekunder, serta data kapasitas faskes, jam layanan, dan bukti pendukung. Tanpa kolom ini, pemeriksaan yang memerlukannya dilewati.</li>
+              </ul>
+            </details>
             {importResult && !batchDetail && <BatchCard batch={importResult.batch} />}
             {canReadBatches && batches.length > 0 && (<>
               <h3 className="section-subtitle">Berkas tersimpan</h3>
@@ -413,7 +420,7 @@ export default function WorkflowPage() {
                         </td>
                         <td>{sourceLabel(run.source_type)}</td>
                         <td>{formatDateTime(run.created_at)}</td>
-                        <td><StatusPill value={run.execution_status} label={runStatusText(run.execution_status)} /></td>
+                        <td><RunStatusPill value={run.execution_status} /></td>
                         {canWriteRuns && <td>{run.execution_status !== "running" && (
                           <button className="button button-secondary row-button" disabled={busy} onClick={() => void archive(run)} aria-label={`Arsipkan ${runTitle(run)}`}>
                             <Archive size={14} />Arsipkan
@@ -457,7 +464,7 @@ export default function WorkflowPage() {
 
 const VALIDATION_STATUS: Record<string, [string, string]> = {
   passed: ["ready", "Kualitas data baik"],
-  passed_with_warnings: ["ready_with_warnings", "Kualitas data baik, ada catatan"],
+  passed_with_warnings: ["ready_with_warnings", "Kualitas data baik, dengan catatan"],
   failed: ["failed", "Kualitas data bermasalah"],
 };
 
@@ -473,8 +480,11 @@ function FkrtlValidationSummary({ validation }: { validation: FkrtlValidationSta
     <div className="stack" style={{ gap: 10 }} data-testid="fkrtl-validation-state">
       <div className="cell-flex" style={{ justifyContent: "space-between" }}>
         <strong>Hasil pemeriksaan kualitas data</strong>
-        <StatusPill value={tone} label={validation.current ? label : `${label} (perlu diperiksa ulang)`} />
+        <StatusPill value={tone} label={label} />
       </div>
+      {!validation.current && (
+        <p className="notice-inline" role="status">Berkas data atau periodenya berubah sejak pemeriksaan ini. Tekan <strong>Proses data klaim</strong> untuk memeriksa ulang.</p>
+      )}
       {scan?.rows_total !== undefined && (
         <div className="fact-grid compact">
           <div className="fact"><span>Klaim pada periode</span><strong>{formatCount(scan.rows_in_window ?? 0)}</strong></div>
@@ -489,9 +499,13 @@ function FkrtlValidationSummary({ validation }: { validation: FkrtlValidationSta
         </div>
       )}
       {report.warnings.length > 0 && (
-        <ul className="plain-list" aria-label="Catatan kualitas data">
-          {report.warnings.map((item) => <li key={item.code}>{issueMessage(item.code, item.message)}</li>)}
-        </ul>
+        <div className="quality-notes">
+          <strong>Catatan ({report.warnings.length})</strong>
+          <ul className="plain-list" aria-label="Catatan kualitas data">
+            {report.warnings.map((item) => <li key={item.code}>{issueMessage(item.code, item.message)}</li>)}
+          </ul>
+          <span className="fine-print">Catatan tidak menghentikan analisis; klaim yang terdampak hanya dilewati oleh pemeriksaan terkait.</span>
+        </div>
       )}
       {report.checks.length > 0 && (
         <details className="tech-details">
@@ -865,8 +879,11 @@ function RunResultPanel({ detail }: { detail: RunDetailResponse }) {
           <span className="fine-print">Ringkasan analisis</span>
           <strong style={{ display: "block", fontSize: 16 }}>{runTitle(run)}</strong>
         </div>
-        <StatusPill value={run.execution_status} label={runStatusText(run.execution_status)} />
+        <RunStatusPill value={run.execution_status} />
       </div>
+      {run.execution_status === "partial" && (
+        <p className="fine-print">Sebagian klaim tidak dapat dinilai oleh pemeriksaan tertentu, misalnya klaim tanpa kode tindakan. Ini wajar pada data klaim; jumlahnya ada di <em>Rincian per pemeriksaan</em>.</p>
+      )}
       {run.failure_category && (
         <div className="workflow-error">Analisis gagal ({run.failure_category.replace(/_/g, " ").toLowerCase()}). Tidak ada hasil yang ditampilkan.</div>
       )}
@@ -889,7 +906,7 @@ function RunResultPanel({ detail }: { detail: RunDetailResponse }) {
             <summary>Rincian per pemeriksaan</summary>
             <div className="table-scroll">
               <table className="data-table" aria-label="Hasil pemeriksaan">
-                <thead><tr><th>Pemeriksaan</th><th>Klaim terdeteksi</th><th>Klaim diperiksa</th></tr></thead>
+                <thead><tr><th>Pemeriksaan</th><th>Klaim terdeteksi</th><th>Klaim diperiksa</th><th>Tidak dapat dinilai</th></tr></thead>
                 <tbody>{applicable.map((item) => {
                   const coverage = result.indicator_coverage.find((row) => row.indicator === item.code);
                   return (
@@ -897,6 +914,7 @@ function RunResultPanel({ detail }: { detail: RunDetailResponse }) {
                       <td><strong>{indicatorLabel(item.code)}</strong></td>
                       <td>{formatCount(item.candidate_count)}</td>
                       <td>{formatCount(coverage?.records_assessed ?? item.eligible_count)}</td>
+                      <td>{coverage?.records_unassessed ? formatCount(coverage.records_unassessed) : "—"}</td>
                     </tr>
                   );
                 })}</tbody>

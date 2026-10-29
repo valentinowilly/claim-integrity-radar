@@ -73,11 +73,16 @@ def detect_temporal_patterns(
     invalid_dates: list[dict[str, str]] = []
     unassessed_times: list[dict[str, str]] = []
     missing_prerequisites: list[dict[str, str]] = []
+    not_applicable: list[dict[str, str]] = []
     for case_id, row in validated:
         participant = text_value(row.get("participant_token"))
         facility_id = text_value(row.get("facility_id"))
         service_type = text_value(row.get("service_type"))
         service_day = date_value(row.get("service_date"))
+        if row.get("operational_scope") == "none":
+            # The source marks this claim as no recorded service (operational columns present but empty).
+            not_applicable.append({"case_id": case_id, "reason": "Klaim ini tidak memuat data sesi layanan."})
+            continue
         if service_day is None:
             invalid_dates.append({"case_id": case_id, "reason": "Tanggal layanan tidak valid untuk pemeriksaan temporal."})
             continue
@@ -145,6 +150,7 @@ def detect_temporal_patterns(
         "ineligible_cases": sorted(invalid_dates, key=lambda item: item["case_id"]),
         "unassessed_time_cases": sorted(unassessed_times, key=lambda item: item["case_id"]),
         "unassessed_cases": sorted(missing_prerequisites, key=lambda item: item["case_id"]),
+        "not_applicable_cases": sorted(not_applicable, key=lambda item: item["case_id"]),
         "search_parameters": {
             "repeat_window_days": config.repeat_window_days,
             "min_repeat_claims": config.min_repeat_claims,

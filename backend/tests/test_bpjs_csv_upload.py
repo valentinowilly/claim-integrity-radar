@@ -199,3 +199,25 @@ def test_checks_apply_only_when_the_file_carries_their_columns():
     plain, _ = parse_bpjs_csv(_csv(_rows(4)))
     declared = SyntheticBatchProvider(batch=batch, normalized_records=plain).load().source_metadata["not_applicable_detectors"]
     assert "synthetic_capacity_candidate" in declared and "supporting_evidence_completeness_candidate" in declared
+
+
+def test_claims_without_operational_values_are_outside_the_capacity_and_time_checks():
+    # A file with operational columns, where one claim (an ordinary inpatient stay) leaves them empty:
+    # that claim is marked "no recorded service", so the checks count it as not applicable, not unassessed.
+    from app.analytics.capacity import detect_capacity_candidates
+    from app.analytics.temporal_patterns import detect_temporal_patterns
+
+    rows = _with_ops(_rows(3))
+    rows[2].update({column: "" for column in OPS[len(COLUMNS):]})
+    records, _summary = parse_bpjs_csv(_csv(rows, OPS))
+    assert [record.get("operational_scope") for record in records].count("none") == 1 and records[2]["operational_scope"] == "none"
+    facilities = [{"facility_id": "SYNRS1", "daily_capacity_units": 8}]
+    capacity = detect_capacity_candidates(records, facilities)
+    temporal = detect_temporal_patterns(records)
+    empty = records[2]["case_id"]
+    assert [item["case_id"] for item in capacity["not_applicable_cases"]] == [empty]
+    assert [item["case_id"] for item in temporal["not_applicable_cases"]] == [empty]
+    assert empty not in {item["case_id"] for item in capacity["ineligible_cases"] + temporal["unassessed_cases"]}
+    # A file without operational columns carries no marker; the dataset-level "not applicable" covers it.
+    plain, _ = parse_bpjs_csv(_csv(_rows(2)))
+    assert all("operational_scope" not in record for record in plain)

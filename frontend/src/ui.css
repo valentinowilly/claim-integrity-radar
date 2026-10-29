@@ -715,7 +715,8 @@ body, .app-shell, .main-panel { background: var(--canvas); }
 .chip-green { display: inline-flex; padding: 3px 9px; border-radius: 999px; color: #fff; background: var(--brand); font-size: 11.5px; font-weight: 700; }
 
 /* Tombol segmen berbentuk pil */
-.segmented-pill { display: inline-flex; gap: 2px; padding: 4px; border-radius: 999px; background: var(--canvas); }
+.segmented-pill { display: inline-flex; flex-shrink: 0; gap: 2px; padding: 4px; border-radius: 999px; background: var(--canvas); }
+.card-head > .segmented-pill { min-width: max-content; }
 .segmented-pill button { padding: 7px 14px; border: 0; border-radius: 999px; color: var(--text-muted); background: transparent; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .segmented-pill button[aria-pressed="true"] { color: #fff; background: var(--brand); }
 
@@ -1180,3 +1181,10 @@ body, .app-shell, .main-panel { background: var(--canvas); }
   font-weight: 700; font-size: 16px; list-style: none; }
 .review-history-panel > summary.history-summary::-webkit-details-marker { display: none; }
 .review-history-panel[open] > summary.history-summary { margin-bottom: 8px; }
+
+/* Data-quality notes and the accepted upload format (Data & Analisis). */
+.quality-notes { display: grid; gap: 6px; padding: 12px 14px; border-radius: 12px; background: var(--surface-muted, var(--canvas)); }
+.quality-notes > strong { font-size: 13px; }
+.quality-notes .plain-list { margin: 0; }
+.upload-format { margin-top: 4px; }
+.upload-format .plain-list { margin: 8px 0 0; display: grid; gap: 4px; font-size: 13px; color: var(--text-muted); }
