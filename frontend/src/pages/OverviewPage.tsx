@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight, ArrowUpRight, BarChart3, Building2, CalendarDays, ClipboardCheck, FileStack, FileText, ShieldAlert, Sparkles,
   TriangleAlert, Upload, Wallet,
@@ -140,9 +140,11 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
     ...Object.entries(statusCounts).map(([key, value]) => ({ key, name: runReviewStatusLabels[key as RunReviewStatus], value }))]
     .filter(item => item.value > 0);
 
-  const bars = [...(groups?.groups ?? [])]
+  // Same array while the groups and the lane are the same. The bars are not animated: the layout moves while
+  // the headline numbers count up, and every resize restarted the animation, leaving bars misplaced and unlabelled.
+  const bars = useMemo(() => [...(groups?.groups ?? [])]
     .sort((a, b) => b.lane_counts[chartLane] - a.lane_counts[chartLane]).slice(0, 6)
-    .map(group => ({ name: `#${group.rank}`, title: group.title, value: group.lane_counts[chartLane] }));
+    .map(group => ({ name: `#${group.rank}`, title: group.title, value: group.lane_counts[chartLane] })), [groups, chartLane]);
   const peak = Math.max(0, ...bars.map(bar => bar.value));
 
   // Each comparison ends with this analysis; without a stored history only this analysis's number is known.
@@ -199,7 +201,7 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
               <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: chart.axisFaint }} axisLine={false} tickLine={false} />
               <Tooltip cursor={false} formatter={(value: number) => [formatCount(value), "klaim"]} {...tooltipStyle(chart)}
                 labelFormatter={(_label, payload) => payload?.[0]?.payload?.title ?? ""} />
-              <Bar isAnimationActive animationDuration={650} dataKey="value" radius={[999, 999, 999, 999]} barSize={40}>
+              <Bar isAnimationActive={false} dataKey="value" radius={[999, 999, 999, 999]} barSize={40}>
                 {bars.map(bar => <Cell key={bar.name} fill={bar.value === peak && peak > 0 ? chart.peak : chart.bar} />)}
                 <LabelList dataKey="value" position="top" content={({ x, y, width, value }) => Number(value) === peak && peak > 0
                   ? <g><rect x={Number(x) + Number(width) / 2 - 20} y={Number(y) - 26} width={40} height={20} rx={10} fill={chart.peak} />
@@ -222,7 +224,7 @@ function Dashboard({ result, runId, reviews, history, createdAt }: {
           <div className="chart-box" style={{ height: 150 }}>
             <ResponsiveContainer>
               <PieChart>
-                <Pie isAnimationActive animationDuration={650} data={donut} dataKey="value" nameKey="name" innerRadius={44} outerRadius={66} paddingAngle={donut.length > 1 ? 2 : 0} stroke="none">
+                <Pie isAnimationActive={false} data={donut} dataKey="value" nameKey="name" innerRadius={44} outerRadius={66} paddingAngle={donut.length > 1 ? 2 : 0} stroke="none">
                   {donut.map(item => <Cell key={item.key} fill={statusColors[item.key as keyof typeof STATUS_TOKENS]} />)}
                 </Pie>
                 <Tooltip formatter={(value: number) => formatCount(value)} {...tooltipStyle(chart)} />

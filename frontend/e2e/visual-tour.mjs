@@ -42,7 +42,8 @@ try {
   await ready(base);
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  const shot = async name => { await page.waitForTimeout(900); await page.screenshot({ path: path.join(outDir, name + ".png"), fullPage: true }); };
+  // 1.8 s: after the 1.1 s count-up of headline numbers.
+  const shot = async name => { await page.waitForTimeout(1800); await page.screenshot({ path: path.join(outDir, name + ".png"), fullPage: true }); };
   await page.goto(base);
   await page.getByLabel("Nama pengguna").fill(admin);
   await page.locator('input[autocomplete="current-password"]').fill(password);
