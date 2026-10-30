@@ -544,11 +544,11 @@ export function mlLevel(percentile: number): { label: string; tone: Tone } {
 
 /** The proposal's fraud patterns, as named on screen. */
 export const FRAUD_PATTERNS: Record<string, { label: string; hint: string }> = {
-  phantom_billing: { label: "Phantom billing", hint: "Layanan melebihi kapasitas, tanpa bukti, atau dicatat serentak" },
-  cloning: { label: "Cloning", hint: "Catatan klinis disalin dari klaim lain" },
-  repeat_billing: { label: "Repeat billing", hint: "Layanan yang sama ditagih lagi atau episode dipecah" },
-  fictitious_claim: { label: "Klaim fiktif obat/alkes", hint: "Obat atau alat khusus tanpa bukti pemberian, atau tidak lazim untuk INA-CBG-nya" },
-  upcoding_stay: { label: "Upcoding / lama rawat", hint: "Keparahan atau lama rawat tidak sesuai klaim sejenis" },
+  phantom_billing: { label: "Phantom billing", hint: "Layanan ditagih padahal tidak diberikan: melebihi kapasitas, tanpa bukti, atau dicatat serentak" },
+  cloning: { label: "Cloning", hint: "Catatan klinis pasien lain disalin ke klaim ini" },
+  repeat_billing: { label: "Repeat billing", hint: "Layanan yang sama ditagih lebih dari sekali, atau satu masa rawat dipecah" },
+  fictitious_claim: { label: "Klaim fiktif obat/alkes", hint: "Obat atau alat khusus ditagih tanpa bukti pemberian, atau tidak lazim untuk perawatannya" },
+  upcoding_stay: { label: "Upcoding / lama rawat", hint: "Klaim dibuat tampak lebih berat: keparahan dinaikkan atau lama rawat diperpanjang" },
 };
 export function PatternTags({ patterns }: { patterns?: string[] | null }) {
   if (!patterns?.length) return null;

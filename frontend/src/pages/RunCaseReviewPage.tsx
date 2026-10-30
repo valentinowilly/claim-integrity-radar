@@ -9,6 +9,7 @@ import {
   type RunReviewResponse, type RunReviewStatus,
   changeAssignment, getRunAssignments, type CaseAssignment,
 } from "../api/client";
+import { PatternGroups } from "../components/PatternExplain";
 import { ClinicalNoteCard } from "../components/ClinicalNoteCard";
 import { VisitTimeline } from "../components/VisitTimeline";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
@@ -253,7 +254,7 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
           <small>{laneKey ? LANES[laneKey].action : "Data belum cukup untuk memberi saran."}</small>
         </div>
         <div className="fact">
-          <span>Skor AI</span>
+          <span>AI Pola Klaim</span>
           <strong>{percentile !== null ? `${aiScore(percentile)} / 100` : mlNotAssessed ? "Tidak dinilai" : "—"}</strong>
           <small>{level ? level.label : mlNotAssessed ? "Data untuk AI tidak lengkap." : "Klaim ini tidak dinilai AI."}</small>
         </div>
@@ -266,16 +267,16 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
     </section>
 
     <section className="card run-case-reasons" aria-label="Alasan ditandai">
-      <div className="card-head"><div><h2>Mengapa klaim ini perlu diperiksa?</h2><p>Temuan dari pemeriksaan aturan.</p></div></div>
+      <div className="card-head"><div><h2>Mengapa klaim ini perlu diperiksa?</h2><p>Temuan dikelompokkan menurut modus. Setiap modus menjelaskan artinya, lalu menunjukkan bagian data klaim ini yang memicunya.</p></div></div>
       <div className="stack">
-        {candidate.reasons.length ? candidate.reasons.map((reason, i) => <article className="reason-card run-reason" key={`${reason.indicator}-${i}`}>
+        {candidate.reasons.length ? <PatternGroups reasons={candidate.reasons} render={(reason, i) => <article className="reason-card run-reason" key={`${reason.indicator}-${i}`}>
           <h4>{indicatorLabel(reason.indicator)}</h4>
           <PatternOnlyNotice evidence={reason.supporting_values?.billing_status_evidence} />
           {indicatorDefinition(reason.indicator) && <p>{indicatorDefinition(reason.indicator)}</p>}
           <EvidenceList evidence={reason.evidence} />
           {(REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)) && <div className="guidance review-hint"><Lightbulb size={15} /><span><strong>Yang perlu diperiksa:</strong> {REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)}</span></div>}
           <EvidenceLink indicator={reason.indicator} evidence={evidence} />
-        </article>) : <p className="fine-print">Lolos pemeriksaan aturan. Klaim ini masuk daftar karena penilaian AI di bawah.</p>}
+        </article>} /> : <p className="fine-print">Lolos pemeriksaan aturan. Klaim ini masuk daftar karena penilaian AI di bawah.</p>}
       </div>
     </section>
 
