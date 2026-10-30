@@ -1259,7 +1259,12 @@ details[open] > *:not(summary) { animation: cir-page-in 0.24s ease both; }
 .pattern-guide dl > div { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 10px; }
 .pattern-guide dt { font-size: 12.5px; font-weight: 650; color: var(--text-secondary); }
 .pattern-guide dd { margin: 0; font-size: 13.5px; line-height: 1.55; }
-.pattern-guide dd ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+.pattern-guide dd ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+.pattern-guide dd li { position: relative; padding-left: 14px; }
+.pattern-guide dd li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted); }
 .pattern-guide small { display: block; padding-bottom: 10px; color: var(--text-muted); }
 .pattern-found { margin: 2px 0 0; font-size: 12.5px; font-weight: 650; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 @media (max-width: 700px) { .pattern-guide dl > div { grid-template-columns: 1fr; gap: 2px; } }
+
+/* The clinical-note matches card and the AI reading are separate cards. */
+.clinical-ai { margin-top: 14px; }

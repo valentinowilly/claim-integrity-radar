@@ -210,7 +210,7 @@ export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded, patternPerce
       <div className="clinical-ai-head">
         <div><strong><Sparkles size={15} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> AI Pembaca Catatan</strong>
           <span className="fine-print">{data.ai_configured
-            ? "AI membaca catatan ini lalu mencocokkannya dengan diagnosis, tingkat keparahan, dan lama rawat yang ditagihkan."
+            ? "AI membaca catatan klaim ini lalu mencocokkannya dengan diagnosis, tingkat keparahan, penyakit penyerta, dan lama rawat yang ditagihkan klaim ini. AI tidak membandingkan dengan klaim lain; repeat billing dan cloning ditentukan pemeriksaan aturan di atas."
             : "Layanan AI sedang tidak aktif; pembacaan memakai pemeriksaan teks otomatis."}</span></div>
         {canAsk && <button type="button" className="button button-primary row-button" disabled={busy} aria-busy={busy || undefined}
           onClick={() => void ask()} data-testid="clinical-ai-ask">

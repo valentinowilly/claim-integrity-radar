@@ -3,9 +3,11 @@ import { FRAUD_PATTERNS, PatternTags } from "./Display";
 
 /** Plain-language guide to each proposal pattern: what it is, when the system flags it, which columns show it,
  * who usually plays a part, and what to request. "Who" names roles seen in documented cases, never a person. */
-export const PATTERN_GUIDE: Record<string, { what: string; when: string[]; data: string; who: string; request: string }> = {
+export const PATTERN_GUIDE: Record<string, { what: string; how: string; ai: string; when: string[]; data: string; who: string; request: string }> = {
   phantom_billing: {
     what: "Faskes menagih layanan yang sebenarnya tidak pernah diberikan kepada pasien (tagihan \"hantu\").",
+    how: "Pemeriksaan aturan menjumlahkan layanan per faskes per hari lalu membandingkannya dengan kapasitas harian faskes, mengecek daftar bukti yang wajib ada, dan mencari banyak layanan yang tercatat pada menit yang sama.",
+    ai: "AI Pola Klaim hanya memperkuat bila pola klaimnya jarang. AI Pembaca Catatan tidak menentukan modus ini, karena yang dinilai adalah jumlah dan bukti layanan, bukan isi catatan.",
     when: [
       "Jumlah layanan yang ditagih dalam sehari melebihi kemampuan unit faskes (kapasitas harian).",
       "Layanan tidak punya bukti pelaksanaan, misalnya catatan sesi terapi.",
@@ -17,6 +19,8 @@ export const PATTERN_GUIDE: Record<string, { what: string; when: string[]; data:
   },
   cloning: {
     what: "Catatan klinis seorang pasien disalin ke klaim pasien lain, sehingga klaim tampak lengkap padahal isinya tiruan.",
+    how: "Pemeriksaan aturan membandingkan teks catatan klinis antarklaim. Bila teks dan angka pemeriksaannya (tanda vital, hasil lab) sama persis pada peserta yang berbeda, klaim ditandai dan pasangannya ditampilkan.",
+    ai: "Ditentukan oleh perbandingan teks, bukan oleh AI. AI Pembaca Catatan hanya membaca satu catatan, jadi tidak dapat melihat salinan di klaim lain.",
     when: ["Catatan klinis klaim ini sama kata demi kata dengan catatan pasien lain, termasuk tanda vital dan hasil lab. Hal ini hampir mustahil terjadi secara alami."],
     data: "Catatan klinis (resume medis) klaim ini dan klaim pasangannya.",
     who: "Penulis rekam medis, yaitu dokter atau petugas rekam medis; sering didorong kebiasaan atau kebijakan di faskes.",
@@ -24,6 +28,8 @@ export const PATTERN_GUIDE: Record<string, { what: string; when: string[]; data:
   },
   repeat_billing: {
     what: "Layanan yang sama ditagihkan lebih dari sekali, atau satu masa perawatan dipecah menjadi beberapa klaim agar dibayar berkali-kali.",
+    how: "Pemeriksaan aturan mencocokkan semua klaim dengan kunci peserta, tanggal masuk, diagnosis, INA-CBG, dan tindakan; dua klaim atau lebih dengan kunci yang sama ditandai. Untuk pemecahan masa rawat, sistem menghitung jarak hari antara tanggal pulang dan tanggal masuk berikutnya.",
+    ai: "Ditentukan oleh perbandingan antarklaim, bukan oleh AI. AI Pola Klaim ikut menaikkan skor bila peserta sering berkunjung dalam satu minggu. AI Pembaca Catatan hanya menilai catatan klaim ini terhadap kodenya sendiri; tanda seperti \"lanjutan perawatan\" di catatan ikut disorot.",
     when: [
       "Ada dua klaim atau lebih untuk peserta yang sama, pada tanggal masuk yang sama, dengan diagnosis dan INA-CBG yang sama.",
       "Pasien tercatat pulang lalu dirawat lagi dengan diagnosis yang sama dalam beberapa hari.",
@@ -34,6 +40,8 @@ export const PATTERN_GUIDE: Record<string, { what: string; when: string[]; data:
   },
   fictitious_claim: {
     what: "Obat atau alat kesehatan khusus (misalnya obat kronis atau prostesis) ditagihkan padahal tidak diberikan, atau tidak sesuai dengan perawatannya.",
+    how: "Pemeriksaan aturan mencocokkan pasangan INA-CBG dan kode obat/alat khusus dengan tabel acuan; pasangan yang hampir tidak pernah muncul ditandai. Sistem juga mengecek apakah resep dan catatan penyerahan tercatat.",
+    ai: "Ditentukan oleh pemeriksaan aturan. AI tidak menentukan modus ini.",
     when: [
       "Obat atau alat khusus ditagihkan bersama kode INA-CBG yang di data acuan hampir tidak pernah mendapatkannya.",
       "Tidak ada bukti pemberian, misalnya resep atau catatan penyerahan farmasi.",
@@ -44,6 +52,8 @@ export const PATTERN_GUIDE: Record<string, { what: string; when: string[]; data:
   },
   upcoding_stay: {
     what: "Klaim dibuat tampak lebih berat dari sebenarnya agar tarifnya lebih tinggi: tingkat keparahan dinaikkan atau lama rawat diperpanjang.",
+    how: "Pemeriksaan aturan mengecek digit keparahan INA-CBG terhadap diagnosis sekunder, membandingkannya dengan klaim sejenis, dan membandingkan lama rawat dengan nilai tengah klaim sejenis.",
+    ai: "Di modus inilah AI Pembaca Catatan paling berperan: AI membaca keparahan, penyakit penyerta, dan lama rawat dari catatan klinis, lalu menandai bila catatan tidak sesuai tagihan. AI Pola Klaim menilai apakah kombinasi kode dan lama rawatnya jarang.",
     when: [
       "Tingkat keparahan INA-CBG tinggi tanpa diagnosis sekunder yang mendukungnya.",
       "Tingkat keparahan itu jarang dipakai untuk diagnosis yang sama.",
@@ -92,8 +102,10 @@ export function PatternGroups<R extends Reason>({ reasons, render }: { reasons: 
           <p className="pattern-what">{guide.what}</p>
         </header>
         <details className="pattern-guide">
-          <summary>Kapan disebut {FRAUD_PATTERNS[key]?.label}, dan siapa yang biasanya berperan?</summary>
+          <summary>Bagaimana sistem menentukan {FRAUD_PATTERNS[key]?.label}, dan siapa yang biasanya berperan?</summary>
           <dl>
+            <div><dt>Cara sistem menentukan</dt><dd>{guide.how}</dd></div>
+            <div><dt>Peran AI</dt><dd>{guide.ai}</dd></div>
             <div><dt>Sistem menandai bila</dt><dd><ul>{guide.when.map(item => <li key={item}>{item}</li>)}</ul></dd></div>
             <div><dt>Bagian data yang dilihat</dt><dd>{guide.data}</dd></div>
             <div><dt>Siapa yang biasanya berperan</dt><dd>{guide.who}</dd></div>
