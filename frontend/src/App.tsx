@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   Building2,
   ChevronDown,
@@ -18,7 +18,7 @@ import {
   X,
   Upload,
 } from "lucide-react";
-import { Link, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigationType } from "react-router-dom";
 import AnalysisPage from "./pages/AnalysisPage";
 import CasesPage from "./pages/CasesPage";
 import FacilitiesPage, { EvidencePackPage, FacilityDetailPage } from "./pages/FacilitiesPage";
@@ -49,11 +49,18 @@ export default function App() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const location = useLocation();
+  const navigationType = useNavigationType();
 
   useEffect(() => {
     setMenuOpen(false);
     setProfileOpen(false);
   }, [location.pathname]);
+
+  // A new page starts at the top. Runs before page effects, so a page may still scroll to its own section;
+  // the browser's Back and Forward keep their remembered position, and filters (same path) keep the view.
+  useLayoutEffect(() => {
+    if (navigationType !== "POP") window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [location.pathname, navigationType]);
   useEffect(() => {
     const closeProfile = (event: KeyboardEvent) => {
       if (event.key === "Escape") setProfileOpen(false);
@@ -97,7 +104,7 @@ export default function App() {
                 key={label}
                 to={`${to}${location.search}`}
                 end={to === "/"}
-                onClick={() => setMenuOpen(false)}
+                onClick={() => { setMenuOpen(false); window.scrollTo({ top: 0, left: 0, behavior: "instant" }); }}
                 className={({ isActive }) => {
                   const reviewActive = label === "Antrean Tinjauan" && location.pathname.startsWith("/runs/");
                   return `side-link${isActive || reviewActive ? " active" : ""}`;
