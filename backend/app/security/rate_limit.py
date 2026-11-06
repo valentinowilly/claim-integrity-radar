@@ -41,6 +41,8 @@ DEFAULT_RULES: dict[str, Rule] = {
     "review_write": Rule(60, 60),
     # Clinical-note analyses sent to Claude by one user (cost guard).
     "clinical_ai": Rule(20, 300),
+    # Feedback votes, questions and suggestions sent by one user.
+    "feedback": Rule(30, 300),
 }
 MAX_KEYS = 10_000
 

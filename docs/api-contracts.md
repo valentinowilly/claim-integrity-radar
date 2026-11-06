@@ -600,3 +600,15 @@ Setiap klaim yang ditandai memuat `fraud_patterns`: daftar modus proposal yang d
 Pemeriksaan eksploratif kemiripan klaim saja tidak menghasilkan modus. Antrean memfilter modus lewat parameter `indicator=modus:<kode>` pada `GET /api/v1/runs/{run_id}/cases`. Modus adalah label dari temuan aturan, bukan putusan kecurangan.
 
 AI tahap 1 tampil di layar sebagai **AI Pola Klaim** (seberapa jarang pola kode klaim), dan pembacaan catatan klinis sebagai **AI Pembaca Catatan**.
+
+## Masukan pengguna dan riwayat aktivitas
+
+Fitur layanan pengguna: mengukur seberapa membantu penjelasan sistem bagi petugas, menampung pertanyaan dan saran, dan menampilkan jejak aktivitas kepada administrator. Tidak mengubah skor, jalur, antrean, atau keputusan.
+
+- Tabel `user_feedback` (migrasi PostgreSQL `0011_user_feedback`): `context` `claim_explanation` (penilaian penjelasan satu klaim), `help_question`, atau `general` (saran); `helpful` 0/1 hanya untuk penilaian klaim; `message` teks bebas ≤ 500 karakter (spasi berlebih dirapikan); `role` disimpan saat masukan dikirim.
+- `GET /api/v1/runs/{run_id}/cases/{case_id}/feedback` (`feedback:write`): `{run_id, case_id, mine}`; `mine` = penilaian saya pada klaim ini atau `null`.
+- `POST /api/v1/runs/{run_id}/cases/{case_id}/feedback` (`feedback:write`, CSRF, 30 permintaan per 5 menit per pengguna), body `{helpful: bool, message?: string|null}`: satu penilaian per orang per klaim; mengirim lagi menggantikan yang lama. 404 bila klaim tidak ada di run.
+- `POST /api/v1/feedback` (`feedback:write`, CSRF, batas yang sama), body `{context: "help_question"|"general", message}`: 201 `{item}`; pesan kosong setelah dirapikan 422 `FEEDBACK_MESSAGE_EMPTY`.
+- `GET /api/v1/feedback/summary?days=30` (`feedback:read`, 1–365 hari): `{period_days, since, votes, helpful, not_helpful, helpful_share, people, questions, suggestions, by_role[{role, votes, helpful}], recent_messages[]}`; `recent_messages` (maks. 20, terbaru dulu) memuat `author` (nama pengguna) dan `role`, tanpa ID akun.
+- `GET /api/v1/activity?limit=200&category=` (`security_audit:read`, `limit` 1–500, `category` `akun`|`data`|`analisis`|`tinjauan`|`lainnya`): gabungan log `security_audit_events`, `batch_security_audit_events`, `analysis_run_audit_events`, dan `run_review_security_audit_events`, terbaru dulu. Tiap item `{event_id, occurred_at, event_type, category, actor_name, actor_kind: "user"|"system"|"unknown", target_type: "claim"|"analysis"|"data_file"|"user"|"session"|null, target_id}`; `counts` per kategori dihitung dari `limit` aktivitas terbaru semua kategori. Rincian event (`metadata`) tidak dikirim. Hanya baca; log tetap append-only.
+- Penyimpanan tidak tersedia: 503 `FEEDBACK_STORAGE_UNAVAILABLE` atau `ACTIVITY_UNAVAILABLE`.

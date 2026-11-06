@@ -52,6 +52,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   RUN_STILL_RUNNING: "Analisis yang masih berjalan tidak dapat diarsipkan.",
   INBOX_NOT_CONFIGURED: "Folder kiriman belum diatur di server. Hubungi administrator sistem.",
   INBOX_BUSY: "Pengambilan file sedang berjalan. Tunggu sebentar.",
+  FEEDBACK_STORAGE_UNAVAILABLE: "Masukan belum dapat disimpan. Coba lagi sebentar lagi.",
+  FEEDBACK_MESSAGE_EMPTY: "Tulis pertanyaan atau masukan terlebih dahulu.",
+  ACTIVITY_UNAVAILABLE: "Riwayat aktivitas sedang tidak tersedia.",
   // Per-row and per-file problems of an uploaded claim file (codes only, never cell values).
   real_participant_not_allowed: "Nomor peserta harus anonim (berawalan SYN) sesuai kebijakan data lingkungan ini",
   post_verification_amount_forbidden: "Kolom FKL48 (biaya setelah verifikasi) tidak boleh ada di file",
@@ -1345,4 +1348,48 @@ export function getClinicalNote(runId: string, caseId: string, signal?: AbortSig
 export function requestClinicalAnalysis(runId: string, caseId: string): Promise<{ analysis: ClinicalAnalysis }> {
   return requestJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/clinical-analysis`,
     (value): value is { analysis: ClinicalAnalysis } => isRecord(value) && isClinicalAnalysis(value.analysis), { method: "POST" });
+}
+
+// ---- user feedback (was the explanation helpful?, questions, suggestions) and the activity history
+export type FeedbackContext = "claim_explanation" | "help_question" | "general";
+export interface OwnFeedback {
+  feedback_id: string; created_at: string; updated_at: string; context: FeedbackContext; helpful: boolean | null; message: string | null;
+}
+export interface FeedbackMessage extends OwnFeedback { role: AppRole; author: string; run_id: string | null; case_id: string | null; }
+export interface FeedbackSummary {
+  period_days: number; since: string; votes: number; helpful: number; not_helpful: number; helpful_share: number | null;
+  people: number; questions: number; suggestions: number;
+  by_role: Array<{ role: AppRole; votes: number; helpful: number }>;
+  recent_messages: FeedbackMessage[];
+}
+export type ActivityCategory = "akun" | "data" | "analisis" | "tinjauan" | "lainnya";
+export interface ActivityItem {
+  event_id: string; occurred_at: string; event_type: string; category: ActivityCategory;
+  actor_name: string; actor_kind: "user" | "system" | "unknown"; target_type: string | null; target_id: string | null;
+}
+export interface ActivityResponse { items: ActivityItem[]; limit: number; category: ActivityCategory | null; counts: Record<ActivityCategory, number>; }
+
+type ClaimVote = { run_id: string; case_id: string; mine: OwnFeedback | null };
+const isClaimVote = (value: unknown): value is ClaimVote => isRecord(value) && isString(value.case_id) && "mine" in value;
+/** This person's vote on the explanation of one claim (null when they have not voted). */
+export function getClaimFeedback(runId: string, caseId: string, signal?: AbortSignal): Promise<ClaimVote> {
+  return getJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/feedback`, isClaimVote, signal);
+}
+/** Whether the explanation of this claim helped; voting again replaces the earlier vote. */
+export function sendClaimFeedback(runId: string, caseId: string, payload: { helpful: boolean; message?: string | null }): Promise<ClaimVote> {
+  return requestJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/feedback`, isClaimVote,
+    { method: "POST", body: JSON.stringify(payload) });
+}
+/** A question or suggestion from the help page. */
+export function sendFeedbackMessage(context: "help_question" | "general", message: string): Promise<{ item: OwnFeedback }> {
+  return requestJson("/api/v1/feedback", (value): value is { item: OwnFeedback } => isRecord(value) && isRecord(value.item),
+    { method: "POST", body: JSON.stringify({ context, message }) });
+}
+export function getFeedbackSummary(days: number, signal?: AbortSignal): Promise<FeedbackSummary> {
+  return getJson(`/api/v1/feedback/summary?days=${days}`,
+    (value): value is FeedbackSummary => isRecord(value) && typeof value.votes === "number" && Array.isArray(value.recent_messages), signal);
+}
+export function getActivity(category: ActivityCategory | null, signal?: AbortSignal): Promise<ActivityResponse> {
+  return getJson(`/api/v1/activity?limit=300${category ? `&category=${category}` : ""}`,
+    (value): value is ActivityResponse => isRecord(value) && Array.isArray(value.items) && isRecord(value.counts), signal);
 }
