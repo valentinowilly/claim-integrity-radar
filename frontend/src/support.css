@@ -1,0 +1,98 @@
+/* ---- User support: feedback on a claim, help page, feedback summary, activity history ---- */
+
+/* Feedback under a claim's explanation */
+.feedback-prompt { padding: 18px 22px; }
+.feedback-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.feedback-icon { display: inline-grid; flex-shrink: 0; width: 36px; height: 36px; place-items: center; border-radius: 10px;
+  color: var(--brand-ink); background: var(--brand-soft); }
+.feedback-copy { display: grid; flex: 1 1 280px; gap: 2px; }
+.feedback-copy strong { color: var(--text-primary); font-size: 14.5px; }
+.feedback-copy span { color: var(--text-muted); font-size: 12.5px; line-height: 1.45; }
+.feedback-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.feedback-vote { display: inline-flex; gap: 6px; align-items: center; min-height: 34px; padding: 6px 14px; border: 1px solid var(--border-medium);
+  border-radius: 999px; color: var(--text-secondary); background: var(--surface-bg); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+.feedback-vote:hover:not(:disabled) { border-color: var(--brand-line); color: var(--brand-ink); }
+.feedback-vote.chosen { border-color: var(--brand); color: #fff; background: var(--brand); }
+.feedback-vote:disabled { opacity: 0.65; cursor: default; }
+.feedback-form { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+.feedback-form label, .help-form label { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.feedback-form textarea, .help-form textarea { width: 100%; resize: vertical; }
+.feedback-sent { margin-left: auto; color: var(--status-good-text); font-size: 12.5px; font-weight: 600; }
+.feedback-sent + .button { margin-left: 0; }
+.feedback-error { margin: 10px 0 0; color: var(--lane-red); font-size: 12.5px; }
+
+/* Help page */
+.help-section { margin-bottom: 18px; }
+.help-title { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; color: var(--text-primary); font-size: 17px; font-weight: 700; }
+.help-title svg { color: var(--brand-ink); }
+.help-guides { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.help-guide { display: flex; flex-direction: column; gap: 8px; border: 1px solid transparent; }
+.help-guide.mine { border-color: var(--brand-line); }
+.help-guide-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.help-guide h3 { margin: 0; color: var(--text-primary); font-size: 15.5px; }
+.help-guide p { margin: 0; color: var(--text-muted); font-size: 13px; }
+.help-guide ol { display: grid; gap: 7px; margin: 4px 0 6px; padding-left: 20px; color: var(--text-secondary); font-size: 13.5px; line-height: 1.5;
+  list-style: decimal; }
+.help-guide ol li::marker { color: var(--brand-ink); font-weight: 700; }
+/* The shared .text-link is the login page's mint; on these light cards it uses the brand ink. */
+.help-guide .text-link, .feedback-claim-link.text-link { margin-top: auto; color: var(--brand-ink); font-size: 13px; }
+.help-lanes { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.help-lanes li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-md); background: var(--surface-muted); }
+.help-lanes li > :first-child { margin-top: 5px; }
+.help-lanes div { display: grid; gap: 2px; }
+.help-lanes strong { color: var(--text-primary); font-size: 14px; }
+.help-lanes span { color: var(--text-muted); font-size: 13px; }
+.help-faq { display: grid; gap: 8px; }
+.help-faq details { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-bg); }
+.help-faq summary { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 14px; color: var(--text-primary);
+  font-size: 14px; font-weight: 600; list-style: none; cursor: pointer; }
+.help-faq summary::-webkit-details-marker { display: none; }
+.help-faq summary svg { flex-shrink: 0; color: var(--text-muted); transition: transform 0.2s ease; }
+.help-faq details[open] summary svg { transform: rotate(180deg); }
+.help-answer { padding: 0 14px 14px; color: var(--text-secondary); font-size: 13.5px; line-height: 1.6; }
+.help-answer p { margin: 0 0 6px; }
+.help-answer p:last-child { margin-bottom: 0; }
+.help-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; align-items: start; }
+.help-columns .help-section { margin-bottom: 0; }
+.help-keys { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.help-keys li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; color: var(--text-secondary); font-size: 13px; }
+.help-keys li > span:last-child { flex-basis: 100%; color: var(--text-muted); }
+.help-keys kbd { padding: 2px 7px; border: 1px solid var(--border-medium); border-bottom-width: 2px; border-radius: 6px; color: var(--text-primary);
+  background: var(--surface-muted); font: inherit; font-size: 12px; font-weight: 700; }
+.help-key-text { color: var(--text-primary); font-weight: 600; }
+.help-form { display: grid; gap: 10px; }
+.help-form .segmented-pill { justify-self: start; }
+
+/* Feedback summary */
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.stat-tile { display: grid; gap: 6px; }
+.stat-tile-label { display: inline-flex; gap: 7px; align-items: center; color: var(--text-muted); font-size: 13px; font-weight: 600; }
+.stat-tile-label svg { color: var(--brand-ink); }
+.stat-tile strong { color: var(--text-primary); font-size: 28px; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.stat-tile small { color: var(--text-muted); font-size: 12.5px; }
+.stat-tile.highlight strong { color: var(--brand-ink); }
+.data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.share-bar { display: inline-block; width: 120px; height: 8px; margin-right: 10px; overflow: hidden; vertical-align: middle; border-radius: 999px;
+  background: var(--surface-subtle); }
+.share-bar span { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
+.share-value { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.feedback-messages { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.feedback-message { padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+.feedback-message-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.feedback-message-head .status-pill { display: inline-flex; gap: 4px; align-items: center; }
+.feedback-message-head strong { color: var(--text-primary); font-size: 13.5px; }
+.feedback-claim-link.text-link { margin-top: 0; margin-left: auto; font-size: 12.5px; }
+.feedback-message p { margin: 8px 0 0; color: var(--text-secondary); font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Activity history */
+.activity-head { flex-wrap: wrap; gap: 10px; align-items: center; }
+.activity-note { display: inline-flex; gap: 6px; align-items: center; }
+.activity-time { white-space: nowrap; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.activity-target { color: var(--text-muted); white-space: nowrap; }
+.activity-alert td { background: var(--lane-red-soft, transparent); }
+
+@media (max-width: 640px) {
+  .feedback-claim-link.text-link { margin-left: 0; }
+  .share-bar { width: 72px; }
+}

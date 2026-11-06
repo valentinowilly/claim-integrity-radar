@@ -13,6 +13,7 @@ import "./ui.css";
 import "./theme.css";
 import "./map.css";
 import "./explain.css";
+import "./support.css";
 import "./theme/theme";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

@@ -21,7 +21,7 @@ REQUIRED_TABLES = {
     "analysis_runs", "analysis_run_results", "analysis_run_cases", "analysis_run_archives", "data_batches",
     "data_batch_records", "run_case_reviews", "run_case_review_events", "run_case_audit_confirmations",
     "auth_users", "auth_sessions", "security_audit_events", "inbox_files", "inbox_pulls", "case_assignments",
-    "clinical_ai_reviews", "fkrtl_validation_jobs",
+    "clinical_ai_reviews", "fkrtl_validation_jobs", "user_feedback",
 }
 
 

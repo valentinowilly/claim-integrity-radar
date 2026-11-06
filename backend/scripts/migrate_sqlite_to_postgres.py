@@ -82,6 +82,7 @@ TABLES: list[tuple[str, str, tuple[str, ...], bool]] = [
     ("batch", "inbox_pulls", ("pull_id",), False),
     ("batch", "case_assignments", ("case_id",), False),
     ("batch", "clinical_ai_reviews", ("review_id",), True),
+    ("batch", "user_feedback", ("feedback_id",), False),
 ]
 # Merged from the auth and review files; new rowids in (occurred_at, source, rowid) order.
 MERGED_EVENTS = "security_audit_events"

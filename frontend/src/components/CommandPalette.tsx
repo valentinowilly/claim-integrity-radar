@@ -55,7 +55,8 @@ export function CommandPalette({ pages, canUpload, canSearchClaims }: { pages: P
   }, [open, term, canSearchClaims, location.pathname, location.search]);
 
   const items = useMemo<Item[]>(() => {
-    const go = (to: string) => () => { setOpen(false); navigate(to); };
+    // Also to the top when the chosen page or claim is the one already open.
+    const go = (to: string) => () => { setOpen(false); navigate(to); window.scrollTo({ top: 0, left: 0, behavior: "instant" }); };
     const lower = term.toLowerCase();
     const matches = (text: string) => !lower || text.toLowerCase().includes(lower);
     const list: Item[] = pages.filter(page => matches(page.label))
