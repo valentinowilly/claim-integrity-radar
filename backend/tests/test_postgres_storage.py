@@ -35,16 +35,14 @@ def test_schema_is_created_from_an_empty_database_and_versions_are_checked(opera
     assert status["ok"] and status["applied"] == ["0001_initial", "0002_event_insertion_order", "0003_data_migration_log",
                                              "0004_list_visibility", "0005_inbox",
                                              "0006_retention", "0007_case_assignments",
-                                             "0008_drop_retention", "0009_clinical_ai", "0010_rate_limits",
-                                             "0011_user_feedback"]
+                                             "0008_drop_retention", "0009_clinical_ai", "0010_rate_limits"]
     assert upgrade(database) == []  # idempotent
     with db_connection("unused") as connection:
         tables = {row[0] for row in connection.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()")}
     assert {"analysis_runs", "analysis_run_cases", "analysis_run_result_views", "run_case_reviews",
             "fkrtl_validation_jobs", "fkrtl_source_validations", "auth_users", "data_migration_runs",
-            "data_batch_removals", "analysis_run_archives", "inbox_files", "inbox_pulls", "case_assignments", "clinical_ai_reviews", "rate_limit_hits",
-            "user_feedback"} <= tables
+            "data_batch_removals", "analysis_run_archives", "inbox_files", "inbox_pulls", "case_assignments", "clinical_ai_reviews", "rate_limit_hits"} <= tables
     assert "retention_purges" not in tables  # dropped again by 0008
     # A migration whose recorded checksum differs from the file is refused, not re-run.
     with db_connection("unused") as connection:

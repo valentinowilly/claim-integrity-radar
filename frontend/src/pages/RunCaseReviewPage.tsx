@@ -11,7 +11,6 @@ import {
 } from "../api/client";
 import { PatternGroups } from "../components/PatternExplain";
 import { ClinicalNoteCard } from "../components/ClinicalNoteCard";
-import { FeedbackPrompt } from "../components/FeedbackPrompt";
 import { VisitTimeline } from "../components/VisitTimeline";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { PatternTags,
@@ -67,7 +66,6 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
   const canRead = permissions.includes("review:read") && permissions.includes("runs:results:read");
   const canUpdateStatus = permissions.includes("review:write");
   const canUpdateOutcome = permissions.includes("review:manage");
-  const canGiveFeedback = permissions.includes("feedback:write");
   const [run, setRun] = useState<RunDetailResponse | null>(null);
   const [review, setReview] = useState<RunReviewResponse | null>(null);
   const [status, setStatus] = useState<RunReviewStatus>("pending_review");
@@ -308,8 +306,6 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
       </div>}
       <p className="ai-meta" style={{ marginTop: 14 }}>{ruleCandidate ? "" : "Klaim ini lolos pemeriksaan aturan; AI menemukannya dari pola data. "}{mlQualification(result.ml_anomaly)}</p>
     </section>}
-
-    {canGiveFeedback && <FeedbackPrompt runId={runId} caseId={caseId} />}
 
     {(evidence.note || evidence.visits > 1) && <div className="evidence-heading" id="bukti">
       <h2><FileSearch size={17} className="head-icon" aria-hidden="true" />Bukti pendukung</h2>

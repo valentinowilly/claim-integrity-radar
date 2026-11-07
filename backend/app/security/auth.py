@@ -40,10 +40,8 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "runs:read", "runs:write", "runs:results:read",
         "review:read", "review:write", "review:manage",
         "users:manage", "security_audit:read",
-        "feedback:write", "feedback:read",
     }),
-    "data_operator": frozenset({"dashboard:read", "analytics:read", "batches:read", "batches:write", "runs:read", "runs:write",
-                                 "feedback:write"}),
+    "data_operator": frozenset({"dashboard:read", "analytics:read", "batches:read", "batches:write", "runs:read", "runs:write"}),
     # One shared account for judges and testers of the public demo: every workflow of the administrator, but no
     # account management and no security log, so one tester cannot lock the others out.
     "demo_tester": frozenset({
@@ -51,14 +49,10 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "batches:read", "batches:write",
         "runs:read", "runs:write", "runs:results:read",
         "review:read", "review:write", "review:manage",
-        "feedback:write", "feedback:read",
     }),
     # One reviewer role fills every review step (status, outcome, authorized audit result) for the prototype.
-    "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read",
-                               "feedback:write"}),
-    # Senior reviewers also read how satisfied the reviewers are with the explanations (feedback summary).
-    "audit_lead": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read",
-                             "feedback:write", "feedback:read"}),
+    "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
+    "audit_lead": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
 }
 
 

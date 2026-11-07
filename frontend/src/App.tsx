@@ -7,14 +7,11 @@ import {
   Eye,
   EyeOff,
   FileSearch,
-  History,
   LayoutDashboard,
-  LifeBuoy,
   ListFilter,
   LogOut,
   MapPinned,
   Menu,
-  MessageSquareHeart,
   MessageSquareText,
   ScanSearch,
   TrendingUp,
@@ -29,18 +26,14 @@ import OverviewPage from "./pages/OverviewPage";
 import RiskMapPage from "./pages/RiskMapPage";
 import TrendPage from "./pages/TrendPage";
 import WorkflowPage from "./pages/WorkflowPage";
-import HelpPage from "./pages/HelpPage";
-import FeedbackPage from "./pages/FeedbackPage";
-import ActivityPage from "./pages/ActivityPage";
 import { useAuth } from "./auth/AuthContext";
 import { ApiClientError } from "./api/client";
 import { NotificationCenter } from "./notifications/NotificationCenter";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { CommandPalette, PaletteButton } from "./components/CommandPalette";
-import { displayRole } from "./components/Display";
 
 type NavItem = { label: string; to: string; icon: typeof LayoutDashboard; group: string; allowed: (permissions: Set<string>) => boolean };
-// Daily review work first, then where data comes in, then help and how users and the system are doing.
+// Two groups: daily review work first, then where data comes in (upload, automatic intake, history).
 const navigation: NavItem[] = [
   { label: "Beranda", to: "/", icon: LayoutDashboard, group: "Pemeriksaan", allowed: p => p.has("runs:results:read") },
   { label: "Antrean Tinjauan", to: "/cases", icon: ClipboardCheck, group: "Pemeriksaan", allowed: p => p.has("cases:read") && p.has("runs:results:read") },
@@ -48,9 +41,6 @@ const navigation: NavItem[] = [
   { label: "Tren", to: "/trend", icon: TrendingUp, group: "Pemeriksaan", allowed: p => p.has("runs:results:read") },
   { label: "Faskes", to: "/facilities", icon: Building2, group: "Pemeriksaan", allowed: p => p.has("runs:results:read") },
   { label: "Data & Analisis", to: "/workflow", icon: Database, group: "Data klaim", allowed: p => p.has("batches:read") || p.has("runs:read") },
-  { label: "Bantuan", to: "/help", icon: LifeBuoy, group: "Layanan pengguna", allowed: () => true },
-  { label: "Masukan Pengguna", to: "/feedback", icon: MessageSquareHeart, group: "Layanan pengguna", allowed: p => p.has("feedback:read") },
-  { label: "Riwayat Aktivitas", to: "/activity", icon: History, group: "Layanan pengguna", allowed: p => p.has("security_audit:read") },
 ];
 
 export default function App() {
@@ -193,9 +183,6 @@ export default function App() {
               <Route path="/facilities/:groupId/paket" element={<Protected permission="runs:results:read"><EvidencePackPage /></Protected>} />
               <Route path="/workflow" element={<ProtectedAny permissions={["batches:read", "runs:read"]}><WorkflowPage /></ProtectedAny>} />
               <Route path="/runs/:runId/cases/:caseId" element={<Protected permission="review:read"><CasesPage /></Protected>} />
-              <Route path="/help" element={<HelpPage />} />
-              <Route path="/feedback" element={<Protected permission="feedback:read"><FeedbackPage /></Protected>} />
-              <Route path="/activity" element={<Protected permission="security_audit:read"><ActivityPage /></Protected>} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </div>
@@ -357,6 +344,17 @@ function LoginPage({
 
 function displayUsername(username: string) {
   return username.toLowerCase() === "admin" ? "Admin" : username;
+}
+
+export function displayRole(role: string) {
+  const labels: Record<string, string> = {
+    platform_admin: "Administrator",
+    data_operator: "Operator data",
+    verifikator: "Verifikator",
+    audit_lead: "Verifikator senior",
+    demo_tester: "Penguji demo",
+  };
+  return labels[role] ?? "Pengguna";
 }
 
 function NotFoundPage() {

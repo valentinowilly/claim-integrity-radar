@@ -18,7 +18,7 @@ Gunakan **empat role aplikasi** untuk fase pertama. Role lebih rinci tidak perlu
 | `platform_admin` | Menjalankan seluruh workflow yang sudah tersedia pada demo sintetis, termasuk administrasi akun, impor batch, run, hasil, kasus, dan review/outcome. | Full access berlaku hanya dalam shared synthetic prototype; tidak ada assignment scope dan bukan otorisasi untuk data BPJS atau data operasional. |
 | `data_operator` | Membuat batch, mengimpor data, memperbaiki mapping/validasi sesuai izin, menjalankan AnalysisRun, dan melihat status serta ringkasan proses. | Tidak mengubah hasil detektor, label ground truth, bobot scoring, atau outcome review. |
 | `verifikator` | Peran peninjau tunggal dalam prototipe: membaca kasus, mengubah status review, mencatat outcome (benar/ternyata wajar), dan mencatat hasil audit resmi beserta rinciannya (`review:manage`). | Tidak mengubah batch/run, konfigurasi detektor, atau akun pengguna. |
-| `demo_tester` (Penguji demo) | Satu akun bersama untuk juri dan penguji demo publik: semua alur kerja administrator (unggah, ambil otomatis, analisis, antrean, AI, tinjauan, arsip). Dibuat dengan `python -m scripts.create_demo_tester`. | Tidak dapat mengelola akun atau membaca log keamanan (`users:manage`, `security_audit:read`), sehingga satu penguji tidak dapat mengunci penguji lain. Dapat mengirim dan membaca masukan pengguna (`feedback:write`, `feedback:read`) agar fiturnya dapat dicoba. |
+| `demo_tester` (Penguji demo) | Satu akun bersama untuk juri dan penguji demo publik: semua alur kerja administrator (unggah, ambil otomatis, analisis, antrean, AI, tinjauan, arsip). Dibuat dengan `python -m scripts.create_demo_tester`. | Tidak dapat mengelola akun atau membaca log keamanan (`users:manage`, `security_audit:read`), sehingga satu penguji tidak dapat mengunci penguji lain. |
 | `audit_lead` | Meninjau eskalasi, menugaskan/menutup review, mencatat outcome manusia yang diizinkan kebijakan, serta membaca riwayat terkait. | Tidak mengubah skor historis; tindakan tetap harus beralasan dan tercatat. |
 
 ### Yang bukan role aplikasi pada MVP
@@ -49,9 +49,7 @@ R = baca; W = buat/ubah dalam scope; A = menyetujui/menugaskan; — = tidak diiz
 | Ubah status/catatan review | W (`review:write`) | — | W (`review:write`) | W (`review:write`) |
 | Mencatat outcome review | W sementara (`review:manage`) | — | — secara default | W sementara (`review:manage`) |
 | Membaca review history | R review sintetis | — | R review sintetis | R review sintetis |
-| Membaca riwayat aktivitas (`security_audit:read`, halaman Riwayat Aktivitas) | R | — | — | — |
-| Mengirim masukan: penilaian penjelasan klaim, pertanyaan, saran (`feedback:write`) | W | W | W | W |
-| Membaca ringkasan kepuasan dan pesan pengguna (`feedback:read`, halaman Masukan Pengguna) | R | — | — | R |
+| Membaca security audit events | Permission ada; API baca belum tersedia | — | — | — |
 | Mengubah threshold/weights/action policy | Tidak boleh langsung mengubah production; harus melalui approval dan versioning | — | — | Mengusulkan/menyetujui hanya bila diberi kewenangan |
 | Mengakses ground truth evaluasi | — | — | — | — |
 

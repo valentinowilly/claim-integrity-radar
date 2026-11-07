@@ -614,15 +614,3 @@ export function CountUp({ value, format = formatCount }: { value: number; format
 export function shortRunTitle(run: Parameters<typeof runTitle>[0]): string {
   return runTitle(run).replace(/^Berkas "(.*?)"/, "$1");
 }
-
-/** Role name as shown to users. */
-export function displayRole(role: string) {
-  const labels: Record<string, string> = {
-    platform_admin: "Administrator",
-    data_operator: "Operator data",
-    verifikator: "Verifikator",
-    audit_lead: "Verifikator senior",
-    demo_tester: "Penguji demo",
-  };
-  return labels[role] ?? "Pengguna";
-}
