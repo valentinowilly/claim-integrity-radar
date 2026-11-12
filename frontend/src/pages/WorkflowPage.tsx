@@ -1,6 +1,6 @@
 import { PackageUpload } from "../components/PackageUpload";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Archive, ArchiveRestore, ArrowRight, Inbox, Check, Database, FileUp, Loader2, Play, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowRight, Inbox, Check, Clock3, Database, FileStack, FileUp, ScanText, Loader2, Play, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useNotify } from "../notifications/NotificationCenter";
 import {
@@ -287,18 +287,35 @@ export default function WorkflowPage() {
   const latestRun = runs[0];
   return (
     <>
-      <header className="page-head">
-        <div>
-          <h1>Data & <span className="muted">Analisis</span></h1>
-          <p>Tambahkan data klaim dan kelola hasil analisisnya.</p>
+      <section className="workflow-hero" aria-labelledby="workflow-title">
+        <div className="workflow-hero-text">
+          <span className="help-hero-kicker"><Database size={15} aria-hidden="true" />Pintu masuk data klaim</span>
+          <h1 id="workflow-title">Data & Analisis</h1>
+          <p>Unggah klaim dari E-Klaim, RME, dan berkas faskes. Sistem membaca, menyatukan, lalu menganalisisnya.</p>
+          <div className="workflow-hero-actions">
+            {canWriteBatches && <a className="button workflow-hero-primary" href="#unggah"><FileUp size={15} aria-hidden="true" />Unggah data</a>}
+            <button className="button workflow-hero-secondary" onClick={() => void reload(true)} disabled={refreshing}>
+              <RefreshCw size={14} aria-hidden="true" />{refreshing ? "Memuat ulang…" : "Muat ulang"}</button>
+          </div>
         </div>
-        <div className="page-head-actions">
-          <button className="button button-secondary" onClick={() => void reload(true)} disabled={refreshing}>
-            <RefreshCw size={14} />
-            {refreshing ? "Memuat ulang…" : "Muat ulang"}
-          </button>
-        </div>
-      </header>
+        <ol className="workflow-flow" aria-label="Alur data">
+          <li><span className="flow-visual flow-chips" aria-hidden="true"><span className="src-chip is-csv">CSV</span><span className="src-chip is-json">JSON</span><span className="src-chip is-pdf">PDF</span></span>
+            <small>Sumber data</small></li>
+          <li><span className="flow-visual"><span className="flow-icon"><ScanText size={20} aria-hidden="true" /></span></span><small>Dibaca dan disatukan</small></li>
+          <li><span className="flow-visual"><span className="flow-lanes" aria-hidden="true"><i className="is-red" /><i className="is-yellow" /><i className="is-green" /></span></span>
+            <small>Dianalisis per risiko</small></li>
+        </ol>
+      </section>
+      <section className="workflow-stats" aria-label="Ringkasan data">
+        <div><span className="workflow-stat-icon"><Database size={18} aria-hidden="true" /></span><span>Data tersimpan</span>
+          <strong>{formatCount(batches.length)}</strong></div>
+        <div><span className="workflow-stat-icon"><FileStack size={18} aria-hidden="true" /></span><span>Klaim tersimpan</span>
+          <strong>{formatCount(batches.reduce((sum, batch) => sum + (batch.row_count ?? 0), 0))}</strong></div>
+        <div><span className="workflow-stat-icon"><Play size={18} aria-hidden="true" /></span><span>Analisis aktif</span>
+          <strong>{formatCount(runs.length)}</strong></div>
+        <div><span className="workflow-stat-icon"><Clock3 size={18} aria-hidden="true" /></span><span>Analisis terakhir</span>
+          <strong className="workflow-stat-small">{latestRun ? formatDateTime(latestRun.created_at) : "Belum ada"}</strong></div>
+      </section>
       {error && (
         <div className="workflow-error" role="alert">
           <strong>Permintaan gagal</strong>
@@ -356,9 +373,10 @@ export default function WorkflowPage() {
                     {batches.map((batch) => (
                       <tr key={batch.batch_id} className={selectedBatchId === batch.batch_id ? "selected" : ""}>
                         <td>
-                          <button className="table-select" aria-pressed={selectedBatchId === batch.batch_id} onClick={() => void chooseBatch(batch.batch_id)}>
-                            <strong>{batchName(batch.batch_key)}</strong>
-                            <small>{sourceLabel(batch.source_type)} · versi {batch.batch_version}</small>
+                          <button className="table-select with-icon" aria-pressed={selectedBatchId === batch.batch_id} onClick={() => void chooseBatch(batch.batch_id)}>
+                            <span className="row-file-icon" aria-hidden="true"><Database size={17} /></span>
+                            <span><strong>{batchName(batch.batch_key)}</strong>
+                            <small>{sourceLabel(batch.source_type)} · versi {batch.batch_version}</small></span>
                           </button>
                         </td>
                         <td>{formatCount(batch.row_count)}</td>
@@ -420,9 +438,10 @@ export default function WorkflowPage() {
                     {runs.map((run) => (
                       <tr key={run.run_id} className={selectedRunId === run.run_id ? "selected" : ""}>
                         <td>
-                          <button className="table-select" data-run-id={run.run_id} aria-pressed={selectedRunId === run.run_id} onClick={() => void chooseRun(run.run_id)}>
-                            <strong>{runTitle(run)}</strong>
-                            <small>{canReadResults ? "Lihat ringkasan" : "Hasil hanya untuk petugas peninjau"}</small>
+                          <button className="table-select with-icon" data-run-id={run.run_id} aria-pressed={selectedRunId === run.run_id} onClick={() => void chooseRun(run.run_id)}>
+                            <span className="row-file-icon is-run" aria-hidden="true"><Play size={16} /></span>
+                            <span><strong>{runTitle(run)}</strong>
+                            <small>{canReadResults ? "Lihat ringkasan" : "Hasil hanya untuk petugas peninjau"}</small></span>
                           </button>
                         </td>
                         <td>{sourceLabel(run.source_type)}</td>

@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, FileText, MapPinned, Printer, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Building2, FileText, MapPinned, Printer, X } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { getRunCase, type FacilityGroup, type RunCase, type RunResult } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { EmptyState } from "../components/DataStates";
 import {
-  LANES, LEVELS, LaneDot, formatCount, formatDateTime, formatRupiah, titleCase, indicatorLabel, mlLevel, runTitle, shortRef,
+  FRAUD_PATTERNS, LANES, LEVELS, LaneDot, formatCount, formatDateTime, formatRupiah, titleCase, indicatorLabel, mlLevel, runTitle, shortRef,
 } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { provinceName } from "../components/provinces";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { FacilityTable, PriorityIndex } from "./OverviewPage";
+import { PATTERN_COLORS, dominantPattern } from "../components/RiskFocus";
 
 type Level = FacilityGroup["level"];
 const LEVEL_FILTERS: Array<[Level | "", string]> = [["", "Semua"], ["high", "Risiko tinggi"], ["medium", "Risiko sedang"], ["low", "Risiko rendah"]];
@@ -54,9 +55,14 @@ export default function FacilitiesPage() {
   const hasPriority = (groups?.groups ?? []).some(group => group.audit_priority_index != null);
   const byPriority = order === "priority" && hasPriority;
   const filtered = (groups?.groups ?? []).filter(group => (!level || group.level === level) && (!province || group.province_code === province));
+  const [showQuiet, setShowQuiet] = useState(false);
+  const spotlight = (groups?.groups ?? []).filter(group => group.level === "high").slice(0, 3);
   const shown = byPriority
     ? [...filtered].sort((a, b) => (b.audit_priority_index ?? -1) - (a.audit_priority_index ?? -1) || a.rank - b.rank)
     : filtered;
+  // Groups without a single flagged claim stay out of the way until asked for.
+  const quiet = shown.filter(group => group.lane_counts.red + group.lane_counts.yellow === 0);
+  const listed = showQuiet || quiet.length === shown.length ? shown : shown.filter(group => group.lane_counts.red + group.lane_counts.yellow > 0);
   return <>
     <Head title="Faskes" text="Kelompok faskes diurutkan dari yang paling layak diperiksa lebih dulu." snapshot={snapshot} />
     {state.status !== "success" && <RunStateMessage state={state} retry={reload} />}
@@ -95,8 +101,26 @@ export default function FacilitiesPage() {
           </div>
           {byPriority && <span className="fine-print">Urutan ini menimbang banyaknya klaim berisiko dan nilai tagihannya terhadap jumlah berkas yang perlu diminta: faskes yang paling banyak terjawab dengan berkas paling sedikit ada di atas. Nilai tagihan belum diverifikasi; ini bukan taksiran kerugian.</span>}
         </div>}
+        {!level && !province && !byPriority && spotlight.length > 0 && <div className="facility-spotlight" aria-label="Paling mendesak">
+          {spotlight.map((group, index) => {
+            const top = dominantPattern(group);
+            return <Link key={group.group_id} className="spotlight-card" to={`/facilities/${group.group_id}${runQuery}`} data-testid="facility-spotlight">
+              <span className="spotlight-rank">{index + 1}</span>
+              <span className="spotlight-name"><strong>{group.title}</strong><small>{titleCase(group.region)}</small></span>
+              <span className="spotlight-figures"><b>{formatCount(group.lane_counts.red)}</b><small>klaim risiko tinggi</small></span>
+              {typeof group.billed_high === "number" && <span className="spotlight-money">{formatRupiah(group.billed_high)}</span>}
+              {top && <span className="pattern-chip" style={{ ["--pattern" as string]: PATTERN_COLORS[top.code] }}>{FRAUD_PATTERNS[top.code]?.label ?? top.code}</span>}
+              <span className="facility-share" aria-hidden="true">
+                <i className="is-red" style={{ width: `${100 * group.lane_counts.red / Math.max(1, group.claim_count)}%` }} />
+                <i className="is-yellow" style={{ width: `${100 * group.lane_counts.yellow / Math.max(1, group.claim_count)}%` }} /></span>
+              <small className="spotlight-share">{Math.round(100 * (group.lane_counts.red + group.lane_counts.yellow) / Math.max(1, group.claim_count))}% klaimnya berisiko</small>
+            </Link>;
+          })}
+        </div>}
         {shown.length === 0 ? <EmptyState title="Tidak ada kelompok faskes" message={province ? "Tidak ada kelompok faskes yang cukup besar di provinsi ini pada tingkat yang dipilih." : "Tidak ada kelompok pada tingkat ini."} />
-          : <FacilityTable groups={shown} runQuery={runQuery} showPriority={byPriority} />}
+          : <FacilityTable groups={listed} runQuery={runQuery} showPriority={byPriority} />}
+        {quiet.length > 0 && <button type="button" className="button button-secondary show-quiet" onClick={() => setShowQuiet(value => !value)}>
+          {showQuiet ? "Sembunyikan" : "Tampilkan"} {formatCount(quiet.length)} kelompok tanpa klaim berisiko</button>}
         {groups.groups_truncated && <p className="fine-print" style={{ marginTop: 10 }}>Ditampilkan {formatCount(groups.groups.length)} kelompok teratas dari {formatCount(groups.group_count)}.</p>}
       </section>
     </>)}
@@ -151,10 +175,13 @@ export function FacilityDetailPage() {
       <section className="card" aria-label="Kesimpulan faskes">
         <Link className="button button-secondary button-compact" to={`/facilities${runQuery}`} style={{ marginBottom: 14 }}><ArrowLeft size={14} />Daftar faskes</Link>
         <div className="case-hero">
-          <div>
+          <div className="facd-title">
+            <span className={`facd-icon level-${group.level}`} aria-hidden="true"><Building2 size={24} /><em>{group.rank}</em></span>
+            <div>
             <span className="eyebrow-text">Peringkat {group.rank} · {group.facility_type}</span>
             <h2>{group.title}</h2>
             <p className="fine-print" style={{ fontSize: 14 }}>{titleCase(group.region)} · {formatCount(group.claim_count)} klaim dianalisis</p>
+            </div>
           </div>
           <Link className="button button-primary" to={`/facilities/${group.group_id}/paket${runQuery}`}><FileText size={15} />Buat paket bukti</Link>
         </div>
@@ -176,9 +203,14 @@ export function FacilityDetailPage() {
         ))}
       </section>
 
-      <div className="dash-grid">
+      <div className="dash-grid facd-grid">
         <section className="card span-5">
           <div className="card-head"><div><h2>Temuan per pemeriksaan</h2><p>Klaim faskes ini yang ditandai setiap pemeriksaan.</p></div></div>
+          {Object.keys(group.pattern_counts ?? {}).length > 0 && <div className="facd-patterns">
+            {Object.entries(group.pattern_counts ?? {}).sort((x, y) => y[1] - x[1]).map(([code, count]) =>
+              <span key={code} className="facd-pattern" style={{ ["--pattern" as string]: PATTERN_COLORS[code] }}>
+                <b>{formatCount(count)}</b>{FRAUD_PATTERNS[code]?.label ?? code}</span>)}
+          </div>}
           <ul className="check-rows">{Object.entries(group.indicator_counts).map(([code, count]) => (
             <li className="check-row" key={code} style={{ gridTemplateColumns: "1fr 120px 70px" }}>
               <strong>{indicatorLabel(code)}</strong>

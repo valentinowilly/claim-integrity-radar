@@ -1,10 +1,11 @@
 import { DocumentMismatches } from "../components/DocumentMismatches";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Clock3, FileText, MousePointerClick, Search, SlidersHorizontal, TriangleAlert, X } from "lucide-react";
+import { ClipboardCheck, Clock3, FileSearch, FileText, ListChecks, MousePointerClick, Search, SlidersHorizontal, TriangleAlert, X } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/DataStates";
 import { FRAUD_PATTERNS, LANES, LaneDot, PatternTags, formatCount, formatRupiah, indicatorLabel, mlFeatureLabel, mlLevel, shortRef } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
+import { PATTERN_COLORS } from "../components/RiskFocus";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { useAuth } from "../auth/AuthContext";
 import { CaseReviewPanel } from "./RunCaseReviewPage";
@@ -293,7 +294,7 @@ export default function CasesPage() {
           <div className="queue-detail">
             {selected && routeRunId && routeCaseId
               ? <CaseReviewPanel key={`${routeRunId}/${routeCaseId}`} runId={routeRunId} caseId={routeCaseId} backTo={`/cases${listSearch}`} onSaved={() => setReviewVersion(value => value + 1)} />
-              : <LaneSummary result={result} lane={laneTab} />}
+              : <LaneSummary result={result} lane={laneTab} firstHref={visible[0] ? caseHref(visible[0].case.case_id) : undefined} />}
           </div>
         </div>
       </>)}
@@ -358,7 +359,7 @@ function QueueAge({ createdAt, unreviewed }: { createdAt: string; unreviewed: nu
 }
 
 /** Before a claim is chosen: what this lane holds, its value and patterns, and where to start. */
-function LaneSummary({ result, lane }: { result: RunResult; lane: LaneTab }) {
+function LaneSummary({ result, lane, firstHref }: { result: RunResult; lane: LaneTab; firstHref?: string }) {
   const counts = result.action_policy.lane_counts ?? {};
   const exposure = result.facility_groups?.exposure?.status === "available" ? result.facility_groups.exposure : null;
   const patterns = lane === "red" || lane === "yellow"
@@ -367,18 +368,32 @@ function LaneSummary({ result, lane }: { result: RunResult; lane: LaneTab }) {
   const billed = !exposure ? null : lane === "red" ? exposure.billed_high : lane === "yellow" ? exposure.billed_medium : null;
   const title = lane === "red" || lane === "yellow" || lane === "green" ? LANES[lane].name : lane === "ai" ? "Temuan AI lain" : "Semua klaim";
   const count = lane === "red" || lane === "yellow" || lane === "green" ? counts[lane] ?? 0 : null;
-  return <section className="card detail-placeholder lane-summary" data-testid="lane-summary">
-    <MousePointerClick size={26} color="var(--brand-ink)" aria-hidden="true" />
+  const total = patterns.reduce((sum, row) => sum + row.billed, 0) || 1;
+  const tone = lane === "red" || lane === "yellow" || lane === "green" ? lane : "all";
+  return <section className={`card detail-placeholder lane-summary is-${tone}`} data-testid="lane-summary">
+    <span className="lane-summary-art" aria-hidden="true"><span><MousePointerClick size={30} /></span></span>
     <strong>Pilih klaim di kiri untuk mulai meninjau</strong>
     {count !== null && <div className="lane-summary-figures">
-      <span>{title}</span>
-      <b>{formatCount(count)} <small>klaim</small></b>
-      {billed !== null && <b className="lane-summary-money">{formatRupiah(billed)}</b>}
+      <span><LaneDot lane={tone} />{title}</span>
+      <div className="lane-summary-numbers">
+        <b>{formatCount(count)} <small>klaim</small></b>
+        {billed !== null && <b className="lane-summary-money">{formatRupiah(billed)}</b>}
+      </div>
     </div>}
-    {patterns.length > 0 && <ul className="lane-summary-patterns">{patterns.map(row => <li key={row.pattern}>
-      <span>{FRAUD_PATTERNS[row.pattern]?.label ?? row.pattern}</span><span>{formatCount(row.count)} klaim</span><strong>{formatRupiah(row.billed)}</strong>
-    </li>)}</ul>}
-    <span>{lane === "green" ? "Klaim risiko rendah diproses seperti biasa; tinjau hanya bila ada alasan khusus."
-      : "Klaim teratas paling perlu diperiksa. Rincian alasan dan formulir tinjauan tampil di sini."}</span>
+    {patterns.length > 0 && <div className="lane-summary-mix">
+      <div className="pattern-stack" aria-hidden="true">{patterns.map(row =>
+        <span key={row.pattern} style={{ width: `${Math.max(1, 100 * row.billed / total)}%`, background: PATTERN_COLORS[row.pattern] }} />)}</div>
+      <ul className="lane-summary-patterns">{patterns.map(row => <li key={row.pattern}>
+        <span><i style={{ background: PATTERN_COLORS[row.pattern] }} aria-hidden="true" />{FRAUD_PATTERNS[row.pattern]?.label ?? row.pattern}</span>
+        <span>{formatCount(row.count)} klaim</span><strong>{formatRupiah(row.billed)}</strong>
+      </li>)}</ul>
+    </div>}
+    {lane === "green" ? <span className="lane-summary-note">Klaim risiko rendah diproses seperti biasa; tinjau hanya bila ada alasan khusus.</span>
+      : <ol className="lane-summary-steps" aria-label="Langkah meninjau">
+        <li><span><ListChecks size={18} aria-hidden="true" /></span>Pilih klaim</li>
+        <li><span><FileSearch size={18} aria-hidden="true" /></span>Baca alasan dan bukti</li>
+        <li><span><ClipboardCheck size={18} aria-hidden="true" /></span>Catat keputusan</li>
+      </ol>}
+    {firstHref && lane !== "green" && <Link className="button button-primary lane-summary-cta" to={firstHref}>Buka klaim teratas</Link>}
   </section>;
 }

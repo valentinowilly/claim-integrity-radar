@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { ArrowUpRight, Building2, ChartScatter, CalendarDays, ClipboardCheck, FileCheck2, FileText, ShieldAlert, TriangleAlert, Upload } from "lucide-react";
+import { ArrowUpRight, Building2, ChartScatter, CircleCheck, CalendarDays, ClipboardCheck, FileCheck2, FileText, ShieldAlert, TriangleAlert, Upload } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Area, AreaChart, Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
@@ -8,7 +8,8 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { CountUp, FRAUD_PATTERNS, LEVELS, LaneDot, formatCount, formatRupiah, titleCase } from "../components/Display";
 import { RunSelector, RunStateMessage, RunTechnicalDetails, SourcePill } from "../components/PersistedRunWorkspace";
-import { FacilityAlert, RiskFocus, dominantPattern } from "../components/RiskFocus";
+import { DayBars, FEW_DAYS } from "../components/DayBars";
+import { AmountHelp, BilledBreakdown, FacilityAlert, PATTERN_COLORS, RiskFocus, dominantPattern, type AmountLane } from "../components/RiskFocus";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { useThemeColors } from "../theme/theme";
 
@@ -36,6 +37,9 @@ export default function OverviewPage() {
   const result = state.status === "success" ? state.detail.result : null;
   const runId = state.status === "success" ? state.detail.run.run_id : "";
   const available = Boolean(result && result.availability === "available");
+  // Every rupiah figure opens the same "how is this computed" panel, at the lane it belongs to.
+  const [explain, setExplain] = useState<AmountLane | null>(null);
+  const runQuery = `?run_id=${encodeURIComponent(runId)}`;
 
   return <>
     <header className="page-head">
@@ -44,7 +48,8 @@ export default function OverviewPage() {
         <h1>Prioritas <span className="muted">hari ini</span></h1>
         <p>{greeting()}, {username}. {state.status === "empty" ? "Belum ada data klaim yang dianalisis." : "Berikut klaim dan faskes yang paling perlu diperiksa hari ini."}</p>
         {result && available && <p className="page-head-facts" data-testid="analysis-facts">{formatCount(result.records_considered)} klaim dianalisis
-          {result.facility_groups?.exposure?.status === "available" ? ` · nilai tagihan ${formatRupiah(result.facility_groups.exposure.billed_total)}` : ""}</p>}
+          {result.facility_groups?.exposure?.status === "available" && <> · nilai tagihan {formatRupiah(result.facility_groups.exposure.billed_total)}
+            <AmountHelp onClick={() => setExplain("all")} label="Cara menghitung nilai tagihan" /></>}</p>}
       </div>
       {state.status === "success" && <div className="page-head-actions">
         {result && <SourcePill source={result.data_source} />}
@@ -54,7 +59,8 @@ export default function OverviewPage() {
     {state.status === "empty" ? <FirstRunGuide canUpload={permissions.includes("batches:write")} />
       : state.status === "loading" ? <DashboardSkeleton />
       : state.status !== "success" && <RunStateMessage state={state} retry={reload} />}
-    {state.status === "success" && result && available && <Dashboard result={result} runId={runId} canReadReviews={canReadReviews} />}
+    {state.status === "success" && result && available && <Dashboard result={result} runId={runId} canReadReviews={canReadReviews} onExplain={setExplain} />}
+    {explain && result && <BilledBreakdown result={result} runQuery={runQuery} initialLane={explain} onClose={() => setExplain(null)} />}
     {state.status === "success" && (!result || !available) && <div className="card">
       <p className="fine-print">Analisis ini belum memiliki hasil. Pilih analisis lain atau jalankan analisis baru di menu Data & Analisis.</p>
     </div>}
@@ -62,7 +68,9 @@ export default function OverviewPage() {
   </>;
 }
 
-function Dashboard({ result, runId, canReadReviews }: { result: RunResult; runId: string; canReadReviews: boolean }) {
+function Dashboard({ result, runId, canReadReviews, onExplain }: {
+  result: RunResult; runId: string; canReadReviews: boolean; onExplain: (lane: AmountLane) => void;
+}) {
   const chart = useThemeColors(CHART_TOKENS);
   const runQuery = `?run_id=${encodeURIComponent(runId)}`;
   const lanes = result.action_policy.lane_counts ?? {};
@@ -89,16 +97,19 @@ function Dashboard({ result, runId, canReadReviews }: { result: RunResult; runId
 
   return <>
     <FacilityAlert result={result} runQuery={runQuery} />
-    <RiskFocus result={result} runQuery={runQuery} />
+    <RiskFocus result={result} runQuery={runQuery} onExplain={onExplain} />
 
     <section className="kpi-row" aria-label="Angka utama">
       <HighPerDay days={days} red={red} color={chart.red} runQuery={runQuery} />
-      <Link className="kpi-tile tone-yellow" to={`/cases${runQuery}&lane=yellow`} data-testid="lane-card-yellow">
-        <span className="kpi-tile-label"><TriangleAlert size={15} aria-hidden="true" />Risiko sedang</span>
-        <span className="kpi-tile-value"><CountUp value={yellow} /> <small>klaim</small></span>
-        {exposure && <span className="kpi-tile-money" data-testid="kpi-yellow-amount">{formatRupiah(exposure.billed_medium)}</span>}
-        <span className="kpi-tile-note">Diperiksa setelah risiko tinggi</span>
-      </Link>
+      <div className="kpi-tile-wrap">
+        <Link className="kpi-tile tone-yellow" to={`/cases${runQuery}&lane=yellow`} data-testid="lane-card-yellow">
+          <span className="kpi-tile-label"><TriangleAlert size={15} aria-hidden="true" />Risiko sedang</span>
+          <span className="kpi-tile-value"><CountUp value={yellow} /> <small>klaim</small></span>
+          {exposure && <span className="kpi-tile-money" data-testid="kpi-yellow-amount">{formatRupiah(exposure.billed_medium)}</span>}
+          <span className="kpi-tile-note">Diperiksa setelah risiko tinggi</span>
+        </Link>
+        {exposure && <AmountHelp onClick={() => onExplain("yellow")} label="Cara menghitung nilai tagihan risiko sedang" />}
+      </div>
       <EvidenceTile evidence={overview?.evidence} color={chart.brand} track={chart.track} />
       <article className="kpi-tile" data-testid="kpi-ai-confirmed">
         <span className="kpi-tile-label"><ChartScatter size={15} aria-hidden="true" />Dikuatkan AI pola klaim</span>
@@ -112,10 +123,10 @@ function Dashboard({ result, runId, canReadReviews }: { result: RunResult; runId
       </article>
     </section>
 
-    {canReadReviews && <ReviewFlow pipeline={pipeline} runQuery={runQuery} green={green} />}
+    {canReadReviews && <ReviewFlow pipeline={pipeline} runQuery={runQuery} green={green} onExplain={() => onExplain("all")} />}
 
     <div className="dash-pair">
-      <FacilityBars result={result} runQuery={runQuery} />
+      <FacilityBars result={result} runQuery={runQuery} onExplain={onExplain} />
       <DailyRisk days={days} chart={chart} truncated={Boolean(result.daily_activity?.days_truncated)} />
     </div>
   </>;
@@ -176,10 +187,12 @@ const STAGE_LABELS: Record<ReviewPipeline["stages"][number]["stage"], string> = 
 };
 
 /** Claims that need action (high and medium risk) per review stage, with their billed value; each stage filters the queue. */
-function ReviewFlow({ pipeline, runQuery, green }: { pipeline: ReviewPipeline | null | "error"; runQuery: string; green: number }) {
+function ReviewFlow({ pipeline, runQuery, green, onExplain }: {
+  pipeline: ReviewPipeline | null | "error"; runQuery: string; green: number; onExplain: () => void;
+}) {
   return <section className="card flow-card" aria-labelledby="flow-title" data-testid="review-flow">
     <div className="flow-head">
-      <h2 id="flow-title">Alur tinjauan</h2>
+      <h2 id="flow-title">Alur tinjauan <AmountHelp onClick={onExplain} label="Cara menghitung nilai tagihan per tahap" /></h2>
       {pipeline && pipeline !== "error" && <span>{formatCount(pipeline.decided)} dari {formatCount(pipeline.needs_action)} klaim yang perlu tindakan sudah selesai</span>}
     </div>
     {pipeline === "error" ? <p className="fine-print">Alur tinjauan tidak dapat dimuat. Muat ulang halaman untuk mencoba lagi.</p>
@@ -205,33 +218,45 @@ function ReviewFlow({ pipeline, runQuery, green }: { pipeline: ReviewPipeline | 
 }
 
 /** Facility groups with high-risk claims, most first; the bar is their high-risk billed value. */
-function FacilityBars({ result, runQuery }: { result: RunResult; runQuery: string }) {
+function FacilityBars({ result, runQuery, onExplain }: { result: RunResult; runQuery: string; onExplain: (lane: AmountLane) => void }) {
   const groups = result.facility_groups;
-  const rows = [...(groups?.groups ?? [])].filter(group => group.lane_counts.red > 0)
-    .sort((a, b) => b.lane_counts.red - a.lane_counts.red || (b.billed_high ?? 0) - (a.billed_high ?? 0)).slice(0, 5);
-  const hasMoney = rows.some(group => typeof group.billed_high === "number");
-  const most = Math.max(1, ...rows.map(group => hasMoney ? group.billed_high ?? 0 : group.lane_counts.red));
+  const all = groups?.groups ?? [];
+  // No group with high-risk claims: the medium-risk ones are the next to check, so they are shown instead.
+  const lane: "red" | "yellow" = all.some(group => group.lane_counts.red > 0) ? "red" : "yellow";
+  const billedOf = (group: FacilityGroup) => lane === "red" ? group.billed_high
+    : typeof group.billed_high_or_medium === "number" ? group.billed_high_or_medium - (group.billed_high ?? 0) : undefined;
+  const rows = all.filter(group => group.lane_counts[lane] > 0)
+    .sort((a, b) => b.lane_counts[lane] - a.lane_counts[lane] || (billedOf(b) ?? 0) - (billedOf(a) ?? 0)).slice(0, 5);
+  const hasMoney = rows.some(group => typeof billedOf(group) === "number");
+  const most = Math.max(1, ...rows.map(group => hasMoney ? billedOf(group) ?? 0 : group.lane_counts[lane]));
+  const level = lane === "red" ? "tinggi" : "sedang";
   return <section className="card" aria-labelledby="facility-bars-title">
     <div className="card-head">
-      <div><h2 id="facility-bars-title">Kelompok faskes yang perlu diperiksa</h2>
-        <p>Diurutkan menurut jumlah klaim risiko tinggi.{hasMoney ? " Bilah = nilai tagihan risiko tinggi." : ""}</p></div>
+      <div><h2 id="facility-bars-title">Kelompok faskes yang perlu diperiksa{hasMoney && <AmountHelp onClick={() => onExplain(lane)} label="Cara menghitung nilai tagihan per faskes" />}</h2>
+        {rows.length > 0 && <p>{lane === "yellow" ? "Belum ada risiko tinggi. " : ""}Urut jumlah klaim risiko {level}{hasMoney ? "; bilah = nilai tagihannya" : ""}.</p>}</div>
       {groups && <Link className="card-link" to={`/facilities${runQuery}`} aria-label="Semua kelompok faskes"><ArrowUpRight size={16} /></Link>}
     </div>
-    {!groups ? <p className="fine-print">Jalankan ulang analisis di menu Data & Analisis untuk melihat data per faskes.</p>
-      : rows.length === 0 ? <p className="fine-print">Tidak ada kelompok faskes dengan klaim risiko tinggi pada analisis ini.</p>
-      : <ul className="facility-bars">{rows.map(group => {
+    {!groups ? <EmptyNote icon={Building2} title="Data per faskes belum ada" text="Jalankan ulang analisis di Data & Analisis." />
+      : rows.length === 0 ? <EmptyNote icon={CircleCheck} tone="good" title="Tidak ada faskes berisiko" text={`${formatCount(all.length)} kelompok faskes dinilai, semuanya risiko rendah.`} />
+      : <ul className={`facility-bars is-${lane}`}>{rows.map(group => {
         const pattern = dominantPattern(group);
-        const value = hasMoney ? group.billed_high ?? 0 : group.lane_counts.red;
+        const value = hasMoney ? billedOf(group) ?? 0 : group.lane_counts[lane];
         return <li key={group.group_id}>
           <Link to={`/facilities/${encodeURIComponent(group.group_id)}${runQuery}`} className="facility-bar" data-testid="facility-bar">
             <span className="facility-bar-name">{group.title} · {titleCase(group.region)}</span>
-            {hasMoney && <strong>{formatRupiah(group.billed_high ?? 0)}</strong>}
-            <span className="facility-bar-meta">{formatCount(group.lane_counts.red)} klaim risiko tinggi{pattern ? ` · ${(FRAUD_PATTERNS[pattern.code]?.label ?? pattern.code).toLowerCase()}` : ""}</span>
+            {hasMoney && <strong>{formatRupiah(billedOf(group) ?? 0)}</strong>}
+            <span className="facility-bar-meta">{formatCount(group.lane_counts[lane])} klaim risiko {level}{pattern ? ` · ${(FRAUD_PATTERNS[pattern.code]?.label ?? pattern.code).toLowerCase()}` : ""}</span>
             <span className="facility-bar-track" aria-hidden="true"><i style={{ width: `${Math.max(2, 100 * value / most)}%` }} /></span>
           </Link>
         </li>;
       })}</ul>}
   </section>;
+}
+
+/** An empty card that still says something: an icon, a short title and one line. */
+function EmptyNote({ icon: Icon, title, text, tone = "neutral" }: { icon: typeof Building2; title: string; text: string; tone?: "neutral" | "good" }) {
+  return <div className={`empty-note tone-${tone}`}><span className="empty-note-icon"><Icon size={22} aria-hidden="true" /></span>
+    <strong>{title}</strong><span>{text}</span></div>;
 }
 
 /** High- and medium-risk claims per service day, stacked. */
@@ -242,11 +267,12 @@ function DailyRisk({ days, chart, truncated }: { days: Day[]; chart: Record<keyo
   return <section className="card" aria-labelledby="daily-title">
     <div className="card-head"><div><h2 id="daily-title">Klaim berisiko per hari</h2>
       <p>Risiko tinggi dan sedang menurut tanggal layanan{days.length ? `, ${dayRange(days)}` : ""}</p></div></div>
-    {days.length === 0 ? <p className="fine-print">Tanggal layanan tidak tersedia untuk analisis ini.</p> : <>
+    {days.length === 0 ? <EmptyNote icon={CalendarDays} title="Tanggal layanan tidak ada" text="Data ini tidak memuat tanggal layanan." /> : <>
+      {days.length <= FEW_DAYS ? <DayBars days={days} /> : <>
       <div className="chart-box" style={{ height: 210 }} role="img"
         aria-label={`Grafik batang bertumpuk klaim risiko tinggi dan sedang per hari, ${dayRange(days)}`}>
         <ResponsiveContainer>
-          <BarChart data={days} margin={{ top: 8, right: 4, bottom: 0, left: -22 }} barCategoryGap="18%">
+          <BarChart data={days} margin={{ top: 8, right: 4, bottom: 0, left: -22 }} barCategoryGap="18%" maxBarSize={36}>
             <XAxis dataKey="date" tickFormatter={value => DAY.format(parseDay(String(value)))} tick={{ fontSize: 11, fill: chart.axis }}
               axisLine={false} tickLine={false} minTickGap={24} />
             <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: chart.axisFaint }} axisLine={false} tickLine={false} />
@@ -262,6 +288,7 @@ function DailyRisk({ days, chart, truncated }: { days: Day[]; chart: Record<keyo
         <li><i className="dot" style={{ background: chart.red }} />Risiko tinggi</li>
         <li><i className="dot" style={{ background: chart.yellow }} />Risiko sedang</li>
       </ul>
+      </>}
       <p className="fine-print">Rata-rata {formatDecimal(risky / days.length)} klaim berisiko per hari
         {billedDays.length ? `, nilai tagihan ${formatRupiah(Math.round(billed / billedDays.length))} per hari` : ""}.
         {truncated ? " Hanya hari-hari terbaru yang ditampilkan." : ""}</p>
@@ -292,12 +319,18 @@ function formatPercent(share: number): string {
 export function FacilityTable({ groups, runQuery, showPriority = false }: { groups: FacilityGroup[]; runQuery: string; showPriority?: boolean }) {
   return <div className="table-scroll">
     <table className="data-table facility-table">
-      <thead><tr><th>Kelompok faskes</th><th>Risiko tinggi</th><th>Risiko sedang</th><th>Nilai tagihan berisiko</th>
+      <thead><tr><th>Kelompok faskes</th><th>Modus utama</th><th>Risiko tinggi</th><th>Risiko sedang</th><th>Nilai tagihan berisiko</th>
         {showPriority && <th>Indeks prioritas</th>}<th>Tingkat</th><th><span className="sr-only">Aksi</span></th></tr></thead>
       <tbody>{groups.map(group => (
         <tr key={group.group_id} data-group-id={group.group_id}>
           <td><div className="cell-flex"><span className="icon-circle"><Building2 size={16} /></span>
-            <div className="facility-cell"><strong>{group.title}</strong><span>{titleCase(group.region)} · {formatCount(group.claim_count)} klaim</span></div></div></td>
+            <div className="facility-cell"><strong>{group.title}</strong><span>{titleCase(group.region)} · {formatCount(group.claim_count)} klaim</span>
+              <span className="facility-share" title={`${formatCount(group.lane_counts.red + group.lane_counts.yellow)} dari ${formatCount(group.claim_count)} klaim berisiko`} aria-hidden="true">
+                <i className="is-red" style={{ width: `${100 * group.lane_counts.red / Math.max(1, group.claim_count)}%` }} />
+                <i className="is-yellow" style={{ width: `${100 * group.lane_counts.yellow / Math.max(1, group.claim_count)}%` }} /></span></div></div></td>
+          <td>{(() => { const top = dominantPattern(group); return top
+            ? <span className="pattern-chip" style={{ ["--pattern" as string]: PATTERN_COLORS[top.code] }}>{FRAUD_PATTERNS[top.code]?.label ?? top.code}</span>
+            : <span className="fine-print">Tidak ada</span>; })()}</td>
           <td><span className="status-dot-text"><LaneDot lane="red" />{formatCount(group.lane_counts.red)}</span></td>
           <td><span className="status-dot-text"><LaneDot lane="yellow" />{formatCount(group.lane_counts.yellow)}</span></td>
           <td>{group.billed_high_or_medium !== undefined ? formatRupiah(group.billed_high_or_medium) : "Tidak ada"}</td>

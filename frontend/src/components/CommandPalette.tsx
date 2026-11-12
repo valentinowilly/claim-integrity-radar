@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { CornerDownLeft, FileSearch, Moon, Search, Upload, type LucideIcon } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -82,7 +83,7 @@ export function CommandPalette({ pages, canUpload, canSearchClaims }: { pages: P
     else if (event.key === "Enter") { event.preventDefault(); items[active]?.run(); }
   };
   let lastGroup = "";
-  return <div className="palette-scrim" onMouseDown={() => setOpen(false)}>
+  return createPortal(<div className="palette-scrim" onMouseDown={() => setOpen(false)}>
     <div className="palette" role="dialog" aria-modal="true" aria-label="Cari halaman, klaim, atau tindakan" onMouseDown={event => event.stopPropagation()}>
       <div className="palette-input">
         <Search size={17} aria-hidden="true" />
@@ -111,7 +112,7 @@ export function CommandPalette({ pages, canUpload, canSearchClaims }: { pages: P
       </ul>
       <div className="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> pilih</span><span><kbd>Enter</kbd> buka</span><span><kbd>Ctrl</kbd><kbd>K</kbd> buka/tutup</span></div>
     </div>
-  </div>;
+  </div>, document.body);
 }
 
 /** The top-bar button that opens the palette (the shortcut is shown so people learn it). */

@@ -8,6 +8,7 @@ import { RunSelector, RunStateMessage, SourcePill } from "../components/Persiste
 import { formatPercent } from "../components/RiskMap";
 import { ReviewAccuracy } from "../components/ReviewAccuracy";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
+import { DayBars, FEW_DAYS } from "../components/DayBars";
 import { useThemeColors } from "../theme/theme";
 
 // Days with fewer claims than this are left out of the share line: a few claims make the share jump.
@@ -33,9 +34,9 @@ export default function TrendPage() {
       </div>}
     </header>
     {state.status !== "success" ? <RunStateMessage state={state} retry={reload} />
-      : !activity ? <div className="card"><EmptyState title="Tren tersedia untuk analisis berikutnya"
+      : !activity ? <div className="card" style={{ marginBottom: 18 }}><EmptyState title="Tren tersedia untuk analisis berikutnya"
         message="Analisis ini disimpan sebelum ringkasan per tanggal dicatat. Jalankan ulang analisis di menu Data & Analisis." /></div>
-      : activity.status !== "available" ? <div className="card"><EmptyState title="Tanggal layanan tidak tersedia"
+      : activity.status !== "available" ? <div className="card" style={{ marginBottom: 18 }}><EmptyState title="Tanggal layanan tidak tersedia"
         message="Data klaim pada analisis ini tidak memuat tanggal layanan." /></div>
       : <TrendWorkspace activity={activity} />}
     {state.status === "success" && <ReviewAccuracy />}
@@ -54,6 +55,8 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
   const billedTotal = rows.reduce((sum, day) => sum + (day.billed_high_or_medium ?? 0), 0);
   const peak = rows.filter(day => day.share !== null).reduce<(typeof rows)[number] | null>((best, day) => (!best || (day.share ?? 0) > (best.share ?? 0) ? day : best), null);
   const hasBilled = rows.some(day => day.billed_high_or_medium !== null);
+  // A few days read better as rows than as a mostly empty chart; the share line and the money chart add nothing then.
+  const few = rows.length <= FEW_DAYS;
   const tooltip = {
     contentStyle: { background: colors.surface, border: `1px solid ${colors.grid}`, borderRadius: 12, color: colors.ink, fontSize: 12.5,
       boxShadow: "0 12px 28px -14px rgb(0 0 0 / 0.35)" },
@@ -78,10 +81,11 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
           <span><LaneDot lane="red" />Risiko tinggi</span><span><LaneDot lane="yellow" />Risiko sedang</span>
         </div>
       </div>
+      {few ? <DayBars days={rows} /> : <>
       <div className="chart-box" style={{ height: 300 }} role="img"
         aria-label={`Klaim berisiko per hari dari ${long(rows[0].date)} sampai ${long(rows[rows.length - 1].date)}; rincian per hari ada di tabel di bawah.`}>
         <ResponsiveContainer>
-          <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -12 }} barCategoryGap="18%">
+          <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -12 }} barCategoryGap="18%" maxBarSize={36}>
             <CartesianGrid vertical={false} stroke={colors.grid} />
             <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={18} />
             <YAxis allowDecimals={false} {...axis} width={48} />
@@ -93,14 +97,15 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
+      </>}
     </section>
 
-    {hasBilled && <section className="card trend-card" data-testid="trend-billed">
+    {hasBilled && !few && <section className="card trend-card" data-testid="trend-billed">
       <div className="card-head"><div><h2>Nilai tagihan berisiko per hari</h2>
         <p>Tagihan rumah sakit (FKL47) klaim risiko tinggi dan sedang, sebelum verifikasi. Bukan nilai kerugian.</p></div></div>
       <div className="chart-box" style={{ height: 220 }} role="img" aria-label={`Nilai tagihan berisiko per hari, total ${formatRupiah(billedTotal)}.`}>
         <ResponsiveContainer>
-          <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 8 }} barCategoryGap="18%">
+          <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 8 }} barCategoryGap="18%" maxBarSize={36}>
             <CartesianGrid vertical={false} stroke={colors.grid} />
             <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={18} />
             <YAxis {...axis} width={64} tickFormatter={(value: number) => `${(value / 1_000_000).toLocaleString("id-ID", { maximumFractionDigits: 0 })} jt`} />
@@ -113,6 +118,7 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
       </div>
     </section>}
 
+    {!few && <>
     <section className="card trend-card">
       <div className="card-head"><div><h2>Porsi klaim berisiko per hari</h2>
         <p>Garis putus-putus menunjukkan rata-rata seluruh periode ({formatPercent(average)}). Hari dengan kurang dari {MIN_DAY_CLAIMS} klaim tidak digambar.</p></div></div>
@@ -131,6 +137,7 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
         </ResponsiveContainer>
       </div>
     </section>
+    </>}
 
     <section className="card">
       <div className="card-head"><div><h2>Rincian per hari</h2><p>Hari terbaru di atas.</p></div></div>

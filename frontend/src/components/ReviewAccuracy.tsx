@@ -62,7 +62,7 @@ export function ReviewAccuracy() {
         <div className="chart-box" style={{ height: 240 }} role="img"
           aria-label={`Keputusan verifikator per minggu; secara keseluruhan ${data.totals.share === null ? "belum ada keputusan" : formatPercent(data.totals.share)} memang perlu ditindaklanjuti.`}>
           <ResponsiveContainer>
-            <BarChart data={rows} margin={{ top: 16, right: 8, bottom: 0, left: -12 }} barCategoryGap="22%">
+            <BarChart data={rows} margin={{ top: 16, right: 8, bottom: 0, left: -12 }} barCategoryGap="22%" maxBarSize={36}>
               <CartesianGrid vertical={false} stroke={colors.grid} />
               <XAxis dataKey="week_start" tickFormatter={short} tick={{ fontSize: 11.5, fill: colors.axis }} axisLine={false} tickLine={false} />
               <YAxis allowDecimals={false} tick={{ fontSize: 11.5, fill: colors.axis }} axisLine={false} tickLine={false} width={40} />

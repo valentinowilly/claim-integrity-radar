@@ -15,6 +15,8 @@ export const GLOSSARY: Record<string, { term: string; text: string }> = {
   "kelompok-faskes": { term: "Kelompok faskes", text: "Faskes dikelompokkan menurut kelas, kepemilikan, dan wilayah, karena data klaim tidak memuat kode rumah sakit yang unik. Kelompok kecil disembunyikan agar faskes tidak dapat dikenali." },
   "paket-bukti": { term: "Paket bukti", text: "Satu halaman berisi alasan dan daftar klaim sampel yang rekam medisnya perlu diminta dari satu kelompok faskes. Bisa dicetak atau disimpan sebagai PDF." },
   klarifikasi: { term: "Minta klarifikasi", text: "Tahap tinjauan saat verifikator meminta penjelasan atau berkas tambahan ke faskes." },
+  "aturan-teks": { term: "Aturan teks", text: "Tanpa AI, catatan dibaca dengan pola kalimat tetap (lama rawat, tingkat keparahan, komplikasi). Isian formulir tetap dibaca lengkap." },
+  "masa-simpan": { term: "Masa simpan berkas PDF", text: "10 tahun sejak paket diproses, sebagai bukti pendukung pembayaran klaim (UU 8/1997 Pasal 11). Paket yang dibatalkan dihapus setelah 30 hari (UU PDP). Berkas klaim yang sedang ditinjau, diminta klarifikasi, masuk audit, atau terbukti bermasalah tidak dihapus. Rekam medis aslinya tetap disimpan faskes." },
   audit: { term: "Masuk audit", text: "Tahap tinjauan saat klaim diserahkan ke tim audit untuk diperiksa lebih dalam." },
 };
 

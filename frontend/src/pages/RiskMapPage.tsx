@@ -65,6 +65,9 @@ function MapWorkspace({ rows, fairness, groups, runId, metric, setMetric, hasBil
   const runQuery = `?run_id=${encodeURIComponent(runId)}`;
   const spec = METRICS[metric];
   const ordered = [...rows.values()].sort((a, b) => (spec.value(b) ?? -1) - (spec.value(a) ?? -1) || a.name.localeCompare(b.name));
+  const [showQuiet, setShowQuiet] = useState(false);
+  const topShare = Math.max(0, ...ordered.map(row => row.share));
+  const quietCount = ordered.filter(row => row.high + row.medium === 0).length;
   const above = ordered.filter(row => (row.ratio ?? 0) >= 2).length;
   const mapped = ordered.filter(row => PROVINCE_MAP.provinces.some(item => item.code === row.code)).length;
   const metrics = (Object.keys(METRICS) as MapMetric[]).filter(key => key !== "billed" || hasBilled);
@@ -125,18 +128,21 @@ function MapWorkspace({ rows, fairness, groups, runId, metric, setMetric, hasBil
         <table className="data-table map-table">
           <thead><tr><th>Provinsi</th><th>Klaim</th><th>Risiko tinggi</th><th>Risiko sedang</th><th>Porsi berisiko</th>
             <th>Dibanding nasional</th><th>Kelompok faskes</th>{hasBilled && <th>Nilai tagihan berisiko</th>}</tr></thead>
-          <tbody>{ordered.map(row => <tr key={row.code} className={selected === row.code ? "is-selected" : undefined}>
+          <tbody>{(showQuiet ? ordered : ordered.filter(row => row.high + row.medium > 0)).map(row => <tr key={row.code} className={selected === row.code ? "is-selected" : undefined}>
             <td><button type="button" className="link-button" onClick={() => select(row.code)}>{row.name}</button></td>
             <td>{formatCount(row.claims)}</td>
             <td><span className="status-dot-text"><LaneDot lane="red" />{formatCount(row.high)}</span></td>
             <td><span className="status-dot-text"><LaneDot lane="yellow" />{formatCount(row.medium)}</span></td>
-            <td>{formatPercent(row.share)}</td>
+            <td><span className="share-cell"><span className="share-bar" aria-hidden="true">
+              <i style={{ width: `${Math.min(100, 100 * row.share / Math.max(0.0001, topShare))}%` }} /></span>{formatPercent(row.share)}</span></td>
             <td><RatioPill ratio={row.ratio} /></td>
             <td>{row.facilityGroups === null ? "Tidak ada" : formatCount(row.facilityGroups)}</td>
             {hasBilled && <td>{row.billed === null ? "Tidak ada" : formatRupiah(row.billed)}</td>}
           </tr>)}</tbody>
         </table>
       </div>
+      {quietCount > 0 && <button type="button" className="button button-secondary show-quiet" onClick={() => setShowQuiet(value => !value)}>
+        {showQuiet ? "Sembunyikan" : "Tampilkan"} {formatCount(quietCount)} provinsi tanpa klaim berisiko</button>}
       <p className="map-attribution">Batas wilayah: {PROVINCE_MAP.attribution} ({PROVINCE_MAP.license}).</p>
     </section>
   </>;
@@ -161,6 +167,10 @@ function ProvincePanel({ row, groups, runQuery, overall, onClose }: {
       <strong>{formatPercent(row.share)}</strong>
       <span>klaim berisiko · nasional {formatPercent(overall)}</span>
       <RatioPill ratio={row.ratio} />
+    </div>
+    <div className="map-compare" aria-label={`Porsi berisiko ${formatPercent(row.share)}, nasional ${formatPercent(overall)}`}>
+      <span>Provinsi ini</span><span className="map-compare-bar is-here"><i style={{ width: `${Math.min(100, 100 * row.share / Math.max(row.share, overall, 0.0001))}%` }} /></span><b>{formatPercent(row.share)}</b>
+      <span>Nasional</span><span className="map-compare-bar"><i style={{ width: `${Math.min(100, 100 * overall / Math.max(row.share, overall, 0.0001))}%` }} /></span><b>{formatPercent(overall)}</b>
     </div>
     <dl className="map-province-facts">
       <div><dt>Klaim dianalisis</dt><dd>{formatCount(row.claims)}</dd></div>

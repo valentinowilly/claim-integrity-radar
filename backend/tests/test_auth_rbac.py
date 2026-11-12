@@ -315,3 +315,29 @@ def test_the_administrator_lists_accounts_resets_a_password_and_reads_the_securi
     _r, verifier_cookies = login(app, "verif-satu", "Synthetic-new-pass-2026!!")
     assert call(app, "GET", "/api/v1/auth/users", cookies=verifier_cookies).status_code == 403
     assert call(app, "GET", "/api/v1/auth/security-events", cookies=verifier_cookies).status_code == 403
+
+
+def test_the_reset_script_lists_accounts_and_sets_a_password_without_printing_it(tmp_path, monkeypatch, capsys):
+    import sys
+
+    from scripts import reset_password
+
+    app, store = setup_app(tmp_path)
+    admin = bootstrap(store)
+    store.update_user(store.create_user("verif-dua", "Synthetic-verifier-pass-2026!", "verifikator", admin["user_id"])["user_id"],
+                      admin["user_id"], is_active=False)
+    monkeypatch.delenv("CIR_DATABASE_URL", raising=False)
+    monkeypatch.setenv("CIR_AUTH_DB_PATH", str(store.path))
+    monkeypatch.setattr(sys, "argv", ["reset_password", "--list"])
+    assert reset_password.main() == 0
+    listing = capsys.readouterr().out
+    assert "SQLite" in listing and "verif-dua | verifikator | NONAKTIF" in listing and "scrypt" not in listing
+
+    monkeypatch.setenv("CIR_RESET_PASSWORD", "Synthetic-reset-pass-2026!")
+    monkeypatch.setattr(sys, "argv", ["reset_password", "--username", "VERIF-DUA", "--activate"])
+    assert reset_password.main() == 0
+    assert "Synthetic-reset-pass-2026!" not in capsys.readouterr().out
+    assert login(app, "verif-dua", "Synthetic-reset-pass-2026!")[0].status_code == 200
+    monkeypatch.setattr(sys, "argv", ["reset_password", "--username", "tidak-ada"])
+    with pytest.raises(SystemExit):
+        reset_password.main()

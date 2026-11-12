@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowRight, CheckCircle2, CircleSlash, Database, Download, FileJson, FileScan, FileText, Files, Info, Loader2, Plus, ScanText,
+  ArrowRight, CheckCircle2, Clock3, CircleSlash, Database, Download, FileJson, FileScan, FileText, Files, Info, Loader2, Package, Plus, ScanText,
   TriangleAlert, X, XCircle,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -11,6 +11,7 @@ import {
 } from "../api/client";
 import { formatDocumentValue } from "./ClaimDocuments";
 import { formatCount, formatDateTime, shortRef } from "./Display";
+import { Term } from "./Term";
 
 const ACCEPT = ".csv,.json,.pdf,.zip,text/csv,application/json,application/pdf,application/zip";
 /** Why a package failed, and what to do next. */
@@ -60,6 +61,13 @@ function fileSize(bytes: number): string {
     : `${Math.max(1, Math.round(bytes / 1024)).toLocaleString("id-ID")} KB`;
 }
 
+/** What each example contains, as short labels (the full description stays in the tooltip). */
+const SAMPLE_META: Record<string, { icon: "package" | "csv"; chips: string[]; time?: string }> = {
+  "paket-ringkas": { icon: "package", chips: ["CSV", "JSON RME", "24 PDF"], time: "± 1 menit" },
+  "paket-lengkap": { icon: "package", chips: ["CSV", "JSON RME", "240 PDF"], time: "± 5 menit" },
+  "klaim-csv": { icon: "csv", chips: ["29.628 klaim", "40 RS", "CSV"] },
+};
+
 const fileKey = (file: File) => `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
 
 /** Upload a claim package (claim data as CSV and/or RME JSON, plus facility PDFs), watch it being read, see the result. */
@@ -73,6 +81,7 @@ export function PackageUpload({ canWrite, onDone }: { canWrite: boolean; onDone:
   const [current, setCurrent] = useState<IntakePackage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const cancelRequested = useRef(false);
   const done = useRef(onDone);
   done.current = onDone;
@@ -168,16 +177,19 @@ export function PackageUpload({ canWrite, onDone }: { canWrite: boolean; onDone:
         <p>Satu paket boleh berisi data klaim dan berkas faskes sekaligus, atau satu berkas CSV saja. Sistem membaca semuanya, menyatukannya per klaim, lalu menganalisis.</p></div>
     </div>
     <ul className="source-strip" aria-label="Sumber yang didukung">
-      <li><Database size={16} aria-hidden="true" /><span><strong>Data E-Klaim</strong><small>CSV, format kolom klaim FKRTL</small></span></li>
-      <li><FileJson size={16} aria-hidden="true" /><span><strong>RME / SATUSEHAT</strong><small>JSON, Bundle HL7 FHIR</small></span></li>
-      <li><FileText size={16} aria-hidden="true" /><span><strong>Berkas faskes (PDF digital)</strong><small>Teks dibaca langsung</small></span></li>
-      <li><ScanText size={16} aria-hidden="true" /><span><strong>Berkas faskes (PDF hasil pindai)</strong><small>Dibaca dengan OCR</small></span></li>
+      <li className="is-csv"><Database size={16} aria-hidden="true" /><span><strong>Data E-Klaim</strong><small>CSV, format kolom klaim FKRTL</small></span></li>
+      <li className="is-json"><FileJson size={16} aria-hidden="true" /><span><strong>RME / SATUSEHAT</strong><small>JSON, Bundle HL7 FHIR</small></span></li>
+      <li className="is-pdf"><FileText size={16} aria-hidden="true" /><span><strong>Berkas faskes (PDF digital)</strong><small>Teks dibaca langsung</small></span></li>
+      <li className="is-scan"><ScanText size={16} aria-hidden="true" /><span><strong>Berkas faskes (PDF hasil pindai)</strong><small>Dibaca dengan OCR</small></span></li>
     </ul>
     {canWrite ? <div className="package-form">
-      <label className="upload-drop">
+      <label className={`upload-drop package-drop${dragging ? " is-dragging" : ""}`}
+        onDragOver={event => { event.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={() => setDragging(false)}
+        onDrop={event => { event.preventDefault(); setDragging(false); if (!busy) addFiles(Array.from(event.dataTransfer.files)); }}>
+        <span className="drop-art" aria-hidden="true"><i className="is-csv">CSV</i><i className="is-json">JSON</i><i className="is-pdf">PDF</i></span>
+        <span><strong>{dragging ? "Lepaskan berkas di sini" : files.length ? "Tambah berkas lain" : "Seret berkas ke sini, atau klik untuk memilih"}</strong>
+          <small>Boleh banyak sekaligus · CSV, JSON, PDF, atau ZIP</small></span>
         {files.length ? <Plus size={22} aria-hidden="true" /> : <Files size={22} aria-hidden="true" />}
-        <span><strong>{files.length ? "Tambah berkas lain" : "Pilih berkas (boleh banyak sekaligus)"}</strong>
-          <small>CSV, JSON, PDF, atau ZIP berisi berkas-berkas itu</small></span>
         <input key={inputKey} type="file" multiple accept={ACCEPT} aria-label="Berkas paket klaim" disabled={busy}
           onChange={event => addFiles(Array.from(event.target.files ?? []))} />
       </label>
@@ -212,22 +224,27 @@ export function PackageUpload({ canWrite, onDone }: { canWrite: boolean; onDone:
       </div>
     </div> : <p className="fine-print">Akun Anda tidak memiliki izin mengunggah data.</p>}
     {samples.length > 0 && <div className="sample-downloads" data-testid="sample-downloads">
-      <span className="sample-downloads-label"><Download size={14} aria-hidden="true" />Belum punya berkas? Unduh contoh (data sintetis), lalu unggah di atas:</span>
-      <ul>{samples.map(sample => <li key={sample.sample_id}>
-        <a href={intakeSampleUrl(sample.sample_id)} download={sample.file_name} data-testid={`sample-${sample.sample_id}`}>{sample.label}</a>
-        <small>{sample.description}</small>
-      </li>)}</ul>
+      <span className="sample-downloads-label"><Download size={14} aria-hidden="true" />Belum punya berkas? Coba contoh data sintetis</span>
+      <ul>{samples.map(sample => {
+        const meta = SAMPLE_META[sample.sample_id];
+        return <li key={sample.sample_id}>
+          <a className="sample-card" href={intakeSampleUrl(sample.sample_id)} download={sample.file_name} title={sample.description}
+            data-testid={`sample-${sample.sample_id}`}>
+            <span className="sample-icon">{meta?.icon === "csv" ? <Database size={18} aria-hidden="true" /> : <Package size={18} aria-hidden="true" />}</span>
+            <span className="sample-body"><strong>{sample.label}</strong>
+              <span className="sample-chips">{(meta?.chips ?? []).map(chip => <i key={chip}>{chip}</i>)}</span></span>
+            {meta?.time && <span className="sample-time"><Clock3 size={13} aria-hidden="true" />{meta.time}</span>}
+            <Download className="sample-go" size={16} aria-hidden="true" />
+          </a>
+        </li>;
+      })}</ul>
     </div>}
     {error && <div className="workflow-error" role="alert"><strong>Unggahan gagal</strong><span>{error}</span></div>}
     {notice && <div className="workflow-feedback" role="status">{notice}</div>}
-    {status && <p className="fine-print package-reader">
-      {status.model.configured ? "Isian formulir dibaca langsung; catatan dan dokumen bebas dibaca AI pembaca dokumen."
-        : "Isian formulir dibaca langsung; catatan dan dokumen bebas dibaca dengan aturan teks."}
-    </p>}
-    {status?.retention && <p className="fine-print" data-testid="retention-note">
-      Berkas PDF disimpan {Math.round(status.retention.document_days / 365)} tahun sebagai bukti pendukung pembayaran klaim; rekam medis aslinya tetap di faskes.
-      Berkas dari paket yang dibatalkan dihapus setelah {status.retention.cancelled_days} hari. Berkas klaim yang sedang ditinjau, diminta klarifikasi,
-      masuk audit, atau terbukti bermasalah tidak dihapus.</p>}
+    {status && <div className="intake-facts">
+      <span className="intake-fact"><ScanText size={15} aria-hidden="true" />Catatan bebas dibaca:{" "}
+        <Term id={status.model.configured ? "ai-pembaca" : "aturan-teks"}>{status.model.configured ? "AI pembaca dokumen" : "aturan teks"}</Term></span>
+    </div>}
     {current && current.status === "processing" && <PackageProgress pkg={current} />}
     {current && current.status === "failed" && <PackageFailed pkg={current} />}
     {current && current.status === "ready" && current.summary && !("failure" in current.summary && current.summary.failure)

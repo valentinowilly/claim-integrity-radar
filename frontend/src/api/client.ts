@@ -186,6 +186,7 @@ export interface RunOverview {
   version: string; ai_confirmed_high: number; ai_threshold: number;
   evidence: { services_requiring_evidence: number; services_complete: number; share_complete: number | null };
   top_high_claims: Array<{ case_id: string; amount: number; indicators: string[]; fraud_patterns: string[] }>;
+  top_medium_claims?: Array<{ case_id: string; amount: number; indicators: string[]; fraud_patterns: string[] }>;
   note: string;
 }
 export interface ReviewPipeline {

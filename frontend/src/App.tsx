@@ -122,7 +122,6 @@ export default function App() {
               </NavLink>
             </Fragment>))}
           </nav>
-          <div className="side-foot">Hasil sistem adalah petunjuk pemeriksaan. Keputusan tetap di tangan petugas.</div>
         </aside>
         {menuOpen && <button className="side-scrim" aria-label="Tutup navigasi" onClick={() => setMenuOpen(false)} />}
         <header className="side-topbar">

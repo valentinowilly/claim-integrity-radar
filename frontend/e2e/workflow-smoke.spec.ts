@@ -231,7 +231,7 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
   // One authenticated platform_admin completes the primary demo workflow end to end.
   await page.goto(uiUrl);
   await captureVisual(page, "login-desktop");
-  await login(page, platformAdmin, platformAdminPassword);
+  await login(page, platformAdmin, platformAdminPassword, { keepSignInSummary: true });
   for (const linkName of ["Beranda", "Faskes", "Antrean Tinjauan", "Data & Analisis"]) {
     await expect(page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: linkName })).toBeVisible();
   }
@@ -280,6 +280,10 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
 
   await page.goto(uiUrl + "/");
   await expect(page.getByRole("heading", { name: "Prioritas hari ini" })).toBeVisible();
+  // Mentor note: the high-risk summary is the first thing after signing in, every time.
+  await expect(page.getByTestId("facility-alert")).toBeVisible();
+  await page.getByRole("button", { name: "Tutup peringatan" }).click();
+  await expect(page.getByTestId("facility-alert")).toHaveCount(0);
   await expect(page.getByLabel("Pilih hasil analisis", { exact: true })).toHaveValue(runId);
   await expect(page.getByTestId("risk-focus")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Kelompok faskes yang perlu diperiksa" })).toBeVisible();
@@ -842,12 +846,18 @@ async function openFilters(page: Page) {
   if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
 }
 
-async function login(page: Page, username: string, password: string) {
+async function login(page: Page, username: string, password: string, options: { keepSignInSummary?: boolean } = {}) {
   await page.goto(uiUrl);
   await page.getByLabel("Nama pengguna").fill(username);
   await page.locator('input[autocomplete="current-password"]').fill(password);
   await page.getByRole("button", { name: "Masuk", exact: true }).click();
   await expect(page.getByRole("button", { name: new RegExp(username) })).toBeVisible();
+  // The high-risk summary after sign-in is checked once (first test); elsewhere it would cover what a test clicks.
+  if (!options.keepSignInSummary) {
+    const summary = page.getByTestId("facility-alert");
+    await summary.waitFor({ timeout: 4000 }).then(() => page.getByRole("button", { name: "Tutup peringatan" }).click()).catch(() => undefined);
+    await page.evaluate(() => window.sessionStorage.removeItem("cir:login-alert-pending"));
+  }
 }
 
 async function captureVisual(page: Page, filename: string) {

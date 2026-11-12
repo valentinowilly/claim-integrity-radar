@@ -6,7 +6,8 @@ computed here, once, when the analysis runs:
 * ``ai_confirmed_high``: high-risk claims whose pattern the claim-pattern AI also ranks among the rarest
   (at or above the policy's threshold);
 * ``evidence``: of the services that must carry supporting documents, how many carry all of them;
-* ``top_high_claims``: the high-risk claims with the largest billed amount (FKL47, before verification).
+* ``top_high_claims`` / ``top_medium_claims``: the high- and medium-risk claims with the largest billed amount
+  (FKL47, before verification).
 
 Amounts are for display only: they never change scores, lanes or order.
 """
@@ -39,30 +40,31 @@ def build_overview(records: list[Mapping[str, Any]], cases: Mapping[str, Mapping
                     if lane == "red" and (_percentile(cases.get(case_id)) or 0.0) >= threshold)
 
     required = complete = 0
-    high: list[tuple[Decimal, str]] = []
+    largest: dict[str, list[tuple[Decimal, str]]] = {"red": [], "yellow": []}
     for record in records:
         needed = set(record.get("supporting_evidence_required") or [])
         if needed:
             required += 1
             complete += needed <= set(record.get("supporting_evidence_types") or [])
         case_id = record.get("case_id")
-        if per_claim_amounts and lane_of.get(case_id) == "red":
+        lane = lane_of.get(case_id)
+        if per_claim_amounts and lane in largest:
             amount = _amount(record)
             if amount is not None:
-                high.append((amount, case_id))
-    high.sort(key=lambda item: (-item[0], item[1]))
-    top = []
-    for amount, case_id in high[:TOP_CLAIMS]:
-        case = cases.get(case_id) or {}
-        top.append({"case_id": case_id, "amount": int(amount), "indicators": list(case.get("indicators") or []),
-                    "fraud_patterns": _patterns_of(case)})
+                largest[lane].append((amount, case_id))
+
+    def top(lane: str) -> list[dict[str, Any]]:
+        items = sorted(largest[lane], key=lambda item: (-item[0], item[1]))[:TOP_CLAIMS]
+        return [{"case_id": case_id, "amount": int(amount), "indicators": list((cases.get(case_id) or {}).get("indicators") or []),
+                 "fraud_patterns": _patterns_of(cases.get(case_id) or {})} for amount, case_id in items]
     return {
         "version": "overview-v1",
         "ai_confirmed_high": confirmed,
         "ai_threshold": threshold,
         "evidence": {"services_requiring_evidence": required, "services_complete": complete,
                      "share_complete": round(complete / required, 4) if required else None},
-        "top_high_claims": top,
+        "top_high_claims": top("red"),
+        "top_medium_claims": top("yellow"),
         "note": "Nilai tagihan (FKL47) sebelum verifikasi, untuk tampilan saja; tidak dipakai untuk skor atau urutan.",
     }
 
