@@ -562,6 +562,10 @@ a.row-item:hover { background: var(--brand-soft); }
    ========================================================================== */
 :root {
   --lane-red: #dc2626; --lane-red-soft: #fef2f2; --lane-red-line: #fecaca;
+  /* Red cards: a solid tint and a border strong enough to set them apart from white cards at a glance. */
+  --lane-red-tint: #fdecec; --lane-red-edge: #f19c9c; --lane-red-ink: #b91c1c;
+  /* Yellow as text: the fill colour is too light for small text on white. */
+  --lane-yellow-ink: #92400e;
   --lane-yellow: #d97706; --lane-yellow-soft: #fffbeb; --lane-yellow-line: #fde68a;
   --lane-green: #059669; --lane-green-soft: #ecfdf5; --lane-green-line: #a7f3d0;
 }
@@ -587,19 +591,20 @@ body { font-family: var(--font-sans); letter-spacing: -0.005em; }
 .lane-card .big-num { font-size: 44px; font-weight: 800; line-height: 1; letter-spacing: -0.03em; }
 .lane-card .lane-meaning { color: var(--text-muted); font-size: 13px; }
 .lane-card .lane-action { margin-top: 6px; font-size: 13px; font-weight: 600; }
-.lane-card.red { border-color: var(--lane-red-line); background: linear-gradient(180deg, var(--lane-red-soft), var(--surface-bg) 70%); }
+.lane-card.red { border: 1.5px solid var(--lane-red-edge); background: var(--lane-red-tint); }
 .lane-card.red .big-num, .lane-card.red .lane-action { color: var(--lane-red); }
 .lane-card.yellow { border-color: var(--lane-yellow-line); background: linear-gradient(180deg, var(--lane-yellow-soft), var(--surface-bg) 70%); }
-.lane-card.yellow .big-num, .lane-card.yellow .lane-action { color: var(--lane-yellow); }
+.lane-card.yellow .big-num { color: var(--lane-yellow); }
+.lane-card.yellow .lane-action { color: var(--lane-yellow-ink); }
 .lane-card.green { border-color: var(--lane-green-line); background: linear-gradient(180deg, var(--lane-green-soft), var(--surface-bg) 70%); }
 .lane-card.green .big-num, .lane-card.green .lane-action { color: var(--lane-green); }
 
 .verdict-box { display: grid; gap: 8px; padding: 18px 20px; border-left: 5px solid var(--lane-green); border-radius: 14px; background: var(--lane-green-soft); }
 .verdict-box.high { border-color: var(--lane-red); background: var(--lane-red-soft); }
 .verdict-box.medium { border-color: var(--lane-yellow); background: var(--lane-yellow-soft); }
-.verdict-box .verdict-level { font-size: 13px; font-weight: 800; letter-spacing: 0.06em; }
+.verdict-box .verdict-level { font-size: 14px; font-weight: 800; }
 .verdict-box.high .verdict-level { color: var(--lane-red); }
-.verdict-box.medium .verdict-level { color: var(--lane-yellow); }
+.verdict-box.medium .verdict-level { color: var(--lane-yellow-ink); }
 .verdict-box.low .verdict-level { color: var(--lane-green); }
 .verdict-box p { margin: 0; color: var(--text-primary); font-size: 15px; line-height: 1.6; }
 
@@ -859,7 +864,7 @@ body, .app-shell, .main-panel { background: var(--canvas); }
 .perf-fair-list small { color: var(--text-muted); font-size: 11.5px; }
 .perf-fair-head { display: flex; gap: 8px; justify-content: space-between; font-size: 13px; }
 .perf-fair-list li.flag .perf-bar-track span { background: var(--lane-yellow); }
-.perf-fair-list li.flag .perf-fair-head strong { color: var(--lane-yellow); }
+.perf-fair-list li.flag .perf-fair-head strong { color: var(--lane-yellow-ink); }
 .hero-card .hero-amount { display: grid; gap: 2px; padding: 10px 12px; border-radius: 14px; background: rgb(255 255 255 / 0.12); font-size: 12.5px; }
 .hero-card .hero-amount strong { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
 .perf-illustration { margin: 4px 0 8px; padding: 12px 14px; border-radius: 14px; background: var(--brand-soft); color: var(--brand-ink-strong); font-size: 13.5px; line-height: 1.55; }
@@ -1031,7 +1036,7 @@ body, .app-shell, .main-panel { background: var(--canvas); }
   border-radius: 14px; background: var(--surface-bg); }
 .peer-signal { display: grid; gap: 6px; }
 .peer-signal-title { font-weight: 600; font-size: 13.5px; }
-.peer-signal-title em { font-style: normal; color: var(--lane-yellow); }
+.peer-signal-title em { font-style: normal; color: var(--lane-yellow-ink); }
 .peer-bar { display: grid; grid-template-columns: minmax(110px, 170px) 1fr 52px; gap: 10px; align-items: center; font-size: 12.5px; }
 .peer-bar > span { color: var(--text-muted); }
 .peer-bar > div { height: 8px; border-radius: 99px; background: var(--canvas); overflow: hidden; }

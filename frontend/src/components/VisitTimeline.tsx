@@ -6,7 +6,7 @@ import { RunCandidateLink } from "./PersistedRunWorkspace";
 
 const DAY = 86_400_000;
 const SHORT = new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", timeZone: "UTC" });
-const short = (value: string | null) => (value ? SHORT.format(new Date(`${value}T00:00:00Z`)) : "—");
+const short = (value: string | null) => (value ? SHORT.format(new Date(`${value}T00:00:00Z`)) : "tidak tercatat");
 const toDay = (value: string | null) => (value ? Math.round(Date.parse(`${value}T00:00:00Z`) / DAY) : NaN);
 
 /** The participant's claims in the same file on one time axis: stays as bars, outpatient visits as dots. */

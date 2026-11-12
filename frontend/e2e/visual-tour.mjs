@@ -54,11 +54,12 @@ try {
   });
   for (const [index, csvPath] of csvPaths.entries()) {
     await page.goto(base + "/workflow");
-    await page.locator('input[type="file"]').waitFor({ state: "attached", timeout: 10_000 }).catch(async error => {
+    await page.getByLabel("Berkas CSV").waitFor({ state: "attached", timeout: 10_000 }).catch(async error => {
       await page.screenshot({ path: path.join(outDir, "upload-failed.png"), fullPage: true });
       throw error;
     });
-    await page.locator('input[type="file"]').setInputFiles(csvPath);
+    await page.getByText("Unggah satu berkas CSV dengan laporan pemeriksaan per baris", { exact: true }).click();
+    await page.getByLabel("Berkas CSV").setInputFiles(csvPath);
     await page.getByLabel("Nama data").fill(`synthetic-demo-tour-${index + 1}`);
     await page.getByRole("button", { name: "Unggah dan analisis" }).click();
     await page.getByText("Ringkasan analisis", { exact: true }).waitFor({ timeout: 300_000 });

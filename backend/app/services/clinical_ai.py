@@ -162,11 +162,21 @@ class ClinicalAiError(RuntimeError):
 
 
 def provider() -> str:
-    value = os.environ.get(PROVIDER_VARIABLE, "ollama").strip().lower()
-    return value if value in DEFAULT_MODELS else "ollama"
+    """"served": the model behind the shared OpenAI-compatible endpoint (vLLM on the internal GPU server, or the
+    Gemini API for synthetic demos; see app.services.llm). "ollama" and "anthropic" stay selectable explicitly."""
+    value = os.environ.get(PROVIDER_VARIABLE, "").strip().lower()
+    if value in DEFAULT_MODELS:
+        return value
+    from app.services import llm
+
+    return "served" if llm.configured() else "ollama"
 
 
 def model_name() -> str:
+    if provider() == "served":
+        from app.services import llm
+
+        return llm.model_name()
     return os.environ.get(MODEL_VARIABLE, "").strip() or DEFAULT_MODELS[provider()]
 
 
@@ -195,6 +205,8 @@ def configured() -> bool:
     """Whether the language model can be asked now (the fallback reading is always available)."""
     if os.environ.get(SWITCH_VARIABLE, "").lower() == "off":
         return False
+    if provider() == "served":
+        return True
     if provider() == "anthropic":
         return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
     key = (_ollama_url(), model_name())
@@ -289,10 +301,24 @@ def _ask_anthropic(claim: dict[str, Any], model: str) -> tuple[ModelReading, str
     return response.parsed_output, getattr(response, "model", model)
 
 
+def _ask_served(claim: dict[str, Any]) -> tuple[ModelReading, str]:
+    from app.services import llm
+
+    try:
+        reading, usage = llm.chat_json(SYSTEM_PROMPT, build_prompt(claim), ModelReading, max_tokens=4000)
+    except llm.LlmError as exc:
+        code = {"LLM_TIMEOUT": "CLINICAL_AI_TIMEOUT", "LLM_BUSY": "CLINICAL_AI_BUSY", "LLM_NOT_AUTHORISED": "CLINICAL_AI_NOT_CONFIGURED",
+                "LLM_NOT_CONFIGURED": "CLINICAL_AI_NOT_CONFIGURED", "LLM_INVALID_ANSWER": "CLINICAL_AI_INVALID_ANSWER"}
+        raise ClinicalAiError(code.get(exc.code, "CLINICAL_AI_UNAVAILABLE")) from exc
+    return reading, str(usage.get("model") or llm.model_name())
+
+
 def analyse(claim: dict[str, Any]) -> tuple[ClinicalVerdict, str]:
     """One structured call to the configured model; returns the validated verdict and the model name."""
     model = model_name()
-    if provider() == "anthropic":
+    if provider() == "served":
+        reading, model = _ask_served(claim)
+    elif provider() == "anthropic":
         reading, model = _ask_anthropic(claim, model)
     else:
         reading = _ask_ollama(claim, model)

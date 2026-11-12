@@ -54,3 +54,29 @@ Membuat ulang (butuh model AI dan `category_labels.json` di `backend/models/`):
 Skrip menolak server selain localhost dan database yang sudah berisi analisis. Jalankan backend pada database demo tersendiri (SQLite), bukan database kerja:
 
 `python -m scripts.seed_demo_database --username <nama> --ai-readings 3`
+
+
+## Paket multi-sumber (`demo-4-multisumber/`)
+
+Klaim yang sama dengan `demo-3-operasional.csv`, tetapi dikirim seperti yang diterima tim verifikasi selama masa
+peralihan ke rekam medis elektronik:
+
+| Berkas | Isi |
+|---|---|
+| `klaim-eklaim.csv` | 28.510 klaim dari E-Klaim, format kolom klaim FKRTL |
+| `rme-satusehat.json` | 1.113 klaim dua provinsi sebagai Bundle HL7 FHIR R4 (jalur RME/SATUSEHAT) |
+| `berkas/*.pdf` | 240 berkas faskes untuk 73 klaim: SEP, resume medis, rincian tagihan, resep, bukti penyerahan, catatan sesi terapi. 81 di antaranya hasil pindai (gambar saja, dibaca OCR). |
+| `demo-4-multisumber.answers.json` | Kunci jawaban: jenis dan nilai tiap PDF, untuk mengukur ketepatan baca |
+
+Yang sengaja dibuat untuk diuji:
+
+- Untuk klaim yang punya berkas, **catatan klinis dan daftar bukti dikosongkan di CSV**; keduanya harus dibaca dari PDF.
+- **5 klaim hanya ada sebagai PDF** dan tidak ada di CSV maupun JSON.
+- **3 PDF berbeda dari data klaim** (total tagihan, INA-CBG, tanggal pulang); pencocokan harus menemukannya.
+- Setiap halaman bertuliskan "CONTOH SINTETIS".
+
+Unggah semua berkas itu sekaligus di **Data & Analisis → Unggah paket klaim**. Hasil analisisnya sama dengan
+`demo-3-operasional.csv` (488 risiko tinggi, 604 risiko sedang).
+
+Dibuat oleh `backend/scripts/make_multisource_demo.py` dengan seed tetap; ketepatan baca diukur dengan
+`backend/scripts/evaluate_document_reader.py`.

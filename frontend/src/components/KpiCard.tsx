@@ -56,7 +56,8 @@ export function KpiCard({ icon: Icon, label, value, format = formatCount, histor
 function Delta({ change, previous, format, direction }: {
   change: number | null; previous: number | null; format: (value: number) => string; direction: KpiDirection;
 }) {
-  if (change === null || previous === null) return <span className="kpi2-delta tone-neutral">Analisis pertama</span>;
+  // Nothing to compare with yet: say nothing rather than a label that carries no information.
+  if (change === null || previous === null) return null;
   if (change === 0) return <span className="kpi2-delta tone-neutral"><Minus size={13} aria-hidden="true" />Sama dengan analisis sebelumnya</span>;
   const up = change > 0;
   const tone = direction === "neutral" ? "neutral" : (up === (direction === "up-is-bad")) ? "bad" : "good";

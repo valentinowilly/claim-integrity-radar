@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, CheckCircle2, ClipboardCheck, Copy, FileText, Loader2, Sparkles, TriangleAlert } from "lucide-react";
+import { ArrowRight, CheckCircle2, ClipboardCheck, Copy, FileText, Loader2, TriangleAlert, BookOpenText } from "lucide-react";
 import {
   getClinicalNote, getNoteMatches, requestClinicalAnalysis, type ClinicalAnalysis, type ClinicalNoteResponse, type ClinicalVerdictCode,
   type NoteHighlight, type NoteMatchesResponse,
@@ -127,7 +127,7 @@ function readFacts(facts: NonNullable<ClinicalAnalysis["fakta_catatan"]>, claim:
 }
 
 function codeWithName(code: string | null, name: string | null): string {
-  if (!code) return "—";
+  if (!code) return "Tidak tercatat";
   return name ? `${code} · ${name}` : code;
 }
 
@@ -184,7 +184,7 @@ export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded, patternPerce
     {data.claim && <dl className="clinical-claim-facts" data-testid="clinical-claim-facts">
       <div><dt>Diagnosis utama</dt><dd>{codeWithName(data.claim.primary_diagnosis, data.claim.primary_diagnosis_name)}</dd></div>
       <div><dt>INA-CBG</dt><dd>{codeWithName(data.claim.claim_group, data.claim.claim_group_name)}</dd></div>
-      <div><dt>Lama rawat</dt><dd>{data.claim.stay_days === null ? "—" : data.claim.stay_days === 0 ? "Rawat jalan" : `${data.claim.stay_days} hari`}</dd></div>
+      <div><dt>Lama rawat</dt><dd>{data.claim.stay_days === null ? "Tidak tercatat" : data.claim.stay_days === 0 ? "Rawat jalan" : `${data.claim.stay_days} hari`}</dd></div>
     </dl>}
     <dl className="clinical-note-rows" data-testid="clinical-note-rows">
       {rows.map(row => <div key={row.label} className="clinical-note-row">
@@ -208,13 +208,13 @@ export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded, patternPerce
 
     <div className="clinical-ai" data-testid="clinical-ai">
       <div className="clinical-ai-head">
-        <div><strong><Sparkles size={15} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> AI Pembaca Catatan</strong>
+        <div><strong><BookOpenText size={15} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> AI Pembaca Catatan</strong>
           <span className="fine-print">{data.ai_configured
             ? "AI membaca catatan klaim ini lalu mencocokkannya dengan diagnosis, tingkat keparahan, penyakit penyerta, dan lama rawat yang ditagihkan klaim ini. AI tidak membandingkan dengan klaim lain; repeat billing dan cloning ditentukan pemeriksaan aturan di atas."
             : "Layanan AI sedang tidak aktif; pembacaan memakai pemeriksaan teks otomatis."}</span></div>
         {canAsk && <button type="button" className="button button-primary row-button" disabled={busy} aria-busy={busy || undefined}
           onClick={() => void ask()} data-testid="clinical-ai-ask">
-          {busy ? <Loader2 size={14} className="spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
+          {busy ? <Loader2 size={14} className="spin" aria-hidden="true" /> : <BookOpenText size={14} aria-hidden="true" />}
           {busy ? "Sedang membaca…" : analysis ? "Baca ulang" : "Baca dengan AI"}</button>}
       </div>
       {error && <p className="notice-inline" role="alert">{error}</p>}
@@ -232,7 +232,7 @@ export function ClinicalNoteCard({ runId, caseId, canAsk, onLoaded, patternPerce
           {readFacts(analysis.fakta_catatan, data.claim).map(fact => <div key={fact.label} className={`clinical-fact${fact.mismatch ? " mismatch" : ""}`}>
             <span className="clinical-fact-label">{fact.label}</span>
             <span className="clinical-fact-note">{fact.note}</span>
-            <span className="clinical-fact-claim">{fact.claim ?? "—"}</span>
+            <span className="clinical-fact-claim">{fact.claim ?? "Tidak tercatat"}</span>
           </div>)}
         </div>}
 
@@ -279,8 +279,8 @@ function NoteMatches({ runId, caseId }: { runId: string; caseId: string }) {
       <tbody>{data.matches.map(item => <tr key={item.case_id}>
         <td><RunCandidateLink runId={runId} caseId={item.case_id} className="note-matches-link">Ref. {shortRef(item.case_id)}</RunCandidateLink></td>
         <td>{formatDate(item.service_date)}</td>
-        <td>{item.primary_diagnosis ?? "—"}</td>
-        <td>{item.claim_group ?? "—"}</td>
+        <td>{item.primary_diagnosis ?? "Tidak tercatat"}</td>
+        <td>{item.claim_group ?? "Tidak tercatat"}</td>
         <td><span className="status-dot-text"><LaneDot lane={item.lane} />{LANES[item.lane].name}</span></td>
       </tr>)}</tbody>
     </table>
@@ -288,18 +288,21 @@ function NoteMatches({ runId, caseId }: { runId: string; caseId: string }) {
   </div>;
 }
 
-/** While the AI reads: what it is doing, how long it has taken, and a moving strip (a reading can take ±40 s). */
-function AiWait() {
+/** While the AI reads: what it is doing, how long it has taken, and when to expect the answer (30 to 80 s). */
+export function AiWait({ what = "catatan", against = "data klaim" }: { what?: string; against?: string }) {
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds(value => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  const step = seconds < 4 ? "Mengirim catatan ke AI" : seconds < 30 ? "AI membaca catatan dan mencocokkannya dengan data klaim" : "Hampir selesai";
+  const step = seconds < 4 ? `Mengirim ${what} ke AI`
+    : seconds < 35 ? `AI membaca ${what}`
+    : seconds < 70 ? `Mencocokkan jawaban AI dengan ${against}`
+    : "Layanan AI sedang ramai; jawaban masih ditunggu";
   return <div className="clinical-ai-wait" role="status" aria-live="polite">
     <div className="clinical-ai-wait-row"><span /><span /><span /><em>{step}… {seconds} detik</em></div>
     <div className="busy-strip" aria-hidden="true" />
-    <small className="fine-print">Biasanya kurang dari satu menit.</small>
+    <small className="fine-print">Biasanya 30 sampai 80 detik. Anda boleh membaca bagian lain halaman ini sambil menunggu.</small>
   </div>;
 }
 

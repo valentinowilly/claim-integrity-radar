@@ -60,7 +60,7 @@ export function ReviewAccuracy() {
           {data.policy_changes.length > 0 && <span><i className="accuracy-change-swatch" />Mulai memakai aturan baru</span>}
         </div>
         <div className="chart-box" style={{ height: 240 }} role="img"
-          aria-label={`Keputusan verifikator per minggu; secara keseluruhan ${data.totals.share === null ? "—" : formatPercent(data.totals.share)} memang perlu ditindaklanjuti.`}>
+          aria-label={`Keputusan verifikator per minggu; secara keseluruhan ${data.totals.share === null ? "belum ada keputusan" : formatPercent(data.totals.share)} memang perlu ditindaklanjuti.`}>
           <ResponsiveContainer>
             <BarChart data={rows} margin={{ top: 16, right: 8, bottom: 0, left: -12 }} barCategoryGap="22%">
               <CartesianGrid vertical={false} stroke={colors.grid} />
@@ -85,7 +85,7 @@ export function ReviewAccuracy() {
         <ul className="accuracy-lanes">
           {lanes.map(item => <li key={item.lane}>
             <span><LaneDot lane={item.lane} />{LANES[item.lane].name}</span>
-            <strong>{item.decided ? formatPercent(item.supported / item.decided) : "—"}</strong>
+            <strong>{item.decided ? formatPercent(item.supported / item.decided) : "Belum ada"}</strong>
             <small>{item.decided ? `${formatCount(item.supported)} dari ${formatCount(item.decided)} klaim memang bermasalah` : "Belum ada keputusan"}</small>
           </li>)}
         </ul>

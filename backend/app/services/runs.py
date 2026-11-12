@@ -218,7 +218,8 @@ def _execution_configuration(snapshot: Mapping[str, Any], action_policy: ActionP
 
 
 def _trend_numbers(summary: Any) -> dict[str, Any]:
-    empty = {"records_considered": None, "lane_counts": None, "billed_high_or_medium": None}
+    empty = {"records_considered": None, "lane_counts": None, "billed_high_or_medium": None, "billed_high": None,
+             "billed_medium": None}
     if not isinstance(summary, Mapping):
         return empty
     lanes = (summary.get("action_policy") or {}).get("lane_counts")
@@ -228,6 +229,8 @@ def _trend_numbers(summary: Any) -> dict[str, Any]:
         "records_considered": records if isinstance(records, int) else None,
         "lane_counts": {lane: int(lanes.get(lane) or 0) for lane in ("red", "yellow", "green")} if isinstance(lanes, Mapping) else None,
         "billed_high_or_medium": exposure.get("billed_high_or_medium") if exposure.get("status") == "available" else None,
+        "billed_high": exposure.get("billed_high") if exposure.get("status") == "available" else None,
+        "billed_medium": exposure.get("billed_medium") if exposure.get("status") == "available" else None,
     }
 
 
@@ -569,6 +572,17 @@ class AnalysisRunStore:
                 return stored_case_page(connection, run_id, reviews_visible=reviews is not None, **query)
             stored = stored_result(connection, run_id)
         return case_page(None if is_missing(stored) else stored, reviews=reviews, **query)
+
+    def review_pipeline(self, run_id: str) -> dict[str, Any] | None:
+        """High- and medium-risk claims per review stage, with their billed value; None without stored case rows."""
+        from app.services.run_results import stored_review_pipeline
+
+        with self._connection() as connection:
+            if connection.execute("SELECT 1 FROM analysis_runs WHERE run_id=?", (run_id,)).fetchone() is None:
+                raise RunInputError("RUN_NOT_FOUND")
+            if not has_case_rows(connection, run_id):
+                return None
+            return stored_review_pipeline(connection, run_id)
 
     def list_runs(self, limit: int, offset: int, batch_id: str | None = None, archived: bool = False) -> dict[str, Any]:
         where = f" WHERE run_id {'IN' if archived else 'NOT IN'} (SELECT run_id FROM analysis_run_archives)"

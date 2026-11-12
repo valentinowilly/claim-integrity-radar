@@ -178,7 +178,7 @@ def test_backend_permission_matrix_enforced_for_all_roles(tmp_path, role):
     assert review_update.status_code == (200 if role in {"platform_admin", "verifikator", "audit_lead", "demo_tester"} else 403)
     permissions = call(app, "GET", "/api/v1/auth/me", cookies=cookies).json()["permissions"]
     assert ("runs:results:read" in permissions) == (role in {"platform_admin", "verifikator", "audit_lead", "demo_tester"})
-    assert ("batches:write" in permissions) == (role in {"platform_admin", "data_operator", "demo_tester"})
+    assert ("batches:write" in permissions) == (role in {"platform_admin", "data_operator", "verifikator", "audit_lead", "demo_tester"})
     assert ("review:manage" in permissions) == (role in {"platform_admin", "verifikator", "audit_lead", "demo_tester"})
     create_user = call(app, "POST", "/api/v1/auth/users", json_body={
         "username": f"created-{role}", "password": "Synthetic-created-password-2026!", "role": "data_operator",

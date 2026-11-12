@@ -15,6 +15,24 @@ const ICONS = { info: Info, success: CheckCircle2, warning: AlertTriangle, dange
 
 const NotifyContext = createContext<(toast: ToastInput) => void>(() => undefined);
 
+/** A shown notification kept for the bell: what it said, when, and whether the user has opened the list since. */
+export interface HistoryItem extends ToastInput { id: string; at: string; read: boolean }
+interface History { items: HistoryItem[]; unread: number; markAllRead: () => void; clear: () => void }
+const HistoryContext = createContext<History>({ items: [], unread: 0, markAllRead: () => undefined, clear: () => undefined });
+const HISTORY_SIZE = 30;
+
+/** The notifications shown in this browser for the signed-in user (newest first). */
+export function useNotificationHistory() {
+  return useContext(HistoryContext);
+}
+
+function readHistory(userId: string): HistoryItem[] {
+  try { return JSON.parse(window.localStorage.getItem(`cir:notifications:history:${userId}`) ?? "[]") as HistoryItem[]; } catch { return []; }
+}
+function writeHistory(userId: string, items: HistoryItem[]) {
+  try { window.localStorage.setItem(`cir:notifications:history:${userId}`, JSON.stringify(items)); } catch { /* per-session only */ }
+}
+
 /** Shows a popup from anywhere in the signed-in app (e.g. "Status tinjauan tersimpan"). */
 export function useNotify() {
   return useContext(NotifyContext);
@@ -51,6 +69,11 @@ export function describe(item: NotificationItem): ToastInput {
         link: { to: "/workflow", label: "Buka Data & Analisis" } };
     }
     case "run_finished":
+      // A finished analysis that found facility groups at high risk says so and opens them (B-18).
+      if (item.status !== "failed" && item.run_id && (item.high_risk_facilities ?? 0) > 0)
+        return { tone: "warning", title: `Analisis selesai: ${item.high_risk_facilities} kelompok faskes terindikasi modus`,
+          message: `${item.high_risk_claims ?? 0} klaim risiko tinggi perlu diperiksa.`,
+          link: { to: `/facilities?run_id=${encodeURIComponent(item.run_id)}`, label: "Lihat faskes" } };
       // "partial" is normal for claim data (e.g. blank procedure codes leave some claims unassessed by one check).
       return { tone: item.status === "failed" ? "danger" : "success",
         title: `Analisis ${RUN_STATUS[item.status ?? ""] ?? "selesai"}`,
@@ -68,6 +91,15 @@ export function describe(item: NotificationItem): ToastInput {
 
 export function NotificationCenter({ userId, children }: { userId: string; children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>(() => readHistory(userId));
+  useEffect(() => { setHistory(readHistory(userId)); }, [userId]);
+  const remember = useCallback((input: ToastInput, id: string) => {
+    setHistory(current => {
+      const next = [{ ...input, id, at: new Date().toISOString(), read: false }, ...current].slice(0, HISTORY_SIZE);
+      writeHistory(userId, next);
+      return next;
+    });
+  }, [userId]);
   const seen = useRef(new Set<string>());
   const timers = useRef(new Map<string, number>());
 
@@ -81,7 +113,9 @@ export function NotificationCenter({ userId, children }: { userId: string; child
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setToasts(current => [...current.slice(-2), { ...input, id }]);
     timers.current.set(id, window.setTimeout(() => dismiss(id), DISMISS_MS[input.tone]));
-  }, [dismiss]);
+    // Confirmations of the user's own action ("tersimpan") are not history; events and warnings are.
+    if (input.link || input.tone !== "success") remember(input, id);
+  }, [dismiss, remember]);
 
   // Poll for server events while the tab is visible; a failed poll is retried on the next tick.
   useEffect(() => {
@@ -118,8 +152,15 @@ export function NotificationCenter({ userId, children }: { userId: string; child
   useEffect(() => () => { timers.current.forEach(timer => window.clearTimeout(timer)); }, []);
 
   const value = useMemo(() => notify, [notify]);
+  const historyValue = useMemo<History>(() => ({
+    items: history,
+    unread: history.filter(item => !item.read).length,
+    markAllRead: () => setHistory(current => { const next = current.map(item => ({ ...item, read: true })); writeHistory(userId, next); return next; }),
+    clear: () => { writeHistory(userId, []); setHistory([]); },
+  }), [history, userId]);
   return (
     <NotifyContext.Provider value={value}>
+    <HistoryContext.Provider value={historyValue}>
       {children}
       <div className="toast-region" aria-live="polite" aria-label="Notifikasi">
         {toasts.map(toast => {
@@ -137,6 +178,7 @@ export function NotificationCenter({ userId, children }: { userId: string; child
           );
         })}
       </div>
+    </HistoryContext.Provider>
     </NotifyContext.Provider>
   );
 }

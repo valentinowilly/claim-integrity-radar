@@ -600,3 +600,101 @@ Setiap klaim yang ditandai memuat `fraud_patterns`: daftar modus proposal yang d
 Pemeriksaan eksploratif kemiripan klaim saja tidak menghasilkan modus. Antrean memfilter modus lewat parameter `indicator=modus:<kode>` pada `GET /api/v1/runs/{run_id}/cases`. Modus adalah label dari temuan aturan, bukan putusan kecurangan.
 
 AI tahap 1 tampil di layar sebagai **AI Pola Klaim** (seberapa jarang pola kode klaim), dan pembacaan catatan klinis sebagai **AI Pembaca Catatan**.
+
+
+## Paket klaim multi-sumber dan berkas klaim (November 2026)
+
+Satu paket menerima data klaim dan berkas faskes sekaligus: CSV E-Klaim (format kolom FKRTL), JSON berisi Bundle HL7 FHIR R4 dari RME/SATUSEHAT, PDF digital, PDF hasil pindai, dan ZIP berisi berkas-berkas itu. Semua sumber diseragamkan menjadi baris kolom FKRTL, lalu melewati impor tervalidasi yang sama (`parse_bpjs_csv`: peserta harus `SYN…`, FKL48 ditolak) dan dianalisis. Rincian aturan penggabungan ada di `docs/panduan-penerapan.md` bagian 2.
+
+Izin: membuat dan mengisi paket memerlukan `batches:write` dan token CSRF; membaca status paket memerlukan `batches:read`; berkas klaim memerlukan `review:read`; bertanya ke berkas memerlukan `review:write`, token CSRF, dan batas laju `clinical_ai`.
+
+### `GET /api/v1/intake/status`
+
+`{sources: ["csv","fhir","pdf","zip"], ocr_engine, model: {configured, provider, model, where}, limits: {max_files, max_pdf_bytes, max_data_bytes}}`. Tidak pernah memuat URL endpoint atau kunci.
+
+### `POST /api/v1/intake/packages`
+
+Body `{name}` (1–80 karakter). `201 {package}` dengan `status: "uploading"`.
+
+### `PUT /api/v1/intake/packages/{package_id}/files`
+
+Satu berkas per permintaan sebagai *raw body*; nama berkas di header `X-File-Name` (percent-encoded). Batas 200 MB per berkas (PDF dibatasi 20 MB saat dibaca), 3.000 berkas per paket. `409 PACKAGE_NOT_OPEN` bila paket sudah diproses.
+
+### `POST /api/v1/intake/packages/{package_id}/process`
+
+`202 {package}` dengan `status: "processing"`; pemrosesan berjalan di latar. Paket diproses satu per satu: paket yang menunggu berstatus `processing` dengan `stage: "Menunggu giliran"` dan `queue_position` (1 = berikutnya). Paket yang sedang diproses saat layanan berhenti ditandai `failed` dengan `PROCESS_INTERRUPTED` ketika layanan menyala lagi.
+
+### `GET /api/v1/intake/packages` dan `GET /api/v1/intake/packages/{package_id}`
+
+`package`: `{package_id, name, created_at, status: uploading|processing|ready|failed|cancelled, queue_position, stage, progress_done, progress_total, file_count, summary, batch_id, run_id, message_code, finished_at}`.
+
+`summary` (saat `ready`):
+
+| Field | Isi |
+|---|---|
+| `files` | `{csv, fhir, pdf, ignored}` |
+| `claims` | `{total, from_csv, from_fhir, from_pdf_only, duplicates_across_sources}` |
+| `documents` | `{total, linked, unlinked, unreadable, scanned, pages, by_type, ocr_seconds, ocr_confidence, low_confidence}` |
+| `enrichment` | `{claims_with_documents, notes_from_documents, fields_filled, filled_by_column}` |
+| `mismatch_count`, `mismatches[]` | `{field, label, column, data_value, document_value, page, case_id, file_name}`; paling banyak 200 |
+| `problem_files[]` | `{file_name, status: unlinked|unreadable, reason}` |
+| `reader` | `{ocr_engine, model, model_errors}` |
+| `ignored_files[]` | `{file_name, reason}` untuk berkas yang bukan data klaim; paket tetap jalan. `reason`: `NOT_A_PDF`, `JSON_NOT_FHIR`, `FHIR_INVALID_JSON`, `FHIR_NOT_A_BUNDLE`, `FHIR_NO_ENCOUNTERS`, `CSV_NOT_CLAIM_DATA`, `CSV_INVALID_ENCODING`, `ZIP_UNREADABLE`, `EMPTY_FILE`, `UNSUPPORTED_FILE` |
+| `source_conflicts` | `{count, items[]}`; klaim yang ada di CSV dan FHIR dengan isi berbeda. Data FHIR (RME) yang dipakai. Tiap item `{case_id, columns[], csv_file, fhir_file}` |
+| `same_as` | `{package_id, name, finished_at}` bila paket selesai sebelumnya berisi berkas yang persis sama, selain itu `null` |
+| `fingerprint` | SHA-256 dari isi semua berkas, untuk mengenali paket ganda |
+
+`problem_files[].reason` untuk PDF: `NO_VISIT_NUMBER`, `NOT_A_CLAIM_DOCUMENT`, `PARTICIPANT_MISMATCH`, `SINGLE_DOCUMENT_CLAIM`, `CLAIM_DATA_INCOMPLETE`, serta kode baca PDF.
+
+Paket yang gagal membawa `summary: {failure: {code, files[], error_count}}` (nama berkas penyebab, tanpa isi) atau `{failure: {ignored_files[]}}` untuk `NO_CLAIM_DATA`.
+
+`message_code` saat gagal: `NO_CLAIM_DATA`, `PACKAGE_TOO_LARGE`, `BATCH_IMPORT_FAILED`, `CLAIM_DATA_REJECTED:<kode validasi>`, `ANALYSIS_RUN_FAILED`, `PROCESS_INTERRUPTED`, `PROCESS_FAILED`.
+
+### `DELETE /api/v1/intake/packages/{package_id}`
+
+Membatalkan paket (izin `batches:write`, CSRF). Saat `uploading`: berkas sementara dihapus. Saat `ready` atau `failed`: analisisnya diarsipkan dan berkas PDF-nya dilepas dari klaim (`status` dokumen menjadi `unlinked`); keputusan tinjauan tetap tersimpan. `409 PACKAGE_BUSY` saat `processing`. Hasil `{package}` dengan `status: "cancelled"`, `message_code: "CANCELLED"`. Paket yang tertinggal `uploading` lebih dari 24 jam dibatalkan otomatis (`message_code: "ABANDONED"`).
+
+### `GET /api/v1/runs/{run_id}/cases/{case_id}/documents`
+
+`{items[], mismatch_count, evidence_found[], question_engine: llm|text_search, model}`. Tiap item: `{document_id, file_name, doc_type, doc_type_label, evidence_code, page_count, scanned_pages, ocr_confidence, reader, status, size_bytes, facts[], mismatches[], warnings[], model}`. Tiap fakta: `{field, label, value, page, quote, reader, verified, note}`; fakta dengan `verified: false` (kutipan tidak ditemukan di halaman) tidak pernah dipakai mengisi data klaim. Teks halaman tidak dikirim di sini.
+
+### `GET /api/v1/runs/{run_id}/document-mismatches`
+
+Klaim di run ini yang berkasnya berbeda dari data klaim, termasuk klaim yang tidak ditandai pemeriksaan mana pun: `{claims: [{case_id, mismatches[]}], claim_count, mismatch_count}`. Perbedaan berkas adalah urusan integritas data dan tidak mengubah jalur risiko.
+
+### `GET /api/v1/runs/{run_id}/cases` (tambahan)
+
+Untuk pembaca dengan `review:read`, tiap item memuat `documents: {documents, mismatches} | null`.
+
+### `GET /api/v1/documents/{document_id}/file`
+
+Berkas PDF asli (`application/pdf`, `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`). `#page=N` di URL membuka halaman sumber sebuah fakta.
+
+### `POST /api/v1/runs/{run_id}/cases/{case_id}/documents/ask`
+
+Body `{question}` (3–400 karakter). Jawaban: `{engine: llm|text_search, model, found, answer, citations[], unverified_citations, note, fallback_reason}`. Tiap kutipan `{document_id, file_name, doc_type_label, page, quote}` sudah dicocokkan dengan teks halaman yang dikutip; kutipan model yang tidak ditemukan dibuang dan dihitung di `unverified_citations`. `409 CLAIM_HAS_NO_DOCUMENTS` bila klaim tidak memiliki berkas.
+
+### Ringkasan uang per jalur dan per modus (tambahan pada `result.facility_groups`)
+
+- `exposure.billed_high`, `exposure.billed_medium`: nilai tagihan (FKL47) klaim risiko tinggi dan sedang; `billed_high_or_medium` adalah jumlah keduanya. Bukan nilai kerugian dan tidak dipakai untuk skor.
+- `pattern_summary.patterns[]`: `{pattern, red, yellow, billed_red, billed_yellow}`. Satu klaim bisa dihitung di lebih dari satu modus.
+- Tiap kelompok faskes: `billed_high`, `pattern_counts`, `pattern_counts_red`.
+- `GET /api/v1/runs/trend`: tiap item kini juga memuat `billed_high` dan `billed_medium`.
+
+## Beranda, antrean, dan notifikasi (November 2026)
+
+### `result.overview` (pada `GET /api/v1/runs/{run_id}?view=summary`)
+
+`{version, ai_confirmed_high, ai_threshold, evidence: {services_requiring_evidence, services_complete, share_complete}, top_high_claims[], note}`. `top_high_claims[]`: `{case_id, amount, indicators[], fraud_patterns[]}`, 10 klaim risiko tinggi dengan tagihan (FKL47) terbesar; hanya untuk data unggahan sintetis. Tidak ada pada analisis lama.
+
+### `GET /api/v1/runs/{run_id}/review-pipeline`
+
+Izin `review:read`. `{needs_action, decided, stages[]}`; tiap tahap `{stage: pending_review|in_review|awaiting_evidence|escalated|closed, count, billed}`. Hanya klaim risiko tinggi dan sedang. `409 RUN_RESULT_NOT_AVAILABLE` bila analisis tidak punya baris kasus tersimpan.
+
+### `GET /api/v1/runs/{run_id}/cases?sort=billed`
+
+Urutan tambahan: tagihan klaim (FKL47) terbesar dulu; klaim tanpa nilai di akhir. Tiap klaim memuat `claim_billed_amount` (data unggahan sintetis saja). Nilai ini tidak memengaruhi jalur atau skor.
+
+### `GET /api/v1/notifications` (tambahan)
+
+Item `run_finished` kini memuat `high_risk_claims` dan `high_risk_facilities` (jumlah saja), agar pemberitahuan bisa menautkan ke daftar faskes.

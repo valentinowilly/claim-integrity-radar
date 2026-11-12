@@ -2,6 +2,19 @@
 
 **Status:** empat role dan permission adalah baseline prototipe lokal yang belum disetujui organisasi. Untuk demo E2E sintetis, `platform_admin` memiliki semua permission aplikasi yang saat ini terimplementasi. Perluasan ini tidak memberikan akses atau klaim kompatibilitas terhadap data BPJS asli.
 
+## 0. Keputusan setelah coaching (November 2026)
+
+Sistem dipakai pada **tahap verifikasi**. Karena itu yang dipakai dalam operasi cukup **dua peran**:
+
+| Peran | Yang dapat dilakukan |
+|---|---|
+| `verifikator` | Semua pekerjaan verifikasi dengan satu login: memasukkan paket klaim (CSV, JSON RME/FHIR, PDF), menjalankan analisis, membuka antrean dan berkas, bertanya ke berkas, meminta pembacaan catatan, dan mencatat keputusan serta hasil audit. |
+| `platform_admin` | Semua yang dapat dilakukan verifikator, ditambah mengelola akun dan membaca log keamanan (`users:manage`, `security_audit:read`). |
+
+Alasannya: pengelolaan akun dipisah agar satu akun yang bocor atau satu kesalahan tidak dapat mengunci semua pengguna, dan setiap keputusan tetap tercatat atas nama pembuatnya. Faskes tidak login ke sistem ini; berkasnya masuk lewat sistem klaim yang sudah ada.
+
+`data_operator`, `audit_lead`, dan `demo_tester` tetap ada di kode untuk kompatibilitas akun lama. `audit_lead` kini memiliki izin yang sama dengan `verifikator`. Matriks di bagian 3 adalah rancangan awal dan sudah digantikan oleh tabel ini untuk izin verifikator.
+
 ## 1. Fakta implementasi saat ini
 
 - Login/logout, provisioning akun satu kali, sesi cookie, permission backend, dan principal terautentikasi tersedia sebagai prototipe lokal.
@@ -40,8 +53,8 @@ R = baca; W = buat/ubah dalam scope; A = menyetujui/menugaskan; — = tidak diiz
 | Baca/ubah konfigurasi akses | W | — | — | — |
 | Mengusulkan mapping untuk profil sintetis | A | W | — | R |
 | Menyetujui mapping yang dapat dipakai pada profil sumber | A sesuai otorisasi | W hanya pada mapping yang diizinkan | — | R/konfirmasi domain |
-| Buat batch dan validasi input sintetis v1 | W (`batches:write`) | W (`batches:write`) | — | — |
-| Jalankan/mantau AnalysisRun | W (`runs:write`) | W (`runs:write`) | R status | R status |
+| Buat batch dan validasi input sintetis v1 | W (`batches:write`) | W (`batches:write`) | W (`batches:write`) | W (`batches:write`) |
+| Jalankan/mantau AnalysisRun | W (`runs:write`) | W (`runs:write`) | W (`runs:write`) | W (`runs:write`) |
 | Baca metadata/ringkasan batch | R metadata sintetis | R seluruh batch sintetis | R metadata sintetis | R metadata sintetis |
 | Baca metadata/status run (`runs:read`) | R metadata/coverage | R metadata/coverage | R metadata/coverage | R metadata/coverage |
 | Baca hasil run (`runs:results:read`) | R hasil sintetis bersama | — | R hasil sintetis bersama | R hasil sintetis bersama |

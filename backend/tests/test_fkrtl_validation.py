@@ -162,7 +162,8 @@ def test_empty_window_fails_and_permissions_are_enforced(tmp_path, env, monkeypa
     assert report["status"] == "failed" and report["errors"][0]["code"] == "FKRTL_WINDOW_EMPTY"
     verifier = verifier_session(app, users)
     assert call(app, "GET", URL, cookies=verifier).status_code == 200
-    assert call(app, "POST", URL, cookies=verifier, headers={"X-CSRF-Token": verifier["cir_csrf"]}).status_code == 403
+    # Verifiers may start a validation (one sign-in does every verification task); the CSRF check still applies.
+    assert call(app, "POST", URL, cookies=verifier).status_code == 403
     operator = operator_session(app, users)
     assert call(app, "POST", URL, cookies=operator).status_code == 403  # CSRF required
 

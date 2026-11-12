@@ -38,8 +38,6 @@ def test_a_pull_analyses_new_files_once_rejects_real_exports_and_hides_the_path(
     state = call(app, "GET", "/api/v1/inbox", cookies=verifier).json()
     assert state["configured"] and state["folder_name"] == "kiriman" and state["waiting_count"] == 2
     assert str(tmp_path) not in str(state)
-    assert call(app, "POST", "/api/v1/inbox/pull", cookies=verifier,
-                headers={"X-CSRF-Token": verifier["cir_csrf"]}).status_code == 403
     assert call(app, "POST", "/api/v1/inbox/pull", cookies=operator,
                 headers={"X-CSRF-Token": operator["cir_csrf"]}).status_code == 202
     state = _wait_idle(app, verifier)

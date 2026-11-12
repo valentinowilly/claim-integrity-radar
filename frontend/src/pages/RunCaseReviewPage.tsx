@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { UserRound, ArrowDown, ArrowLeft, FileSearch, History, Lightbulb, Lock, Save, ShieldCheck, Sparkles } from "lucide-react";
+import { UserRound, ArrowDown, ArrowLeft, FileSearch, History, Lightbulb, Lock, Save, ShieldCheck, ChartScatter } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useNotify } from "../notifications/NotificationCenter";
 import {
@@ -11,14 +11,16 @@ import {
 } from "../api/client";
 import { PatternGroups } from "../components/PatternExplain";
 import { ClinicalNoteCard } from "../components/ClinicalNoteCard";
+import { ClaimDocuments } from "../components/ClaimDocuments";
 import { VisitTimeline } from "../components/VisitTimeline";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { PatternTags,
   EvidenceList, mlQualification, PatternOnlyNotice, TechnicalDetails, aiScore, formatCount, formatDate, formatDateTime, indicatorDefinition,
   indicatorGuidance, indicatorLabel, mlFeatureLabel, mlLevel, ruleIndexText, runTitle, shortRef, statusText, LANES, LaneDot,
-  attributeLabel,
+  attributeLabel, formatRupiah,
 } from "../components/Display";
 import { useAuth } from "../auth/AuthContext";
+import { Term } from "../components/Term";
 
 const statusValues = Object.keys(runReviewStatusLabels) as RunReviewStatus[];
 const outcomeValues = Object.keys(reviewOutcomeLabels) as ReviewOutcome[];
@@ -215,8 +217,9 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
   const level = percentile !== null ? mlLevel(percentile) : null;
   const laneKey = lane && lane.lane in LANES ? lane.lane as keyof typeof LANES : null;
   // Plain-language reason: never the raw policy band text.
-  const verdictReason = candidate.risk_score !== null
-    ? `Skor temuan ${Math.round(candidate.risk_score * 100)} dari 100.`
+  const verdictReason = candidate.indicators.length > 1
+    ? `Ditandai ${formatCount(candidate.indicators.length)} pemeriksaan aturan sekaligus.`
+    : candidate.risk_score !== null ? "Ditandai satu pemeriksaan aturan."
     : laneKey === "red" ? "Ditandai pemeriksaan aturan; AI Pola Klaim menilai polanya sangat jarang."
     : laneKey === "yellow" ? "Ditandai pemeriksaan aturan; AI Pola Klaim menilai polanya jarang."
     : laneKey === "green" ? "Ditandai pemeriksaan aturan, tetapi AI Pola Klaim menilai polanya wajar." : "";
@@ -244,35 +247,54 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
         <div className="case-hero-badges"><StatusBadge status={review.review_status} />{review.review_outcome && <span className="status-pill tone-neutral">{reviewOutcomeLabels[review.review_outcome]}</span>}</div>
       </div>
       {laneKey && <div className={`verdict-box ${laneKey === "red" ? "high" : laneKey === "yellow" ? "medium" : "low"}`} style={{ marginTop: 16 }} data-testid="case-lane">
-        <span className="verdict-level"><LaneDot lane={laneKey} /> {LANES[laneKey].name.toUpperCase()} · {LANES[laneKey].meaning}</span>
+        <span className="verdict-level"><LaneDot lane={laneKey} /> {LANES[laneKey].name} · {LANES[laneKey].meaning}</span>
         <p>{verdictReason} <strong>Saran: {LANES[laneKey].action}.</strong></p>
       </div>}
       <div className="fact-grid">
-        <div className="fact">
-          <span>Tingkat risiko</span>
-          <strong>{laneKey ? LANES[laneKey].name : "Belum dinilai"}</strong>
-          <small>{laneKey ? LANES[laneKey].action : "Data belum cukup untuk memberi saran."}</small>
+        <div className="fact" data-testid="case-amount">
+          <span><Term id="fkl47">Tagihan rumah sakit</Term></span>
+          <strong>{typeof candidate.claim_billed_amount === "number" ? formatRupiah(candidate.claim_billed_amount) : "Tidak tersedia"}</strong>
+          <small>{typeof candidate.claim_billed_amount === "number" ? "FKL47, sebelum verifikasi. Bukan nilai kerugian." : "Nilai tagihan tidak dikirim untuk sumber data ini."}</small>
         </div>
         <div className="fact">
-          <span>AI Pola Klaim</span>
-          <strong>{percentile !== null ? `${aiScore(percentile)} / 100` : mlNotAssessed ? "Tidak dinilai" : "—"}</strong>
-          <small>{level ? level.label : mlNotAssessed ? "Data untuk AI tidak lengkap." : "Klaim ini tidak dinilai AI."}</small>
+          <span><Term id="ai-pola">AI Pola Klaim</Term></span>
+          <strong>{level ? level.label : mlNotAssessed ? "Tidak dinilai" : "Tidak dinilai"}</strong>
+          <small>{percentile !== null ? `Lebih jarang daripada ${aiScore(percentile)}% klaim lain` : mlNotAssessed ? "Data untuk AI tidak lengkap." : "Klaim ini tidak dinilai AI."}</small>
         </div>
         <div className="fact">
           <span>Pemeriksaan yang menandai</span>
-          <strong>{candidate.indicators.length || "—"}</strong>
-          <small>{candidate.indicators.map(indicatorLabel).join(", ") || "Hanya ditandai AI"}</small>
+          <strong>{candidate.indicators.length ? `${formatCount(candidate.indicators.length)} pemeriksaan` : "Hanya AI"}</strong>
+          <small>{candidate.indicators.map(indicatorLabel).join(", ") || "Lolos pemeriksaan aturan"}</small>
         </div>
       </div>
     </section>
 
-    <section className="card run-case-reasons" aria-label="Alasan ditandai">
+    {/* One thin bar at the top: jump to a part of the page, and the quick review actions. It never covers what is read. */}
+    <div className="case-toolbar">
+      <nav className="case-jump" aria-label="Bagian halaman klaim">
+        <a href="#alasan">Alasan</a>
+        {(mlRank || mlNotAssessed) && <a href="#penilaian-ai">AI pola klaim</a>}
+        <a href="#berkas-klaim">Bukti</a>
+        <a href="#keputusan">Keputusan</a>
+      </nav>
+      {canUpdateStatus && <div className="quick-actions" role="group" aria-label="Tindakan cepat" data-testid="quick-actions">
+        <span className="quick-actions-label">Tandai sebagai</span>
+        <div className="quick-actions-buttons">
+          {!holder && <button type="button" className="button button-secondary row-button" disabled={busy} onClick={() => void assign("take")}>Ambil klaim</button>}
+          {QUICK_STATUSES.map(([value, label]) => <button key={value} type="button" disabled={busy}
+            className={`button row-button ${review.review_status === value ? "button-primary" : "button-secondary"}`}
+            aria-pressed={review.review_status === value} onClick={() => void quickStatus(value)}>{label}</button>)}
+        </div>
+      </div>}
+    </div>
+
+    <section className="card run-case-reasons" aria-label="Alasan ditandai" id="alasan">
       <div className="card-head"><div><h2>Mengapa klaim ini perlu diperiksa?</h2><p>Temuan dikelompokkan menurut modus. Setiap modus menjelaskan artinya, lalu menunjukkan bagian data klaim ini yang memicunya.</p></div></div>
       <div className="stack">
         {candidate.reasons.length ? <PatternGroups reasons={candidate.reasons} render={(reason, i) => <article className="reason-card run-reason" key={`${reason.indicator}-${i}`}>
           <h4>{indicatorLabel(reason.indicator)}</h4>
           <PatternOnlyNotice evidence={reason.supporting_values?.billing_status_evidence} />
-          {indicatorDefinition(reason.indicator) && <p>{indicatorDefinition(reason.indicator)}</p>}
+          {indicatorDefinition(reason.indicator) && <details className="reason-explain"><summary>Apa arti temuan ini?</summary><p>{indicatorDefinition(reason.indicator)}</p></details>}
           <EvidenceList evidence={reason.evidence} />
           {(REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)) && <div className="guidance review-hint"><Lightbulb size={15} /><span><strong>Yang perlu diperiksa:</strong> {REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)}</span></div>}
           <EvidenceLink indicator={reason.indicator} evidence={evidence} />
@@ -280,17 +302,17 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
       </div>
     </section>
 
-    {(mlRank || mlNotAssessed) && <section className="card run-case-reasons" aria-label="Penilaian AI">
+    {(mlRank || mlNotAssessed) && <section className="card run-case-reasons" aria-label="Penilaian AI" id="penilaian-ai">
       <div className="card-head">
-        <div><h2><Sparkles size={16} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> AI Pola Klaim</h2>
+        <div><h2><ChartScatter size={16} style={{ verticalAlign: "-2px", color: "var(--brand-ink)" }} /> AI Pola Klaim</h2>
           <p>{trainingText}</p></div>
       </div>
       {mlNotAssessed && !mlRank && <p>AI tidak dapat menilai klaim ini karena data {mlNotAssessed.reason.replace(/^missing:/, "").split("+").map(field => attributeLabel(field)).join(", ")} kosong.</p>}
       {mlRank && percentile !== null && <div className="ai-card">
         <div className="ai-score">
-          <span className="fine-print">Skor pola</span>
-          <span className="ai-num">{aiScore(percentile)}<small> / 100</small></span>
-          {level && <span className={`status-pill tone-${level.tone}`} style={{ justifySelf: "start" }}>{level.label}</span>}
+          <span className="fine-print">Penilaian AI</span>
+          {level && <span className="ai-words">{level.label}</span>}
+          <span className="ai-num-text">Lebih jarang daripada <strong>{aiScore(percentile)}%</strong> klaim lain</span>
           <span className="ai-meta">Peringkat {formatCount(mlRank.rank)} dari {formatCount(scored)} klaim pada periode ini{mlRank.tie_count && mlRank.tie_count > 1 ? ` (nilainya sama dengan ${formatCount(mlRank.tie_count - 1)} klaim lain)` : ""}.</span>
         </div>
         <div>
@@ -307,10 +329,14 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
       <p className="ai-meta" style={{ marginTop: 14 }}>{ruleCandidate ? "" : "Klaim ini lolos pemeriksaan aturan; AI menemukannya dari pola data. "}{mlQualification(result.ml_anomaly)}</p>
     </section>}
 
-    {(evidence.note || evidence.visits > 1) && <div className="evidence-heading" id="bukti">
+    {(evidence.note || evidence.visits > 1 || (evidence.documents ?? 0) > 0) && <div className="evidence-heading" id="bukti">
       <h2><FileSearch size={17} className="head-icon" aria-hidden="true" />Bukti pendukung</h2>
-      <p>Catatan klinis dan riwayat kunjungan yang mendasari temuan di atas.</p>
+      <p>Berkas faskes, catatan klinis, dan riwayat kunjungan yang mendasari temuan di atas.</p>
     </div>}
+    <div id="berkas-klaim" className="evidence-anchor">
+      <ClaimDocuments runId={runId} caseId={caseId} canAsk={canUpdateStatus}
+        onLoaded={count => setEvidence(current => ({ ...current, documents: count }))} />
+    </div>
     <div id="bukti-catatan" className="evidence-anchor">
       <ClinicalNoteCard runId={runId} caseId={caseId} canAsk={canUpdateStatus} patternPercentile={percentile} onLoaded={hasNote => setEvidence(current => ({ ...current, note: hasNote }))} />
     </div>
@@ -319,7 +345,7 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
         onLoaded={count => setEvidence(current => ({ ...current, visits: count }))} />
     </div>
 
-    <section className="card" aria-label="Keputusan tinjauan">
+    <section className="card" aria-label="Keputusan tinjauan" id="keputusan">
       <div className="card-head"><div><h2>Keputusan tinjauan</h2><p>Isi dari langkah 1 sampai 3.</p></div></div>
       <div className="assignment-bar" data-testid="case-assignment">
         <span><UserRound size={15} aria-hidden="true" /> Penanggung jawab: <strong>{holder ? (holder.is_me ? "Anda" : holder.username) : "belum ada"}</strong></span>
@@ -432,15 +458,6 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
         </li>)}</ol>}
     </details>
 
-    {canUpdateStatus && <div className="quick-actions" role="group" aria-label="Tindakan cepat" data-testid="quick-actions">
-      <span className="quick-actions-label">Tindakan cepat{review.review_status !== "pending_review" ? ` · sekarang: ${runReviewStatusLabels[review.review_status]}` : ""}</span>
-      <div className="quick-actions-buttons">
-        {!holder && <button type="button" className="button button-secondary row-button" disabled={busy} onClick={() => void assign("take")}>Ambil klaim</button>}
-        {QUICK_STATUSES.map(([value, label]) => <button key={value} type="button" disabled={busy}
-          className={`button row-button ${review.review_status === value ? "button-primary" : "button-secondary"}`}
-          aria-pressed={review.review_status === value} onClick={() => void quickStatus(value)}>{label}</button>)}
-      </div>
-    </div>}
 
     <div className="notice-panel workflow-notice"><ShieldCheck size={18} /><p>Catatan tinjauan bukan putusan kecurangan. Jangan menulis data peserta atau informasi sensitif lain.</p></div>
     <TechnicalDetails items={[
@@ -467,7 +484,7 @@ function historyLabel(type: string): string {
 }
 function StatusBadge({ status }: { status: string }) { return <span className={`status-pill status-${status}`}>{runReviewStatusLabels[status as RunReviewStatus] ?? statusText(status)}</span>; }
 
-type Evidence = { note: boolean; visits: number };
+type Evidence = { note: boolean; visits: number; documents?: number };
 // Findings whose evidence is the participant's other visits.
 const VISIT_FINDINGS = new Set(["repeat_billing_candidate", "rapid_readmission_candidate"]);
 // Findings whose evidence is in the clinical note.

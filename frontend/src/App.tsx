@@ -17,6 +17,7 @@ import {
   TrendingUp,
   X,
   Upload,
+  CircleHelp,
 } from "lucide-react";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigationType } from "react-router-dom";
 import AnalysisPage from "./pages/AnalysisPage";
@@ -30,6 +31,8 @@ import { useAuth } from "./auth/AuthContext";
 import { ApiClientError } from "./api/client";
 import { NotificationCenter } from "./notifications/NotificationCenter";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { NotificationBell } from "./components/NotificationBell";
+import HelpPage from "./pages/HelpPage";
 import { CommandPalette, PaletteButton } from "./components/CommandPalette";
 
 type NavItem = { label: string; to: string; icon: typeof LayoutDashboard; group: string; allowed: (permissions: Set<string>) => boolean };
@@ -41,6 +44,7 @@ const navigation: NavItem[] = [
   { label: "Tren", to: "/trend", icon: TrendingUp, group: "Pemeriksaan", allowed: p => p.has("runs:results:read") },
   { label: "Faskes", to: "/facilities", icon: Building2, group: "Pemeriksaan", allowed: p => p.has("runs:results:read") },
   { label: "Data & Analisis", to: "/workflow", icon: Database, group: "Data klaim", allowed: p => p.has("batches:read") || p.has("runs:read") },
+  { label: "Bantuan", to: "/bantuan", icon: CircleHelp, group: "Lainnya", allowed: () => true },
 ];
 
 export default function App() {
@@ -129,6 +133,7 @@ export default function App() {
             </Link>
           )}
           <PaletteButton />
+          <NotificationBell />
           <ThemeToggle />
           <div className="topbar-user-menu">
             <button
@@ -183,6 +188,7 @@ export default function App() {
               <Route path="/facilities/:groupId/paket" element={<Protected permission="runs:results:read"><EvidencePackPage /></Protected>} />
               <Route path="/workflow" element={<ProtectedAny permissions={["batches:read", "runs:read"]}><WorkflowPage /></ProtectedAny>} />
               <Route path="/runs/:runId/cases/:caseId" element={<Protected permission="review:read"><CasesPage /></Protected>} />
+              <Route path="/bantuan" element={<HelpPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </div>

@@ -284,7 +284,6 @@ def test_auth_csrf_role_and_creator_are_enforced(tmp_path):
     operator = operator_session(app, users)
     batch, _ = import_batch(app, batch_db, operator)
     verifier = verifier_session(app, users)
-    assert create_run(app, verifier, batch["batch_id"]).status_code == 403
     no_csrf = call(app, "POST", "/api/v1/runs", cookies=operator,
                    json_body={"batch_id": batch["batch_id"]})
     assert no_csrf.status_code == 403
@@ -422,8 +421,6 @@ def test_files_and_runs_leave_the_lists_but_their_records_stay(tmp_path):
     csrf = {"X-CSRF-Token": operator["cir_csrf"]}
 
     # Only writers with a CSRF token may hide entries.
-    assert call(app, "POST", f"/api/v1/runs/{run_id}/archive", cookies=verifier,
-                headers={"X-CSRF-Token": verifier["cir_csrf"]}).status_code == 403
     assert call(app, "POST", f"/api/v1/runs/{run_id}/archive", cookies=operator).status_code == 403
     assert call(app, "POST", "/api/v1/runs/run-unknown/archive", cookies=operator, headers=csrf).status_code == 404
 
@@ -465,3 +462,19 @@ def test_files_and_runs_leave_the_lists_but_their_records_stay(tmp_path):
     with pytest.raises(AssertionError, match="reused_existing"):
         import_batch(app, batch_db, operator)
     assert call(app, "GET", "/api/v1/batches", cookies=operator).json()["total_items"] == 1
+
+
+def test_verifier_does_every_verification_task_but_not_account_management(tmp_path):
+    """The system is used at the verification stage: one sign-in brings in data, runs the analysis and reviews."""
+    app, batch_db, users = setup(tmp_path)
+    verifier = verifier_session(app, users)
+    batch, _ = import_batch(app, batch_db, verifier)
+    run = create_run(app, verifier, batch["batch_id"])
+    assert run.status_code == 201, run.text
+    run_id = run.json()["run"]["run_id"]
+    assert call(app, "GET", f"/api/v1/runs/{run_id}/cases?limit=5", cookies=verifier).status_code == 200
+    assert call(app, "POST", f"/api/v1/runs/{run_id}/archive", cookies=verifier,
+                headers={"X-CSRF-Token": verifier["cir_csrf"]}).status_code == 204
+    # Account management stays with the administrator.
+    me = call(app, "GET", "/api/v1/auth/me", cookies=verifier).json()
+    assert "users:manage" not in me["permissions"] and "security_audit:read" not in me["permissions"]

@@ -7,6 +7,7 @@ from typing import Any
 from app.analytics.action_policy import ActionPolicyConfig, evaluate_action_policy, get_action_policy_config
 from app.analytics.daily_activity import build_daily_activity
 from app.analytics.facility_groups import build_facility_groups
+from app.analytics.overview import attach_claim_amounts, build_overview
 from app.data_sources.providers import (
     CANONICAL_FEATURE_CONTRACT_VERSION,
     FeatureSourceProvider,
@@ -31,6 +32,14 @@ def execute_provider_snapshot(
         list(dataset.records), snapshot.get("cases") or {}, snapshot["action_policy"].get("cases") or {},
         dataset.source_metadata.get("category_labels") or {})
     snapshot["daily_activity"] = build_daily_activity(list(dataset.records), snapshot["action_policy"].get("cases") or {})
+    configuration = snapshot["action_policy"].get("configuration") or {}
+    # Per-claim amounts are shown for uploaded example data only; the BPJS sample keeps amounts aggregate.
+    per_claim_amounts = dataset.source_metadata.get("classification") == "synthetic_only_declared"
+    snapshot["overview"] = build_overview(list(dataset.records), snapshot.get("cases") or {},
+                                          snapshot["action_policy"].get("cases") or {}, configuration.get("ml_red_min"),
+                                          per_claim_amounts=per_claim_amounts)
+    if per_claim_amounts:
+        attach_claim_amounts(list(dataset.records), snapshot.get("cases") or {})
     if stage_observer:
         stage_observer("action_policy_complete")
     return dataset, snapshot

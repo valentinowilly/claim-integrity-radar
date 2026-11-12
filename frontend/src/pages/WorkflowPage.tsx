@@ -1,5 +1,6 @@
+import { PackageUpload } from "../components/PackageUpload";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Archive, ArchiveRestore, ArrowRight, Inbox, Check, FileUp, Loader2, Play, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowRight, Inbox, Check, Database, FileUp, Loader2, Play, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useNotify } from "../notifications/NotificationCenter";
 import {
@@ -46,6 +47,7 @@ export default function WorkflowPage() {
   // "Unggah data" (top bar, first-run guide) lands here with ?unggah=1: the upload form is opened and shown.
   const [searchParams] = useSearchParams();
   const openUpload = searchParams.get("unggah") === "1";
+  const [csvOpen, setCsvOpen] = useState(false);
   useEffect(() => {
     if (openUpload) document.getElementById("unggah")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [openUpload]);
@@ -308,11 +310,15 @@ export default function WorkflowPage() {
         <LoadingState label="Memuat data klaim dan riwayat analisis…" />
       ) : (
         <div className="stack" style={{ gap: 18 }}>
-          <section className="card upload-section" aria-label="Tambah data klaim" id="unggah" data-open={openUpload || undefined}>
+          {canReadBatches && <PackageUpload canWrite={canWriteBatches} onDone={() => void reload(true)} />}
+          <section className="card upload-section" aria-label="Data klaim tersimpan" data-open={openUpload || undefined}>
             <div className="card-head">
-              <div><h2><FileUp size={17} style={{ verticalAlign: "-3px", color: "var(--brand-ink)" }} /> Tambah data klaim</h2>
-                <p>Unggah berkas klaim rumah sakit (CSV). Sistem memeriksa kelengkapan isinya, lalu langsung menganalisis.</p></div>
+              <div><h2><Database size={17} style={{ verticalAlign: "-3px", color: "var(--brand-ink)" }} /> Data klaim tersimpan</h2>
+                <p>Setiap unggahan tersimpan di sini. Pilih salah satu untuk melihat hasil pemeriksaannya atau menganalisisnya ulang.</p></div>
             </div>
+            <details className="tech-details csv-only" open={csvOpen || undefined} onToggle={event => setCsvOpen((event.currentTarget as HTMLDetailsElement).open)}>
+              <summary>Unggah satu berkas CSV dengan laporan pemeriksaan per baris</summary>
+              <p className="fine-print">Untuk memeriksa satu berkas E-Klaim baris demi baris sebelum dianalisis. Paket di atas juga menerima satu CSV saja.</p>
             {canWriteBatches ? (
               <form className="upload-form" onSubmit={(event) => void submitImport(event)}>
                 <label className="upload-drop">
@@ -329,7 +335,7 @@ export default function WorkflowPage() {
                   {busy ? <Loader2 size={15} className="spin" aria-hidden="true" /> : <FileUp size={15} />}{busy ? "Memeriksa dan menganalisis…" : "Unggah dan analisis"}
                 </button>
               </form>
-            ) : <p className="fine-print">Unggah berkas hanya dapat dilakukan oleh operator data.</p>}
+            ) : <p className="fine-print">Akun Anda tidak memiliki izin mengunggah data.</p>}
             <details className="tech-details upload-format">
               <summary>Format berkas yang diterima</summary>
               <ul className="plain-list">
@@ -338,6 +344,7 @@ export default function WorkflowPage() {
                 <li>Kolom biaya setelah verifikasi (FKL48) tidak boleh ada, karena sistem hanya menilai klaim sebelum verifikasi.</li>
                 <li>Boleh ditambah: catatan klinis, diagnosis sekunder, serta data kapasitas faskes, jam layanan, dan bukti pendukung. Tanpa kolom ini, pemeriksaan yang memerlukannya dilewati.</li>
               </ul>
+            </details>
             </details>
             {importResult && !batchDetail && <BatchCard batch={importResult.batch} />}
             {canReadBatches && batches.length > 0 && (<>
@@ -358,7 +365,7 @@ export default function WorkflowPage() {
                         <td>{formatDateTime(batch.created_at)}</td>
                         <td><StatusPill value={batch.status} /></td>
                         {canWriteBatches && <td>{batch.source_type === "synthetic_csv" && (
-                          <button className="button button-danger row-button" disabled={busy} onClick={() => void remove(batch)} aria-label={`Hapus ${batchName(batch.batch_key)}`}>
+                          <button className="button button-secondary row-button button-quiet-danger" disabled={busy} onClick={() => void remove(batch)} aria-label={`Hapus ${batchName(batch.batch_key)}`}>
                             <Trash2 size={14} />Hapus
                           </button>)}</td>}
                       </tr>
@@ -517,7 +524,7 @@ function FkrtlValidationSummary({ validation }: { validation: FkrtlValidationSta
                 <tr key={item.check} data-check={item.check}>
                   <td><strong>{item.check === "length_of_stay" ? "Lama rawat (masukan AI)" : indicatorLabel(item.check)}</strong></td>
                   <td>{item.status === "not_applicable" ? "Tidak berlaku untuk data ini" : `${formatCount(item.rows_meeting_prerequisites)} dari ${formatCount(item.rows_in_window)}`}</td>
-                  <td>{item.status === "not_applicable" ? "—" : Object.keys(item.rows_excluded).length === 0 ? "Tidak ada"
+                  <td>{item.status === "not_applicable" ? "Tidak berlaku" : Object.keys(item.rows_excluded).length === 0 ? "Tidak ada"
                     : Object.entries(item.rows_excluded).map(([code, count]) => `${formatCount(count)} ${unassessedReasonText(code)}`).join("; ")}</td>
                 </tr>
               ))}</tbody>
@@ -596,7 +603,7 @@ function InboxCard({ canPull, onFinished }: { canPull: boolean; onFinished: () =
       {state?.configured && <>
         <div className="fact-grid compact">
           <div className="fact"><span>Jadwal</span><strong>Setiap hari {state.daily_at}</strong><small>Folder: {state.folder_name}</small></div>
-          <div className="fact"><span>Pengambilan berikutnya</span><strong>{state.next_pull_at ? formatDateTime(state.next_pull_at) : "—"}</strong></div>
+          <div className="fact"><span>Pengambilan berikutnya</span><strong>{state.next_pull_at ? formatDateTime(state.next_pull_at) : "Belum dijadwalkan"}</strong></div>
           <div className="fact"><span>Terakhir diambil</span><strong>{state.last_pull ? formatDateTime(state.last_pull.started_at) : "Belum pernah"}</strong>
             {state.last_pull && <small>{state.last_pull.trigger === "schedule" ? "Terjadwal" : "Manual"} · {formatCount(state.last_pull.files_processed)} file diproses</small>}</div>
           <div className="fact"><span>Menunggu diambil</span><strong>{formatCount(state.waiting_count)} file</strong></div>
@@ -914,7 +921,7 @@ function RunResultPanel({ detail }: { detail: RunDetailResponse }) {
                       <td><strong>{indicatorLabel(item.code)}</strong></td>
                       <td>{formatCount(item.candidate_count)}</td>
                       <td>{formatCount(coverage?.records_assessed ?? item.eligible_count)}</td>
-                      <td>{coverage?.records_unassessed ? formatCount(coverage.records_unassessed) : "—"}</td>
+                      <td>{coverage?.records_unassessed ? formatCount(coverage.records_unassessed) : "Tidak ada"}</td>
                     </tr>
                   );
                 })}</tbody>
@@ -928,7 +935,7 @@ function RunResultPanel({ detail }: { detail: RunDetailResponse }) {
               { label: "ID data", value: `${run.batch_id} (versi ${run.batch_version})`, copy: false },
               { label: "Jenis sumber data", value: run.source_classification },
               { label: "Versi format data", value: `${run.source_schema_version} / ${run.source_mapping_version}` },
-              { label: "Versi aturan pemeriksaan", value: [run.detector_suite_version, run.scoring_version, run.priority_version, run.action_policy_version].map((x) => x ?? "—").join(" / ") },
+              { label: "Versi aturan pemeriksaan", value: [run.detector_suite_version, run.scoring_version, run.priority_version, run.action_policy_version].map((x) => x ?? "tidak tercatat").join(" / ") },
               { label: "Dibuat / selesai", value: `${formatDateTime(run.created_at)} / ${formatDateTime(run.completed_at)}` },
               { label: "Catatan sumber data", value: detail.notice },
             ]}

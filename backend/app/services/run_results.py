@@ -24,7 +24,7 @@ _lock = threading.Lock()
 _MISSING = object()
 
 # "stored" keeps the snapshot's own case order (as the full result lists them).
-SORT_KEYS = ("rule_index", "checks", "similarity_rarity", "ml_rank", "review_updated", "case_ref", "stored")
+SORT_KEYS = ("rule_index", "checks", "similarity_rarity", "ml_rank", "review_updated", "case_ref", "stored", "billed")
 PREVIEW_SIZE = 5
 REASON_SUMMARIES_PER_INDICATOR = 5
 MAX_PAGE_SIZE = 100
@@ -146,6 +146,9 @@ def _sort_value(case: Mapping[str, Any], sort: str, reviews: Mapping[str, Mappin
         return min(expected) if expected else None
     if sort == "review_updated":
         return (reviews.get(case["case_id"]) or {}).get("updated_at")
+    if sort == "billed":
+        amount = case.get("claim_billed_amount")
+        return None if amount is None else -amount
     return None
 
 
@@ -410,9 +413,19 @@ def stored_case_page(
     clause = " AND ".join(where)
     total_matching = connection.execute(
         f"SELECT COUNT(*) FROM analysis_run_cases c {join} WHERE {clause}", params).fetchone()[0]
-    rows = connection.execute(
-        f"SELECT c.case_json, c.lane_json FROM analysis_run_cases c {join} WHERE {clause} "
-        f"ORDER BY {_SQL_ORDER[sort]} LIMIT ? OFFSET ?", [*params, limit, offset]).fetchall()
+    if sort == "billed":
+        # The amount lives in the stored claim (display only); order the matching rows by it here.
+        everything = connection.execute(
+            f"SELECT c.case_json, c.lane_json FROM analysis_run_cases c {join} WHERE {clause} ORDER BY c.case_id",
+            params).fetchall()
+        def billed(row: Any) -> tuple[bool, float]:
+            amount = json.loads(row[0]).get("claim_billed_amount")
+            return (amount is None, -(amount or 0))
+        rows = sorted(everything, key=billed)[offset: offset + limit]
+    else:
+        rows = connection.execute(
+            f"SELECT c.case_json, c.lane_json FROM analysis_run_cases c {join} WHERE {clause} "
+            f"ORDER BY {_SQL_ORDER[sort]} LIMIT ? OFFSET ?", [*params, limit, offset]).fetchall()
     total_cases = connection.execute(
         "SELECT COUNT(*) FROM analysis_run_cases WHERE run_id=?", (run_id,)).fetchone()[0]
     reviewed = None
@@ -426,3 +439,27 @@ def stored_case_page(
         "total_matching": total_matching, "total_cases": total_cases, "reviewed_case_count": reviewed,
         "offset": offset, "limit": limit, "sort": sort,
     }
+
+
+REVIEW_STAGES = ("pending_review", "in_review", "awaiting_evidence", "escalated", "closed")
+
+
+def stored_review_pipeline(connection: sqlite3.Connection, run_id: str) -> dict[str, Any]:
+    """Claims that need action (high and medium risk) per review stage, with their billed value."""
+    reviews = _review_table_exists(connection)
+    join = ("LEFT JOIN run_case_reviews r ON r.run_id=c.run_id AND r.case_id=c.case_id" if reviews else
+            "LEFT JOIN (SELECT NULL AS case_id, NULL AS review_status) r ON 0")
+    rows = connection.execute(
+        f"SELECT c.case_json, c.lane_json, r.review_status FROM analysis_run_cases c {join} WHERE c.run_id=?",
+        (run_id,)).fetchall()
+    stages = {stage: {"stage": stage, "count": 0, "billed": 0} for stage in REVIEW_STAGES}
+    total = 0
+    for case_json, lane_json, status in rows:
+        lane = (json.loads(lane_json) or {}).get("lane") if lane_json else None
+        if lane not in ("red", "yellow"):
+            continue
+        total += 1
+        stage = stages[status if status in stages else "pending_review"]
+        stage["count"] += 1
+        stage["billed"] += int(json.loads(case_json).get("claim_billed_amount") or 0)
+    return {"needs_action": total, "decided": stages["closed"]["count"], "stages": list(stages.values())}

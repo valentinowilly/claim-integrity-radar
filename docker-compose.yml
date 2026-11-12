@@ -1,0 +1,95 @@
+# Claim Integrity Radar: web + API + PostgreSQL in one command.
+#
+#   cp .env.example .env        # fill in the passwords
+#   docker compose up -d --build
+#   docker compose run --rm api python -m app.security.bootstrap_admin    # first administrator, once
+#   open http://localhost:8080
+#
+# With an NVIDIA GPU server, add the language model that reads clinical notes and free-text documents:
+#   docker compose --profile gpu up -d
+# Everything runs inside this network; nothing is sent outside. See docs/panduan-penerapan.md.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cir
+      POSTGRES_USER: cir
+      POSTGRES_PASSWORD: ${CIR_DB_PASSWORD:?isi CIR_DB_PASSWORD di .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cir -d cir"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # No published port: only the API reaches the database.
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      CIR_ENV: production
+      CIR_DATABASE_URL: postgresql://cir:${CIR_DB_PASSWORD}@db:5432/cir
+      CIR_COOKIE_SECURE: ${CIR_COOKIE_SECURE:-true}
+      CIR_ADMIN_BOOTSTRAP_SECRET: ${CIR_ADMIN_BOOTSTRAP_SECRET:-}
+      CIR_DOCUMENT_DIR: /data/documents
+      CIR_SAMPLE_DIR: /samples
+      CIR_INBOX_DIR: /data/kiriman
+      CIR_INBOX_DAILY_AT: ${CIR_INBOX_DAILY_AT:-06:00}
+      CIR_ML_MODEL_DIR: /models/cir-iforest-fkrtl-v2
+      CIR_API_WORKERS: ${CIR_API_WORKERS:-1}
+      # Language model (OpenAI-compatible). Empty: notes are read by the text rules, forms are still read.
+      CIR_LLM_BASE_URL: ${CIR_LLM_BASE_URL:-}
+      CIR_LLM_MODEL: ${CIR_LLM_MODEL:-google/gemma-4-31b-it}
+      CIR_LLM_API_KEY: ${CIR_LLM_API_KEY:-}
+    volumes:
+      - documents:/data/documents
+      - ${CIR_INBOX_HOST_DIR:-./kiriman}:/data/kiriman
+      - ${CIR_ML_MODEL_HOST_DIR:-./backend/models}:/models:ro
+      # Example files offered for download on the upload page (synthetic only).
+      - ./demo-data:/samples:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${CIR_WEB_PORT:-8080}:80"
+
+  # Optional: the language model on the organisation's own GPU (profile "gpu").
+  # Then set CIR_LLM_BASE_URL=http://llm:8000/v1 in .env.
+  llm:
+    profiles: ["gpu"]
+    image: vllm/vllm-openai:latest
+    restart: unless-stopped
+    command: >
+      --model ${CIR_LLM_MODEL:-google/gemma-4-31b-it}
+      --max-model-len 16384
+      --gpu-memory-utilization 0.92
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - llm-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  db-data:
+  documents:
+  llm-cache:

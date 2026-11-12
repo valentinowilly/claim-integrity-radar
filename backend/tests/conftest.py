@@ -19,6 +19,10 @@ import pytest
 
 TEST_URL_VARIABLE = "CIR_TEST_DATABASE_URL"
 
+# Tests never call a real language model: no endpoint or key is visible to them.
+for _name in ("GEMINI_API_KEY", "CIR_LLM_BASE_URL", "CIR_LLM_PROVIDER", "CIR_LLM_API_KEY", "CIR_DOCUMENT_DIR"):
+    os.environ.pop(_name, None)
+
 
 def postgres_test_url() -> str | None:
     url = os.environ.get(TEST_URL_VARIABLE, "").strip()

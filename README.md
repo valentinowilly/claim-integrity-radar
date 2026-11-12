@@ -84,8 +84,9 @@ flowchart LR
 | 🏠 **Beranda "Prioritas hari ini"**<br/>Ringkasan harian, KPI dibanding analisis sebelumnya, dan faskes paling mendesak | 📋 **Antrean tinjauan**<br/>Jalur merah/kuning/hijau, label modus, filter per modus, dan pintasan keyboard |
 | 🔬 **Halaman klaim yang menjelaskan dirinya**<br/>Temuan dikelompokkan per modus, sorotan di catatan klinis, pasangan catatan identik, dan linimasa kunjungan | 🏥 **Prioritas faskes**<br/>Kalimat vonis, paket bukti, dan indeks prioritas audit *risiko × nilai ÷ usaha audit* |
 | 🗺️ **Peta Risiko Indonesia**<br/>Porsi klaim berisiko per provinsi, mode peta dan petak, dibanding rata-rata nasional | 📈 **Tren**<br/>Klaim berisiko per hari dan ketepatan sistem menurut keputusan verifikator |
-| 📥 **Dua jalur data**<br/>Unggah CSV, atau folder kiriman yang diambil otomatis setiap hari | 🌗 **Mode gelap, Ctrl+K, dan animasi halus**<br/>Nyaman dipakai seharian |
-| 🔐 **Akses per peran dan riwayat keputusan**<br/>Admin, operator data, verifikator, audit lead, dan penguji demo | ⚖️ **Uji keadilan**<br/>Porsi penandaan per provinsi, kelas, dan kepemilikan faskes |
+| 📥 **Paket klaim dari berbagai sumber**<br/>CSV E-Klaim, JSON RME/SATUSEHAT (HL7 FHIR), dan PDF faskes (digital maupun hasil pindai) dalam satu unggahan; atau folder kiriman harian | 🌗 **Mode gelap, Ctrl+K, dan animasi halus**<br/>Nyaman dipakai seharian |
+| 📄 **Berkas klaim yang bisa ditelusuri**<br/>Setiap nilai yang dibaca dari PDF menunjuk halaman dan kutipannya; berkas yang tidak cocok dengan data klaim ditandai; *Tanya berkas* menjawab dengan kutipan | ⚖️ **Uji keadilan**<br/>Porsi penandaan per provinsi, kelas, dan kepemilikan faskes |
+| 🔐 **Satu login untuk verifikator**<br/>Verifikator mengerjakan semua tahap; administrator mengelola akun dan log keamanan | 🎯 **Fokus risiko tinggi**<br/>Jumlah klaim, nilai tagihan, dan modusnya langsung terlihat saat masuk, dengan peringatan faskes yang terindikasi |
 
 ## 📊 Hasil uji
 
@@ -127,7 +128,7 @@ Rincian lengkap: [`docs/analytics-spec.md`](docs/analytics-spec.md) dan [`docs/p
 
 - 🧪 **Demo hanya memakai data sintetis.** Nomor peserta diawali `SYN`; cara pembuatannya dijelaskan di [`demo-data/README.md`](demo-data/README.md).
 - 🎭 **Identitas disamarkan** menjadi kode acak sebelum dianalisis.
-- 🏠 **AI internal.** Model bahasa berjalan lokal lewat Ollama, sehingga catatan tidak keluar dari server.
+- 🏠 **AI internal.** OCR berjalan di dalam aplikasi, dan model bahasa dijalankan di server sendiri (vLLM), sehingga catatan dan berkas tidak keluar dari jaringan.
 - 🚫 **Biaya pasca-verifikasi (FKL48) tidak pernah dipakai**, dan nilai tagihan tidak memengaruhi skor risiko atau AI.
 - 👩‍⚕️ **Manusia memutuskan.** Setiap keputusan tercatat beserta pembuatnya (sejalan dengan UU PDP No. 27/2022).
 
@@ -137,8 +138,10 @@ Rincian lengkap: [`docs/analytics-spec.md`](docs/analytics-spec.md) dan [`docs/p
 |---|---|
 | Antarmuka | React 18 · TypeScript · Vite · Tailwind CSS 4 · Recharts |
 | API | Python · FastAPI · Uvicorn |
-| Analitik dan AI | pandas · NumPy · scikit-learn (Isolation Forest) · Ollama + Qwen3 4B |
+| Analitik dan AI | pandas · NumPy · scikit-learn (Isolation Forest) · model bahasa terbuka lewat endpoint kompatibel OpenAI (vLLM; rekomendasi Gemma 4 31B) |
+| Pembaca berkas | pypdf · PP-OCRv6 (RapidOCR, ONNX) · pemetaan HL7 FHIR R4 |
 | Basis data | PostgreSQL (operasional) · SQLite (pengembangan dan demo) |
+| Pemasangan | Docker Compose (web, API, PostgreSQL, model bahasa opsional) |
 | Pengujian | pytest · Playwright |
 
 ```
@@ -183,14 +186,26 @@ npm run dev                      # buka http://localhost:5173
 <details>
 <summary><b>Mengisi data demo</b></summary>
 
-Masuk ke **Data & Analisis → Unggah**, lalu pilih `demo-data/demo-3-operasional.csv`, atau isi otomatis:
+Masuk ke **Data & Analisis**. Untuk paket multi-sumber, pilih semua berkas di `demo-data/demo-4-multisumber/` (CSV, JSON, dan isi folder `berkas/`) pada **Unggah paket klaim**. Untuk satu berkas CSV, pilih `demo-data/demo-3-operasional.csv`, atau isi otomatis:
 
 ```bash
 cd backend
 python -m scripts.seed_demo_database --username admin --base-url http://127.0.0.1:8000
 ```
 
-Agar **AI Pembaca Catatan** memakai model, pasang [Ollama](https://ollama.com) lalu jalankan `ollama pull qwen3:4b`. Tanpa Ollama, sistem memakai pembacaan cadangan berbasis aturan teks.
+Agar catatan klinis dan dokumen bebas dibaca model bahasa, arahkan `CIR_LLM_BASE_URL` ke endpoint kompatibel OpenAI (vLLM di server GPU), atau untuk data sintetis setel `CIR_LLM_PROVIDER=gemini` dan `GEMINI_API_KEY`. Tanpa model, sistem memakai pembacaan berbasis aturan teks dan isian formulir tetap dibaca.
+</details>
+
+<details>
+<summary><b>Memasang dengan Docker (web, API, PostgreSQL)</b></summary>
+
+```bash
+cp .env.example .env            # isi CIR_DB_PASSWORD dan CIR_ADMIN_BOOTSTRAP_SECRET
+docker compose up -d --build
+docker compose run --rm api python -m app.security.bootstrap_admin
+```
+
+Buka `http://localhost:8080`. Rincian, kebutuhan server, dan penambahan model bahasa di GPU: [`docs/panduan-penerapan.md`](docs/panduan-penerapan.md).
 </details>
 
 ## 📚 Dokumentasi
@@ -198,6 +213,8 @@ Agar **AI Pembaca Catatan** memakai model, pasang [Ollama](https://ollama.com) l
 | Dokumen | Isi |
 |---|---|
 | [`docs/analytics-spec.md`](docs/analytics-spec.md) | Cara kerja pemeriksaan, AI, dan hasil uji |
+| [`docs/analisis-kelayakan.md`](docs/analisis-kelayakan.md) | Uji beban terukur, kebutuhan server, biaya, titik impas, tahapan penerapan, dan risiko |
+| [`docs/panduan-penerapan.md`](docs/panduan-penerapan.md) | Proses bisnis, sumber data (CSV, FHIR, PDF), arsitektur, pilihan AI, kebutuhan server, dan pemasangan |
 | [`docs/api-contracts.md`](docs/api-contracts.md) | Kontrak API frontend–backend |
 | [`docs/perubahan-dari-proposal.md`](docs/perubahan-dari-proposal.md) | Apa yang berubah dari proposal dan alasannya |
 | [`docs/referensi-dan-sumber-data.md`](docs/referensi-dan-sumber-data.md) | Sumber data, materi, dan lisensi |

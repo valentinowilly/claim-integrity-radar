@@ -35,7 +35,9 @@ def test_demo_files_match_the_generator():
     from scripts.make_bpjs_demo_datasets import Vocabulary, build, to_csv
     vocabulary = Vocabulary()
     for name in DEMOS:
-        assert to_csv(build(name, vocabulary).rows) == (DEMO_DIR / f"{name}.csv").read_bytes(), name
+        # A Windows checkout may turn the file's line endings into CRLF; the content is what must match.
+        stored = (DEMO_DIR / f"{name}.csv").read_bytes().replace(b"\r\n", b"\n")
+        assert to_csv(build(name, vocabulary).rows).replace(b"\r\n", b"\n") == stored, name
 
 
 @needs_model

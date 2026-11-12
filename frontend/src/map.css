@@ -8,7 +8,7 @@
 }
 :root[data-theme="dark"] {
   --map-0: #3a2619; --map-1: #6b3a1f; --map-2: #a34f22; --map-3: #d96a2b; --map-4: #f8a05e;
-  --map-none: #1c2724; --map-edge: #121c19; --map-hover: #e6edea;
+  --map-none: #1c2724; --map-edge: #152220; --map-hover: #e6edea;
 }
 
 .map-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; }

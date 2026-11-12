@@ -243,17 +243,18 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
   await expect(page.getByRole("heading", { name: "Data & Analisis", exact: true })).toBeVisible();
   await captureVisual(page, "workflow-desktop");
   // Upload is one step: a valid file is checked and analysed right away.
+  await page.getByText("Unggah satu berkas CSV dengan laporan pemeriksaan per baris", { exact: true }).click();
   await page.getByText("Format berkas yang diterima", { exact: true }).click();
   await expect(page.getByText(/Nomor peserta harus sudah disamarkan/)).toBeVisible();
   await expect(page.getByRole("region", { name: "Sambungan otomatis" }).getByText("Belum diatur", { exact: true })).toBeVisible();
-  await page.locator('input[type="file"]').setInputFiles(rejectedCsv);
+  await page.getByLabel("Berkas CSV").setInputFiles(rejectedCsv);
   await page.getByLabel("Nama data").fill("synthetic-e2e-rejected");
   await page.getByRole("button", { name: "Unggah dan analisis" }).click();
   await expect(page.getByText("Ditolak", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("File ditolak; data ini tidak dapat dianalisis.")).toBeVisible();
 
   await page.route("**/api/v1/batches/import", route => route.abort());
-  await page.locator('input[type="file"]').setInputFiles(csvPath);
+  await page.getByLabel("Berkas CSV").setInputFiles(csvPath);
   await page.getByLabel("Nama data").fill("synthetic-e2e-request-failure");
   await page.getByRole("button", { name: "Unggah dan analisis" }).click();
   await expect(page.getByRole("alert").getByText("Permintaan gagal")).toBeVisible();
@@ -280,9 +281,11 @@ test("synthetic import, persisted run, and run-scoped review permissions", async
   await page.goto(uiUrl + "/");
   await expect(page.getByRole("heading", { name: "Prioritas hari ini" })).toBeVisible();
   await expect(page.getByLabel("Pilih hasil analisis", { exact: true })).toHaveValue(runId);
-  await expect(page.getByRole("heading", { name: /Faskes paling mendesak/ })).toBeVisible();
+  await expect(page.getByTestId("risk-focus")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Kelompok faskes yang perlu diperiksa" })).toBeVisible();
   for (const lane of ["red", "yellow", "green"]) await expect(page.getByTestId(`lane-card-${lane}`)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Status tinjauan" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Alur tinjauan" })).toBeVisible();
+  await expect(page.getByTestId("flow-pending_review")).toBeVisible();
   await page.locator("details.tech-details").last().locator("summary").click();
   await expect(page.getByText(runId, { exact: true }).first()).toBeVisible();
   await page.locator("details.tech-details").last().locator("summary").click();
@@ -572,14 +575,14 @@ test("selecting a batch refreshes in place and keeps the import form (and a chos
   await page.route("**/api/v1/batches?*", async route => { heldLists += 1; await held; await route.continue(); });
   await batchButtons.first().click();
   await expect.poll(() => heldLists).toBeGreaterThan(0);  // the reload after the selection is in flight
-  await expect(page.locator('input[type="file"]')).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Data klaim tersimpan" })).toBeVisible();
   await expect(page.getByText("Memuat data klaim dan riwayat analisis…")).toHaveCount(0);
   const listed = page.waitForResponse(response => response.request().method() === "GET"
     && new URL(response.url()).pathname === "/api/v1/batches");
   releaseList();
   await listed;
   await page.unroute("**/api/v1/batches?*");
-  await expect(page.locator('input[type="file"]')).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Data klaim tersimpan" })).toBeVisible();
 });
 
 test("another user's escalation pops up for the admin and links to the case", async ({ page, browser }) => {
@@ -707,7 +710,7 @@ test("FKRTL sample runs from Data & Analisis with repeat-service-v1, explicit co
   const repeatReason = page.locator(".run-reason").filter({ hasText: "Layanan berulang" });
   await expect(repeatReason.getByTestId("repeat-pattern-only")).toContainText("status pembayaran tidak tersedia");
   // Too few checks apply for a rule index, so the light comes from the rule flag plus the AI signal.
-  await expect(page.getByTestId("case-lane")).toContainText(/RISIKO (TINGGI|SEDANG|RENDAH)/);
+  await expect(page.getByTestId("case-lane")).toContainText(/Risiko (tinggi|sedang|rendah)/);
   await expect(repeatReason.getByText("Data yang berbeda")).toBeVisible();
   await expect(repeatReason.getByText("kelas fasilitas", { exact: true })).toBeVisible();
   await expectNoTechnicalLeaks(page);
@@ -849,7 +852,9 @@ async function login(page: Page, username: string, password: string) {
 
 async function captureVisual(page: Page, filename: string) {
   await expect(page.locator(".api-loading")).toHaveCount(0);
-  await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => undefined))));
+  // Settle entry animations before the screenshot. Waiting on animation.finished alone can hang: headless Chromium
+  // stops producing frames while nothing else changes, so a running animation never reaches its end.
+  await page.evaluate(() => document.getAnimations().forEach(animation => { if (animation.effect?.getComputedTiming().iterations !== Infinity) animation.finish(); }));
   await page.evaluate(() => document.fonts.ready);
   const typography = await page.evaluate(() => {
     const style = getComputedStyle(document.body);

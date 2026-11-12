@@ -50,9 +50,13 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "runs:read", "runs:write", "runs:results:read",
         "review:read", "review:write", "review:manage",
     }),
-    # One reviewer role fills every review step (status, outcome, authorized audit result) for the prototype.
-    "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
-    "audit_lead": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
+    # The system is used at the verification stage: one sign-in does every verification task (bring in claim data
+    # and documents, run the analysis, review and decide). Only account management and the security log stay with
+    # the administrator.
+    "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage",
+                              "batches:read", "batches:write", "runs:read", "runs:write", "runs:results:read"}),
+    "audit_lead": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage",
+                             "batches:read", "batches:write", "runs:read", "runs:write", "runs:results:read"}),
 }
 
 
