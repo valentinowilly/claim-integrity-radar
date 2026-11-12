@@ -50,9 +50,13 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "runs:read", "runs:write", "runs:results:read",
         "review:read", "review:write", "review:manage",
     }),
-    # One reviewer role fills every review step (status, outcome, authorized audit result) for the prototype.
-    "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
-    "audit_lead": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage", "batches:read", "runs:read", "runs:results:read"}),
+    # The system is used at the verification stage: one sign-in does every verification task (bring in claim data
+    # and documents, run the analysis, review and decide). Only account management and the security log stay with
+    # the administrator.
+    "verifikator": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage",
+                              "batches:read", "batches:write", "runs:read", "runs:write", "runs:results:read"}),
+    "audit_lead": frozenset({"dashboard:read", "analytics:read", "cases:read", "review:read", "review:write", "review:manage",
+                             "batches:read", "batches:write", "runs:read", "runs:write", "runs:results:read"}),
 }
 
 
@@ -375,6 +379,48 @@ class AuthStore:
                 "SELECT user_id, username FROM auth_users WHERE user_id IN (" + ",".join("?" * len(ids)) + ")", ids,
             ).fetchall()
         return {row["user_id"]: row["username"] for row in rows}
+
+    def list_users(self) -> list[dict]:
+        """Every account with its last successful sign-in (no password data)."""
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT u.user_id, u.username, u.role, u.is_active, u.created_at, u.updated_at, "
+                "(SELECT MAX(e.occurred_at) FROM security_audit_events e WHERE e.actor_user_id = u.user_id "
+                "AND e.event_type = 'login_succeeded') AS last_login_at "
+                "FROM auth_users u ORDER BY u.is_active DESC, LOWER(u.username)").fetchall()
+        return [{**dict(row), "is_active": bool(row["is_active"])} for row in rows]
+
+    def reset_password(self, user_id: str, new_password: str, actor_user_id: str) -> dict | None:
+        """An administrator sets a new password; the account's open sessions end so the old one cannot be used."""
+        validate_password(new_password)
+        encoded = hash_password(new_password)
+        with self._connection() as connection:
+            row = connection.execute("SELECT * FROM auth_users WHERE user_id = ?", (user_id,)).fetchone()
+            if row is None:
+                return None
+            now = utc_now().isoformat()
+            connection.execute("UPDATE auth_users SET password_hash = ?, updated_at = ? WHERE user_id = ?", (encoded, now, user_id))
+            connection.execute("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (now, user_id))
+            self._event(connection, "password_reset_by_admin", actor_user_id, "user", user_id)
+            return {"user_id": user_id, "username": row["username"], "role": row["role"], "is_active": bool(row["is_active"])}
+
+    def audit_events_page(self, limit: int = 50, offset: int = 0, event_type: str | None = None) -> dict:
+        """One page of the security log, newest first, with account names (never passwords or tokens)."""
+        where, params = ("WHERE e.event_type = ?", [event_type]) if event_type else ("", [])
+        with self._connection() as connection:
+            total = connection.execute(f"SELECT COUNT(*) FROM security_audit_events e {where}", params).fetchone()[0]
+            rows = connection.execute(
+                "SELECT e.event_id, e.occurred_at, e.actor_user_id, u.username AS actor_username, e.event_type, e.target_type, "
+                "e.target_id, t.username AS target_username, e.metadata_json FROM security_audit_events e "
+                "LEFT JOIN auth_users u ON u.user_id = e.actor_user_id "
+                "LEFT JOIN auth_users t ON e.target_type = 'user' AND t.user_id = e.target_id "
+                f"{where} ORDER BY e.occurred_at DESC, e.event_id DESC LIMIT ? OFFSET ?", [*params, limit, offset]).fetchall()
+            types = [row[0] for row in connection.execute(
+                "SELECT DISTINCT event_type FROM security_audit_events ORDER BY event_type").fetchall()]
+        items = [{key: row[key] for key in ("event_id", "occurred_at", "actor_user_id", "actor_username", "event_type",
+                                            "target_type", "target_id", "target_username")}
+                 | {"metadata": json.loads(row["metadata_json"] or "{}")} for row in rows]
+        return {"items": items, "total": total, "event_types": types}
 
     def list_audit_events(self, limit: int = 100) -> list[dict]:
         with self._connection() as connection:

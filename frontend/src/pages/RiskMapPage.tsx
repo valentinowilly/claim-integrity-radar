@@ -3,7 +3,7 @@ import { ArrowRight, ArrowUpRight, Building2, LayoutGrid, Map as MapIcon, MapPin
 import { Link, useSearchParams } from "react-router-dom";
 import type { FacilityGroup, Fairness } from "../api/client";
 import { EmptyState } from "../components/DataStates";
-import { CountUp, LEVELS, LaneDot, formatCount, formatRupiah } from "../components/Display";
+import { CountUp, LEVELS, LaneDot, formatCount, formatRupiah, titleCase } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { METRICS, RiskMap, formatPercent, type MapMetric, type MapView, type ProvinceValue } from "../components/RiskMap";
 import { PROVINCE_MAP, provinceName } from "../components/provinces";
@@ -68,7 +68,8 @@ function MapWorkspace({ rows, fairness, groups, runId, metric, setMetric, hasBil
   const above = ordered.filter(row => (row.ratio ?? 0) >= 2).length;
   const mapped = ordered.filter(row => PROVINCE_MAP.provinces.some(item => item.code === row.code)).length;
   const metrics = (Object.keys(METRICS) as MapMetric[]).filter(key => key !== "billed" || hasBilled);
-  const [view, setView] = useState<MapView>("map");
+  // On a phone the equal tiles are the default: provinces drawn to scale are too small to tap.
+  const [view, setView] = useState<MapView>(() => typeof window !== "undefined" && window.matchMedia?.("(max-width: 760px)").matches ? "tile" : "map");
 
   return <>
     <section className="map-stats" aria-label="Ringkasan wilayah">
@@ -110,7 +111,7 @@ function MapWorkspace({ rows, fairness, groups, runId, metric, setMetric, hasBil
                   <span className="map-top-rank">{index + 1}</span>
                   <span className="map-top-main"><strong>{row.name}</strong>
                     <span className="map-top-bar" aria-hidden="true"><i style={{ width: `${Math.max(3, (value ?? 0) / top * 100)}%` }} /></span></span>
-                  <span className="map-top-value">{value === null ? "—" : spec.format(value)}</span>
+                  <span className="map-top-value">{value === null ? "Tidak ada" : spec.format(value)}</span>
                 </button></li>;
               })}
             </ol>
@@ -131,8 +132,8 @@ function MapWorkspace({ rows, fairness, groups, runId, metric, setMetric, hasBil
             <td><span className="status-dot-text"><LaneDot lane="yellow" />{formatCount(row.medium)}</span></td>
             <td>{formatPercent(row.share)}</td>
             <td><RatioPill ratio={row.ratio} /></td>
-            <td>{row.facilityGroups === null ? "—" : formatCount(row.facilityGroups)}</td>
-            {hasBilled && <td>{row.billed === null ? "—" : formatRupiah(row.billed)}</td>}
+            <td>{row.facilityGroups === null ? "Tidak ada" : formatCount(row.facilityGroups)}</td>
+            {hasBilled && <td>{row.billed === null ? "Tidak ada" : formatRupiah(row.billed)}</td>}
           </tr>)}</tbody>
         </table>
       </div>
@@ -142,7 +143,7 @@ function MapWorkspace({ rows, fairness, groups, runId, metric, setMetric, hasBil
 }
 
 function RatioPill({ ratio }: { ratio: number | null }) {
-  if (ratio === null) return <>—</>;
+  if (ratio === null) return <>Tidak ada pembanding</>;
   const tone = ratio >= 2 ? "danger" : ratio >= 1.25 ? "warn" : "neutral";
   return <span className={`status-pill tone-${tone}`}>{ratio.toLocaleString("id-ID")}×</span>;
 }
@@ -165,14 +166,14 @@ function ProvincePanel({ row, groups, runQuery, overall, onClose }: {
       <div><dt>Klaim dianalisis</dt><dd>{formatCount(row.claims)}</dd></div>
       <div><dt>Risiko tinggi</dt><dd><LaneDot lane="red" />{formatCount(row.high)}</dd></div>
       <div><dt>Risiko sedang</dt><dd><LaneDot lane="yellow" />{formatCount(row.medium)}</dd></div>
-      <div><dt>Kelompok faskes</dt><dd>{row.facilityGroups === null ? "—" : formatCount(row.facilityGroups)}</dd></div>
+      <div><dt>Kelompok faskes</dt><dd>{row.facilityGroups === null ? "Tidak ada" : formatCount(row.facilityGroups)}</dd></div>
       {row.billed !== null && <div className="wide"><dt>Nilai tagihan berisiko</dt><dd>{formatRupiah(row.billed)}</dd></div>}
     </dl>
     <h3 className="map-province-sub"><Building2 size={15} className="head-icon" aria-hidden="true" />Kelompok faskes paling mendesak</h3>
     {inProvince.length === 0 ? <p className="fine-print">Tidak ada kelompok faskes yang cukup besar untuk dinilai di provinsi ini.</p>
       : <ul className="map-province-groups">{inProvince.slice(0, 3).map(group => <li key={group.group_id}>
         <Link to={`/facilities/${group.group_id}${runQuery}`}>
-          <span><strong>{group.title}</strong><small>{group.region} · {formatCount(group.claim_count)} klaim</small></span>
+          <span><strong>{group.title}</strong><small>{titleCase(group.region)} · {formatCount(group.claim_count)} klaim</small></span>
           <span className={`status-pill tone-${LEVELS[group.level].tone}`}>{LEVELS[group.level].label}</span>
         </Link>
       </li>)}</ul>}

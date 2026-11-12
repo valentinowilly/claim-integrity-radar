@@ -48,6 +48,11 @@ def test_each_role_sees_only_what_it_may_read_and_not_its_own_actions(tmp_path):
     assert {item["kind"] for item in as_verifier} == {"run_finished", "outcome_recorded", "audit_result_recorded"}
     as_lead = call(app, "GET", f"{URL}?since={since}", cookies=lead).json()["items"]
     assert {item["kind"] for item in as_lead} == {"run_finished", "case_escalated"}  # its own outcome/audit excluded
+    finished = next(item for item in as_verifier if item["kind"] == "run_finished")
+    summary = call(app, "GET", f"/api/v1/runs/{run_id}?view=summary", cookies=verifier).json()["result"]
+    # Counts only, for the "analysis finished" popup and its "Lihat faskes" link.
+    assert finished["high_risk_claims"] == summary["action_policy"]["lane_counts"].get("red", 0)
+    assert finished["high_risk_facilities"] == summary["facility_groups"]["level_counts"]["high"]
     escalation = next(item for item in as_lead if item["kind"] == "case_escalated")
     assert (escalation["run_id"], escalation["case_id"], escalation["status"]) == (run_id, case_id, "escalated")
     for body in (as_operator.text, json.dumps(as_verifier), json.dumps(as_lead)):
@@ -84,4 +89,5 @@ def test_validation_jobs_notify_operators_with_the_report_outcome(tmp_path):
     statuses = {item["id"]: item["status"] for item in items if item["kind"] == "validation_finished"}
     assert statuses == {"validation:vjob_done": "passed_with_warnings", "validation:vjob_broken": "job_failed"}
     verifier = login(app, users["verifier"]["username"], "Synthetic-verifier-password-2026!")
-    assert "validation_finished" not in _kinds(call(app, "GET", f"{URL}?since={since}", cookies=verifier))
+    # Verifiers bring in data themselves now, so they hear about validations too.
+    assert "validation_finished" in _kinds(call(app, "GET", f"{URL}?since={since}", cookies=verifier))

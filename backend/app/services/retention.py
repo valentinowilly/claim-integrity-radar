@@ -138,6 +138,10 @@ def start_maintenance(db_path: str | Path, interval_seconds: float = 3600.0) -> 
             try:
                 with cluster_lock("retention-sweep") as held:  # another API process sweeps this round
                     counts = sweep(db_path) if held else {}
+                    if held:
+                        from app.services.intake import purge_expired_documents
+
+                        counts.update(purge_expired_documents(db_path))
                 if any(counts.values()):
                     _log.info("Retention sweep: %s", counts)
             except Exception:

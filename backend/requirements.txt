@@ -10,3 +10,11 @@ scikit-learn==1.7.2
 psycopg[binary]==3.2.10
 psycopg-pool==3.2.6
 anthropic==2.3.0
+# Claim documents: PDF text layer, page rendering, OCR for scans (ONNX runtime, CPU, offline).
+pypdf>=5,<8
+pypdfium2>=4.30,<6
+rapidocr>=3,<4
+onnxruntime>=1.18,<2
+pillow>=10,<13
+# Example documents of the demo package (scripts/make_multisource_demo.py).
+fpdf2>=2.8,<3

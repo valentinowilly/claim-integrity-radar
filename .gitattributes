@@ -1,0 +1,4 @@
+# Generated example data and migrations keep LF line endings on every platform, so checksums and tests match.
+demo-data/**/*.csv text eol=lf
+demo-data/**/*.json text eol=lf
+backend/app/db_migrations/*.sql text eol=lf

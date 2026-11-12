@@ -17,6 +17,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from app.analytics.action_policy import EXPLORATORY_INDICATORS
+from app.analytics.fraud_patterns import PATTERNS, fraud_patterns
 
 FACILITY_GROUP_VERSION = "facility-group-v1"
 GROUP_FIELDS = ("province_code", "municipality_code", "facility_ownership", "facility_type", "facility_class")
@@ -196,6 +197,43 @@ def build_exposure(records: list[Mapping[str, Any]], lanes: Mapping[str, Mapping
     }
 
 
+def _patterns_of(case: Mapping[str, Any] | None) -> list[str]:
+    if not case:
+        return []
+    stored = case.get("fraud_patterns")
+    return list(stored) if isinstance(stored, list) else fraud_patterns(case)
+
+
+def build_pattern_summary(records: list[Mapping[str, Any]], cases: Mapping[str, Mapping[str, Any]],
+                          lanes: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """High/medium-risk claims and their billed value per fraud pattern (display only; never scoring or order).
+
+    A claim with several patterns is counted under each of them, so pattern rows do not add up to the lane totals.
+    """
+    amount_of = {record.get("case_id"): _amount(record) for record in records}
+    rows: dict[str, dict[str, Any]] = {pattern: {"red": 0, "yellow": 0, "billed_red": Decimal(0), "billed_yellow": Decimal(0)}
+                                       for pattern in PATTERNS}
+    for case_id, entry in lanes.items():
+        lane = (entry or {}).get("lane")
+        if lane not in ("red", "yellow"):
+            continue
+        for pattern in _patterns_of(cases.get(case_id)):
+            if pattern not in rows:
+                continue
+            rows[pattern][lane] += 1
+            amount = amount_of.get(case_id)
+            if amount is not None:
+                rows[pattern][f"billed_{lane}"] += amount
+    return {
+        "patterns": [{"pattern": pattern, "red": row["red"], "yellow": row["yellow"],
+                      "billed_red": int(row["billed_red"]), "billed_yellow": int(row["billed_yellow"])}
+                     for pattern, row in sorted(rows.items(), key=lambda item: (-item[1]["red"], -item[1]["yellow"],
+                                                                                PATTERNS.index(item[0])))
+                     if row["red"] or row["yellow"]],
+        "note": "Satu klaim bisa menunjukkan lebih dari satu modus, sehingga jumlah per modus tidak dijumlahkan.",
+    }
+
+
 FAIRNESS_DIMENSIONS = {"province_code": "Provinsi", "facility_class": "Kelas faskes", "facility_ownership": "Kepemilikan faskes"}
 
 
@@ -258,6 +296,7 @@ def build_facility_groups(
     claims: Counter[tuple[str, ...]] = Counter()
     members: dict[tuple[str, ...], list[str]] = {}
     at_risk_amount: Counter[tuple[str, ...]] = Counter()
+    high_amount: Counter[tuple[str, ...]] = Counter()
     peer_stats: dict[tuple[str, ...], dict[str, list[int]]] = {}
     unkeyed = 0
     for record in records:
@@ -270,8 +309,11 @@ def build_facility_groups(
             totals = peer_stats.setdefault(key, {}).setdefault(kind, [0, 0])
             totals[0] += base
             totals[1] += hits
-        if (lanes.get(record.get("case_id")) or {}).get("lane") in ("red", "yellow"):
+        record_lane = (lanes.get(record.get("case_id")) or {}).get("lane")
+        if record_lane in ("red", "yellow"):
             at_risk_amount[key] += int(_amount(record) or 0)
+        if record_lane == "red":
+            high_amount[key] += int(_amount(record) or 0)
         case_id = record.get("case_id")
         if case_id in cases:
             members.setdefault(key, []).append(case_id)
@@ -305,6 +347,12 @@ def build_facility_groups(
             "findings_per_record": round(weighted / records_to_request, 3) if records_to_request else 0.0,
             "max_ml_percentile": round(max((_ml_percentile(cases[c]) for c in flagged), default=0.0), 4),
             "billed_high_or_medium": at_risk_amount[key],
+            "billed_high": high_amount[key],
+            # High/medium-risk claims per fraud pattern (a claim may count under several patterns).
+            "pattern_counts": dict(Counter(pattern for case_id in actionable for pattern in _patterns_of(cases[case_id]))
+                                   .most_common()),
+            "pattern_counts_red": dict(Counter(pattern for case_id in actionable if lane_of[case_id] == "red"
+                                               for pattern in _patterns_of(cases[case_id])).most_common()),
             "sample_case_ids": actionable[:MAX_SAMPLE],
             "sample_lanes": {case_id: lane_of[case_id] for case_id in actionable[:MAX_SAMPLE]},
             # Which checks flagged each sample claim, so a list can say why without loading every claim.
@@ -344,6 +392,7 @@ def build_facility_groups(
         "groups": groups[:MAX_GROUPS],
         "fairness": build_fairness(records, lanes, labels, min_claims),
         "exposure": build_exposure(records, lanes),
+        "pattern_summary": build_pattern_summary(records, cases, lanes),
         "groups_truncated": len(groups) > MAX_GROUPS,
         "limitations": LIMITATIONS,
     }

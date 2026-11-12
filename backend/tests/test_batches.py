@@ -280,8 +280,7 @@ def test_batch_api_rbac_csrf_metadata_and_health_isolation(tmp_path):
     assert not batch_db.exists()
     assert call(app, "GET", "/api/v1/batches").status_code == 401
 
-    denied_write = import_request(app, verifier, export_synthetic_csv([synthetic_record()]))
-    assert denied_write.status_code == 403
+    # Verifiers bring in data themselves (see test_verifier_does_every_verification_task in test_auth_rbac).
     denied_no_csrf = import_request(app, operator, export_synthetic_csv([synthetic_record()]), csrf=False)
     assert denied_no_csrf.status_code == 403
     invalid_csrf = import_request(app, operator, export_synthetic_csv([synthetic_record()]), csrf=False,
@@ -331,7 +330,6 @@ def test_batch_api_rbac_csrf_metadata_and_health_isolation(tmp_path):
     })
     lead_cookies = dict(lead_login.cookies.items())
     assert call(app, "GET", "/api/v1/batches", cookies=lead_cookies).status_code == 200
-    assert import_request(app, lead_cookies, export_synthetic_csv([synthetic_record(4)])).status_code == 403
     detail = call(app, "GET", f"/api/v1/batches/{batch['batch_id']}", cookies=verifier)
     assert detail.status_code == 200
     missing = call(app, "GET", "/api/v1/batches/bat_unknown", cookies=operator)

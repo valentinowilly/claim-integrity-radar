@@ -52,7 +52,8 @@ try {
 
   for (const name of ["demo-1-faskes-jujur", "demo-2-kasus-kpk", "demo-3-operasional"]) {
     await page.goto(base + "/workflow");
-    await page.locator('input[type="file"]').setInputFiles(path.join(demoDir, `${name}.csv`));
+    await page.getByText("Unggah satu berkas CSV dengan laporan pemeriksaan per baris", { exact: true }).click();
+    await page.getByLabel("Berkas CSV").setInputFiles(path.join(demoDir, `${name}.csv`));
     await page.getByLabel("Nama data").fill(`synthetic-${name}`);
     let started = Date.now();
     const created = page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/v1/runs", { timeout: 600_000 });

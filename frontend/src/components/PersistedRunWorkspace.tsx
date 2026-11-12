@@ -52,7 +52,7 @@ export function RunTechnicalDetails({ detail }: { detail: RunDetailResponse }) {
       { label: "ID data", value: `${detail.run.batch_id} (versi ${detail.run.batch_version})` },
       { label: "Jenis sumber data", value: detail.run.source_classification },
       { label: "Skema / pemetaan", value: `${detail.run.source_schema_version} / ${detail.run.source_mapping_version}` },
-      { label: "Versi aturan pemeriksaan", value: [detail.run.detector_suite_version, detail.run.scoring_version, detail.run.priority_version, detail.run.action_policy_version].map(item => item ?? "—").join(" / ") },
+      { label: "Versi aturan pemeriksaan", value: [detail.run.detector_suite_version, detail.run.scoring_version, detail.run.priority_version, detail.run.action_policy_version].map(item => item ?? "tidak tercatat").join(" / ") },
     ]} />
   );
 }

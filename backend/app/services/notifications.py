@@ -36,6 +36,20 @@ def _cursor(since: str | None, now: datetime) -> str:
     return max(parsed.astimezone(timezone.utc), floor).isoformat()
 
 
+def _run_counts(connection: Any, run_id: str) -> dict[str, Any]:
+    """High-risk claims and high-risk facility groups of a finished run (counts only), for "Lihat faskes"."""
+    if not table_exists(connection, "analysis_run_result_views"):
+        return {}
+    from app.services.run_results import stored_summary
+
+    summary = stored_summary(connection, run_id)
+    if not isinstance(summary, dict):
+        return {}
+    lanes = (summary.get("action_policy") or {}).get("lane_counts") or {}
+    levels = (summary.get("facility_groups") or {}).get("level_counts") or {}
+    return {"high_risk_claims": int(lanes.get("red") or 0), "high_risk_facilities": int(levels.get("high") or 0)}
+
+
 def notifications_for(path: str | Path, *, user_id: str, permissions: frozenset[str], since: str | None,
                       limit: int = 20) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
@@ -63,7 +77,8 @@ def notifications_for(path: str | Path, *, user_id: str, permissions: frozenset[
                     "WHERE completed_at > ? AND execution_status IN ('completed','partial','failed') "
                     "ORDER BY completed_at DESC LIMIT ?", (cursor, limit)).fetchall()
                 items += [{"id": f"run:{row['run_id']}", "kind": "run_finished", "occurred_at": row["completed_at"],
-                           "status": row["execution_status"], "source_type": row["source_type"], "run_id": row["run_id"]}
+                           "status": row["execution_status"], "source_type": row["source_type"], "run_id": row["run_id"],
+                           **_run_counts(connection, row["run_id"])}
                           for row in rows]
             if "review:read" in permissions and table_exists(connection, "run_case_review_events"):
                 rows = connection.execute(

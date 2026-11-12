@@ -38,6 +38,11 @@ class UserCreateRequest(BaseModel):
         return value
 
 
+class PasswordResetRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    password: str = Field(min_length=12, max_length=1024)
+
+
 class UserUpdateRequest(BaseModel):
     model_config = {"extra": "forbid"}
     role: Role | None = None

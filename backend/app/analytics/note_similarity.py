@@ -32,7 +32,9 @@ def note_fingerprint(note: str) -> str | None:
     words = _WORD.findall(note.lower())
     if len(words) < MIN_WORDS:
         return None
-    return hashlib.sha256(" ".join(words).encode("utf-8")).hexdigest()
+    # Words are joined without spaces: a note read from a scan may differ from its copy only in spacing
+    # ("71 x/menit" and "71x/menit"), and that is still the same note.
+    return hashlib.sha256("".join(words).encode("utf-8")).hexdigest()
 
 
 def detect_cloned_notes(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:

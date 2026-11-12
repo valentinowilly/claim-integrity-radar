@@ -80,7 +80,8 @@ try {
   await page.screenshot({ path: path.join(outDir, "00-beranda-kosong-desktop.png"), fullPage: true });
   for (const name of ["demo-2-kasus-kpk", "demo-3-operasional"]) {
     await page.goto(base + "/workflow");
-    await page.locator('input[type="file"]').setInputFiles(path.join(demoDir, `${name}.csv`));
+    await page.getByText("Unggah satu berkas CSV dengan laporan pemeriksaan per baris", { exact: true }).click();
+    await page.getByLabel("Berkas CSV").setInputFiles(path.join(demoDir, `${name}.csv`));
     await page.getByLabel("Nama data").fill(name);
     const created = page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/v1/runs", { timeout: 600_000 });
     await page.getByRole("button", { name: /Unggah dan analisis/ }).click();

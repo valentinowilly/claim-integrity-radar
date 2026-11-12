@@ -1,17 +1,18 @@
+import { DocumentMismatches } from "../components/DocumentMismatches";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Clock3, MousePointerClick, Search, SlidersHorizontal, X } from "lucide-react";
+import { Clock3, FileText, MousePointerClick, Search, SlidersHorizontal, TriangleAlert, X } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/DataStates";
-import { FRAUD_PATTERNS, LANES, LaneDot, PatternTags, formatCount, indicatorLabel, mlFeatureLabel, mlLevel, shortRef } from "../components/Display";
+import { FRAUD_PATTERNS, LANES, LaneDot, PatternTags, formatCount, formatRupiah, indicatorLabel, mlFeatureLabel, mlLevel, shortRef } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { useAuth } from "../auth/AuthContext";
 import { CaseReviewPanel } from "./RunCaseReviewPage";
-import { ageText, ageTone, analysisAgeDays } from "../components/TodayBrief";
+import { ageText, ageTone, analysisAgeDays } from "../components/analysisAge";
 import { ReviewShortcuts } from "../components/ReviewShortcuts";
 import {
-  auditResultLabels, getRunAssignments, type CaseAssignment, getRunCases, getRunReviews, reviewOutcomeLabels, ruleFlaggedListedIds, runReviewStatusLabels,
-  type Lane, type MlAnomaly, type RunCaseListResponse, type RunCaseQuery, type RunCaseSort, type RunReviewStatus, type RunReviewSummaryItem,
+  auditResultLabels, getReviewPipeline, getRunAssignments, type ReviewPipeline, type CaseAssignment, getRunCases, getRunReviews, reviewOutcomeLabels, ruleFlaggedListedIds, runReviewStatusLabels,
+  type Lane, type MlAnomaly, type RunResult, type RunCaseListResponse, type RunCaseQuery, type RunCaseSort, type RunReviewStatus, type RunReviewSummaryItem,
 } from "../api/client";
 
 type SortKey = Exclude<RunCaseSort, "stored">;
@@ -22,6 +23,7 @@ const SORTS: Record<SortKey, string> = {
   similarity_rarity: "Paling mirip dengan klaim lain",
   review_updated: "Terakhir ditinjau",
   case_ref: "Nomor referensi",
+  billed: "Tagihan terbesar",
 };
 type ReviewFilter = "" | "not_started" | RunReviewStatus | "has_outcome";
 const REVIEW_FILTERS: Array<[ReviewFilter, string]> = [
@@ -121,6 +123,9 @@ export default function CasesPage() {
     ...(reviewFilter && reviewMap ? [{ key: "state", label: `Status: ${REVIEW_FILTERS.find(([value]) => value === reviewFilter)?.[1] ?? reviewFilter}` }] : []),
     ...(assigned && reviewMap ? [{ key: "who", label: assigned === "me" ? "Klaim saya" : "Belum diambil" }] : []),
   ];
+  // The billed value of the whole lane, shown only while the list is the whole lane (no filter or search).
+  const exposure = result?.facility_groups?.exposure?.status === "available" ? result.facility_groups.exposure : null;
+  const laneBilled = !exposure || search ? null : laneTab === "red" ? exposure.billed_high : laneTab === "yellow" ? exposure.billed_medium : null;
   const [casePage, setCasePage] = useState<{ key: string; data: RunCaseListResponse } | { key: string; error: string } | null>(null);
   useEffect(() => {
     if (!runId || !reviewable || laneTab === "ai") return;
@@ -139,7 +144,17 @@ export default function CasesPage() {
   const pageError = current && "error" in current ? current.error : null;
   const visible = pageData?.items ?? [];
   const pageCount = Math.max(1, Math.ceil((pageData?.total_matching ?? 0) / pageSize));
-  const reviewedCount = reviewMap ? pageData?.reviewed_case_count ?? null : null;
+  // Progress counts the claims that need action (high and medium risk), never the low-risk ones processed as usual.
+  const [pipeline, setPipeline] = useState<{ runId: string; data: ReviewPipeline } | null>(null);
+  useEffect(() => {
+    if (!runId || !reviewable || !canReadReviews) return;
+    const controller = new AbortController();
+    getReviewPipeline(runId, controller.signal).then(data => setPipeline({ runId, data })).catch(() => undefined);
+    return () => controller.abort();
+  }, [runId, reviewable, canReadReviews, reviewVersion]);
+  const flow = pipeline && pipeline.runId === runId ? pipeline.data : null;
+  const needsAction = flow?.needs_action ?? 0;
+  const reviewedCount = reviewMap && flow ? needsAction - (flow.stages.find(stage => stage.stage === "pending_review")?.count ?? 0) : null;
 
   // The list's query string (run and filters) travels with every link so the list survives navigation.
   const listQuery = new URLSearchParams();
@@ -164,14 +179,17 @@ export default function CasesPage() {
     {state.status === "success" && (!result ? <EmptyState title="Hasil analisis tidak tersedia" message="Analisis yang dipilih belum memiliki hasil tersimpan." />
       : result.availability !== "available" ? <EmptyState title="Antrean belum tersedia" message="Hasil analisis ini belum siap. Tidak ada klaim yang ditampilkan dari hasil yang belum lengkap." />
       : <>
+        {canReadReviews && runId && <DocumentMismatches runId={runId} />}
         <div className={`queue-layout${selected ? " has-detail" : ""}`}>
           <section className="card queue-list-card" aria-label="Daftar klaim">
             <div className="queue-head">
               <h2>{laneTab === "ai" ? `${formatCount(aiOnly.length)} klaim` : pageData ? `${formatCount(pageData.total_matching)} klaim` : "Klaim ditandai"}</h2>
+              {laneBilled !== null && !activeFilters.length && <span className="queue-head-money" data-testid="queue-lane-amount"
+                title="Jumlah tagihan rumah sakit (FKL47) sebelum verifikasi, bukan nilai kerugian">{formatRupiah(laneBilled)}</span>}
               {reviewedCount !== null && <span className="queue-head-meta" data-testid="queue-review-progress"
-                title={`${formatCount(reviewedCount)} dari ${formatCount(pageData?.total_cases ?? 0)} klaim sudah ditinjau`}>
-                {formatCount(reviewedCount)}/{formatCount(pageData?.total_cases ?? 0)} ditinjau</span>}
-              {reviewedCount !== null && <QueueAge createdAt={state.detail.run.created_at} unreviewed={(pageData?.total_cases ?? 0) - reviewedCount} />}
+                title={`${formatCount(reviewedCount)} dari ${formatCount(needsAction)} klaim risiko tinggi dan sedang sudah mulai ditinjau`}>
+                {formatCount(reviewedCount)}/{formatCount(needsAction)} perlu tindakan ditinjau</span>}
+              {reviewedCount !== null && <QueueAge createdAt={state.detail.run.created_at} unreviewed={needsAction - reviewedCount} />}
             </div>
             {reviewsFailed && <p className="fine-print">Status tinjauan tidak dapat dimuat; daftar klaim tetap ditampilkan.</p>}
             <div className="queue-tabs" role="group" aria-label="Saring tingkat risiko">
@@ -180,8 +198,8 @@ export default function CasesPage() {
                 onClick={() => updateList({ lane })} title={LANES[lane].name} aria-label={`${LANES[lane].name} ${formatCount(laneCounts[lane] ?? 0)}`}>
                 <LaneDot lane={lane} />{LANE_SHORT[lane]}<span className="tab-count">{formatCount(laneCounts[lane] ?? 0)}</span></button>)}
               {mlAvailable && <button type="button" className="queue-tab" aria-pressed={laneTab === "ai"} onClick={() => updateList({ lane: "ai" })}
-                title="Klaim yang lolos pemeriksaan aturan, tetapi dinilai tidak biasa oleh AI" aria-label={`Temuan tambahan AI ${formatCount(aiOnly.length)}`}>
-                Tambahan AI <span className="tab-count">{formatCount(aiOnly.length)}{result.ml_anomaly?.items_truncated ? "+" : ""}</span></button>}
+                title="Klaim yang lolos pemeriksaan aturan, tetapi dinilai tidak biasa oleh AI" aria-label={`Temuan AI lain ${formatCount(aiOnly.length)}`}>
+                Temuan AI lain <span className="tab-count">{formatCount(aiOnly.length)}</span></button>}
             </div>
             {laneTab === "ai" ? <AiOnlyList items={aiOnly} runId={runId} routeCaseId={routeCaseId} listSearch={listSearch} /> : <>
             <div className="queue-filters">
@@ -229,7 +247,7 @@ export default function CasesPage() {
               : !pageData ? <p className="fine-print" role="status">Memuat daftar klaim…</p>
               : visible.length === 0 ? <EmptyState title="Tidak ada klaim untuk saringan ini" message="Coba saringan lain." />
               : <ul className={`queue-items${refreshing ? " is-refreshing" : ""}`} aria-busy={refreshing || undefined}>
-                {visible.map(({ case: item, lane }) => {
+                {visible.map(({ case: item, lane, documents }) => {
                   const review = reviewMap?.get(item.case_id);
                   const percentile = item.ml_anomaly ? item.ml_anomaly.reference_percentile ?? item.ml_anomaly.anomaly_percentile : null;
                   const level = percentile !== null ? mlLevel(percentile) : null;
@@ -239,10 +257,17 @@ export default function CasesPage() {
                       <span className="queue-item-body">
                         <strong>{item.indicators.map(indicatorLabel).join(" + ") || "Klaim ditandai"}</strong>
                         <PatternTags patterns={item.fraud_patterns} />
-                        <small>Ref. {shortRef(item.case_id)}{lane && lane.lane in LANES ? ` · ${LANES[lane.lane as Lane].name}` : ""}</small>
+                        {documents && <span className="queue-documents" data-testid="queue-documents">
+                          <span className="doc-chip"><FileText size={11} aria-hidden="true" />{formatCount(documents.documents)} berkas</span>
+                          {documents.mismatches > 0 && <span className="doc-chip tone-danger" title="Isi berkas berbeda dari data klaim">
+                            <TriangleAlert size={11} aria-hidden="true" />Berkas tidak cocok</span>}
+                        </span>}
+                        <small>Ref. {shortRef(item.case_id)}{laneTab === "all" && lane && lane.lane in LANES ? ` · ${LANES[lane.lane as Lane].name}` : ""}</small>
                         {review?.audit_result && <small data-testid="queue-audit-result">{auditResultLabels[review.audit_result]}</small>}
                       </span>
                       <span className="queue-item-side">
+                        {typeof item.claim_billed_amount === "number" && <strong className="queue-amount" data-testid="queue-amount"
+                          title="Tagihan rumah sakit (FKL47) sebelum verifikasi">{formatRupiah(item.claim_billed_amount)}</strong>}
                         {reviewMap && <span data-testid="queue-review-cell" className="queue-review-cell">
                           <span className={`status-pill status-${review?.review_status ?? "pending_review"}`}>{review ? runReviewStatusLabels[review.review_status] : "Belum ditinjau"}</span>
                           {review?.review_outcome && <small>{reviewOutcomeLabels[review.review_outcome]}</small>}
@@ -268,11 +293,7 @@ export default function CasesPage() {
           <div className="queue-detail">
             {selected && routeRunId && routeCaseId
               ? <CaseReviewPanel key={`${routeRunId}/${routeCaseId}`} runId={routeRunId} caseId={routeCaseId} backTo={`/cases${listSearch}`} onSaved={() => setReviewVersion(value => value + 1)} />
-              : <section className="card detail-placeholder">
-                <MousePointerClick size={30} color="var(--brand-ink)" style={{ justifySelf: "center" }} />
-                <strong>Pilih klaim di kiri</strong>
-                <span>Rincian alasan dan formulir tinjauan akan tampil di sini.</span>
-              </section>}
+              : <LaneSummary result={result} lane={laneTab} />}
           </div>
         </div>
       </>)}
@@ -334,4 +355,30 @@ function QueueAge({ createdAt, unreviewed }: { createdAt: string; unreviewed: nu
   return <span className={`queue-age tone-${tone}`} data-testid="queue-age" title={`Antrean dibuat ${ageText(days)}; klaim masuk antrean saat analisis dibuat.`}>
     <Clock3 size={12} aria-hidden="true" />{ageText(days)}{unreviewed > 0 && days > 7 ? ` · ${formatCount(unreviewed)} belum` : ""}
   </span>;
+}
+
+/** Before a claim is chosen: what this lane holds, its value and patterns, and where to start. */
+function LaneSummary({ result, lane }: { result: RunResult; lane: LaneTab }) {
+  const counts = result.action_policy.lane_counts ?? {};
+  const exposure = result.facility_groups?.exposure?.status === "available" ? result.facility_groups.exposure : null;
+  const patterns = lane === "red" || lane === "yellow"
+    ? (result.facility_groups?.pattern_summary?.patterns ?? []).map(row => ({ pattern: row.pattern, count: lane === "red" ? row.red : row.yellow,
+      billed: lane === "red" ? row.billed_red : row.billed_yellow })).filter(row => row.count > 0).sort((a, b) => b.billed - a.billed) : [];
+  const billed = !exposure ? null : lane === "red" ? exposure.billed_high : lane === "yellow" ? exposure.billed_medium : null;
+  const title = lane === "red" || lane === "yellow" || lane === "green" ? LANES[lane].name : lane === "ai" ? "Temuan AI lain" : "Semua klaim";
+  const count = lane === "red" || lane === "yellow" || lane === "green" ? counts[lane] ?? 0 : null;
+  return <section className="card detail-placeholder lane-summary" data-testid="lane-summary">
+    <MousePointerClick size={26} color="var(--brand-ink)" aria-hidden="true" />
+    <strong>Pilih klaim di kiri untuk mulai meninjau</strong>
+    {count !== null && <div className="lane-summary-figures">
+      <span>{title}</span>
+      <b>{formatCount(count)} <small>klaim</small></b>
+      {billed !== null && <b className="lane-summary-money">{formatRupiah(billed)}</b>}
+    </div>}
+    {patterns.length > 0 && <ul className="lane-summary-patterns">{patterns.map(row => <li key={row.pattern}>
+      <span>{FRAUD_PATTERNS[row.pattern]?.label ?? row.pattern}</span><span>{formatCount(row.count)} klaim</span><strong>{formatRupiah(row.billed)}</strong>
+    </li>)}</ul>}
+    <span>{lane === "green" ? "Klaim risiko rendah diproses seperti biasa; tinjau hanya bila ada alasan khusus."
+      : "Klaim teratas paling perlu diperiksa. Rincian alasan dan formulir tinjauan tampil di sini."}</span>
+  </section>;
 }

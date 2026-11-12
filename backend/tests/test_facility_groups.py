@@ -150,3 +150,31 @@ def test_audit_priority_index_follows_the_proposal_formula_and_never_changes_the
     assert y["audit_priority_index"] == round(y["risk_score"] * 20 / 2, 2)
     # y is the more efficient audit, but x keeps the higher rank: more high-risk claims.
     assert y["audit_priority_index"] > x["audit_priority_index"] and x["rank"] < y["rank"]
+
+
+def test_pattern_summary_counts_high_and_medium_risk_claims_and_value_per_pattern():
+    from app.analytics.facility_groups import build_pattern_summary
+    records = [{"case_id": "a", "provider_billed_amount_unverified": "1000"},
+               {"case_id": "b", "provider_billed_amount_unverified": "500"},
+               {"case_id": "c", "provider_billed_amount_unverified": "200"}]
+    cases = {"a": {"indicators": ["repeat_billing_candidate", "cloned_clinical_note_candidate"]},
+             "b": {"fraud_patterns": ["repeat_billing"]},
+             "c": {"fraud_patterns": ["cloning"]}}
+    lanes = {"a": {"lane": "red"}, "b": {"lane": "yellow"}, "c": {"lane": "green"}}
+    rows = {row["pattern"]: row for row in build_pattern_summary(records, cases, lanes)["patterns"]}
+    # A claim with two patterns counts under both; a low-risk claim counts under none.
+    assert rows["repeat_billing"] == {"pattern": "repeat_billing", "red": 1, "yellow": 1, "billed_red": 1000, "billed_yellow": 500}
+    assert rows["cloning"] == {"pattern": "cloning", "red": 1, "yellow": 0, "billed_red": 1000, "billed_yellow": 0}
+    assert set(rows) == {"repeat_billing", "cloning"}
+
+
+def test_groups_carry_high_risk_value_and_pattern_counts():
+    records = [{**_record(f"x{i}"), "provider_billed_amount_unverified": "100"} for i in range(40)]
+    cases = {f"x{i}": _specific(0.99) for i in range(3)}
+    lanes = evaluate_action_policy({"execution_status": "completed", "indicator_coverage": [], "cases": cases},
+                                   get_action_policy_config())["cases"]
+    group = build_facility_groups(records, cases, lanes)["groups"][0]
+    red = sum(lane["lane"] == "red" for lane in lanes.values())
+    assert group["billed_high"] == 100 * red
+    assert group["pattern_counts"]["repeat_billing"] == 3
+    assert group["pattern_counts_red"].get("repeat_billing", 0) == red

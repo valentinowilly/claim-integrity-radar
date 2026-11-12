@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ApiClientError, getCurrentUser, login as apiLogin, logout as apiLogout, type AuthSession } from "../api/client";
 
+/** Set at sign-in; the overview shows the facility warning once and then clears it. */
+export const LOGIN_ALERT_KEY = "cir:login-alert-pending";
+
 type AuthState = { loading: true } | { loading: false; session: AuthSession | null; issue?: "expired" | "network" };
 interface AuthContextValue {
   state: AuthState;
@@ -31,6 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (username: string, password: string) => {
     const session = await apiLogin(username, password);
+    // The overview shows the facility warning once after each sign-in (per tab; storage may be unavailable).
+    try { window.sessionStorage.setItem(LOGIN_ALERT_KEY, "1"); } catch { /* warning stays reachable on the overview */ }
     setState({ loading: false, session });
   }, []);
   const signOut = useCallback(async () => {

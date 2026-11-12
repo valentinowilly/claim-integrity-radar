@@ -13,6 +13,8 @@ from app.api.routes.inbox import router as inbox_router
 from app.api.routes.assignments import router as assignments_router
 from app.api.routes.case_context import router as case_context_router
 from app.api.routes.clinical_ai import router as clinical_ai_router
+from app.api.routes.intake import router as intake_router
+from app.services.intake import mark_interrupted_packages
 from app.services.inbox import start_scheduler as start_inbox_scheduler
 from app.services.retention import start_maintenance as start_retention
 from app.api.routes.batches import router as batches_router
@@ -72,6 +74,7 @@ def create_app(review_db_path: str | Path | None = None, auth_db_path: str | Pat
     application.state.database_backend = "postgresql" if database is not None else "sqlite"
     # Jobs whose worker stopped (heartbeat expired) are marked interrupted.
     mark_interrupted_jobs(application.state.run_db_path)
+    mark_interrupted_packages(application.state.run_db_path)
     application.state.ml_model_status = model_status()
     if not application.state.ml_model_status["available"]:
         logging.getLogger("cir.ml").warning(
@@ -94,6 +97,7 @@ def create_app(review_db_path: str | Path | None = None, auth_db_path: str | Pat
     application.include_router(inbox_router)
     application.include_router(assignments_router)
     application.include_router(clinical_ai_router)
+    application.include_router(intake_router)
     # Daily intake from the drop folder (only when CIR_INBOX_DIR is set; once per process).
     start_inbox_scheduler(application.state.run_db_path)
     # Hourly: archive analyses older than the active window (nothing is deleted).

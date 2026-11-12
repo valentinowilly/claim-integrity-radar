@@ -114,6 +114,9 @@ def _field_value(field: str, value: Any) -> Any:
     return text_value(value)
 
 
+_ALL_DAYS = object()
+
+
 def _attach_match_evidence(candidates: list[dict[str, Any]], normalized: Mapping[str, tuple[Any, ...]]) -> None:
     """Add support, chance expectation and evidence class to every qualifying pair.
 
@@ -124,29 +127,37 @@ def _attach_match_evidence(candidates: list[dict[str, Any]], normalized: Mapping
     fraud. Amounts are compared with a tolerance and are left out of both.
     """
     date_index = _FIELD_INDEX["service_date"]
-    day_sizes = Counter(values[date_index] for values in normalized.values())
+    # Claims grouped by admission date once: every count below concerns one date, so it reads only that date's
+    # claims instead of the whole input (the result is the same; the work no longer grows with days x claims).
+    by_day: dict[Any, list[tuple[Any, ...]]] = {}
+    for values in normalized.values():
+        by_day.setdefault(values[date_index], []).append(values)
+    day_sizes = {day: len(rows) for day, rows in by_day.items()}
     frequencies: dict[tuple[Any, int], Counter] = {}
-    supports: dict[tuple[str, ...], Counter] = {}
+    supports: dict[tuple[tuple[str, ...], Any], Counter] = {}
     for candidate in candidates:
         left = normalized[candidate["case_ids"][0]]
         fields = tuple(field for field in NEAR_FIELDS
                        if field in candidate["matched_attributes"] and field not in _TOLERANCE_FIELDS)
         indexes = tuple(_FIELD_INDEX[field] for field in fields)
-        if fields not in supports:
-            supports[fields] = Counter(
-                tuple(values[index] for index in indexes) for values in normalized.values()
+        day = left[date_index]
+        # With the date among the matched values only that date's claims can share them; otherwise count them all.
+        scope = day if date_index in indexes else _ALL_DAYS
+        if (fields, scope) not in supports:
+            rows = by_day.get(day, []) if scope is not _ALL_DAYS else normalized.values()
+            supports[(fields, scope)] = Counter(
+                tuple(values[index] for index in indexes) for values in rows
                 if all(values[index] is not None for index in indexes)
             )
-        support = supports[fields][tuple(left[index] for index in indexes)]
-        day = left[date_index]
-        size = day_sizes[day]
+        support = supports[(fields, scope)][tuple(left[index] for index in indexes)]
+        size = day_sizes.get(day, 0)
         probability = 1.0
         for index in indexes:
             if index == date_index:
                 continue
             key = (day, index)
             if key not in frequencies:
-                frequencies[key] = Counter(values[index] for values in normalized.values() if values[date_index] == day)
+                frequencies[key] = Counter(values[index] for values in by_day.get(day, []))
             probability *= (frequencies[key][left[index]] / size) ** 2
         candidate["match_support"] = support
         candidate["expected_chance_pairs"] = float(f"{size * (size - 1) / 2 * probability:.3g}")

@@ -35,7 +35,8 @@ def test_the_trend_lists_the_latest_runs_oldest_first_with_counts_only(tmp_path)
     daily = detail["daily_activity"]
     assert daily["status"] == "available" and sum(day["claims"] for day in daily["days"]) + daily["undated_claims"] == detail["records_considered"]
     # Numbers only: no claims, cases or participant data.
-    assert set(latest) == {"run_id", "created_at", "source_type", "records_considered", "lane_counts", "billed_high_or_medium"}
+    assert set(latest) == {"run_id", "created_at", "source_type", "records_considered", "lane_counts", "billed_high_or_medium",
+                           "billed_high", "billed_medium"}
 
     archived = call(app, "POST", f"/api/v1/runs/{first}/archive", cookies=operator,
                     headers={"X-CSRF-Token": operator["cir_csrf"]})

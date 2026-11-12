@@ -27,19 +27,19 @@
 
   /* tokens.css */
   --canvas-bg: #0b1311;
-  --surface-bg: #121c19;
+  --surface-bg: #152220; /* lifted further off the canvas so cards read as cards */
   --surface-subtle: #18241f;
   --surface-muted: #151f1c;
   --text-primary: #e6edea;
   --text-secondary: #c2ccc8;
   --text-muted: #93a39d;
-  --text-faint: #6f807a;
+  --text-faint: #84958f; /* 5,4:1 on the dark card; was 4,2:1 */
   --bpjs-green: #047857;
   --bpjs-green-hover: #059669;
   --bpjs-green-subtle: #10302a;
   --bpjs-green-border: #1f5a49;
   --bpjs-green-dark: #6ee7b7;
-  --border-subtle: #24332e;
+  --border-subtle: #2b3d37;
   --border-medium: #33453f;
   --border-focus: #34d399;
 
@@ -62,7 +62,7 @@
   --brand-line: #1f5a49;
   --card-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 8px 22px -12px rgb(0 0 0 / 0.6);
   --ink: #e6edea;
-  --ink-soft: #6f807a;
+  --ink-soft: #84958f;
   --chart-1: #10b981;
   --chart-2: #34d399;
   --chart-3: #1f6f55;
@@ -70,6 +70,8 @@
   --chart-5: #ef4444;
   --chart-6: #38bdf8;
   --lane-red: #ef4444; --lane-red-soft: #2c1414; --lane-red-line: #5f2424;
+  --lane-red-tint: #2a1515; --lane-red-edge: #8a3434; --lane-red-ink: #fca5a5;
+  --lane-yellow-ink: #fcd34d;
   --lane-yellow: #f59e0b; --lane-yellow-soft: #2a2010; --lane-yellow-line: #5c4516;
   --lane-green: #10b981; --lane-green-soft: #0f2a1f; --lane-green-line: #1d4d38;
 

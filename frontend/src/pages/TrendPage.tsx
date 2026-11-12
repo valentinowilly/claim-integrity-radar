@@ -51,7 +51,7 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
   const total = rows.reduce((sum, day) => sum + day.claims, 0);
   const atRisk = rows.reduce((sum, day) => sum + day.high + day.medium, 0);
   const average = total ? atRisk / total : 0;
-  const busiest = rows.reduce((best, day) => (day.claims > best.claims ? day : best), rows[0]);
+  const billedTotal = rows.reduce((sum, day) => sum + (day.billed_high_or_medium ?? 0), 0);
   const peak = rows.filter(day => day.share !== null).reduce<(typeof rows)[number] | null>((best, day) => (!best || (day.share ?? 0) > (best.share ?? 0) ? day : best), null);
   const hasBilled = rows.some(day => day.billed_high_or_medium !== null);
   const tooltip = {
@@ -66,21 +66,20 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
       <div className="map-stat card"><span className="map-stat-icon"><CalendarRange size={18} aria-hidden="true" /></span>
         <div><span>Rentang tanggal layanan</span><strong>{formatCount(rows.length)}<small> hari · {short(rows[0].date)} – {short(rows[rows.length - 1].date)}</small></strong></div></div>
       <div className="map-stat card"><span className="map-stat-icon"><CalendarDays size={18} aria-hidden="true" /></span>
-        <div><span>Hari tersibuk</span><strong><CountUp value={busiest.claims} /><small> klaim · {short(busiest.date)}</small></strong></div></div>
+        <div><span>Klaim berisiko</span><strong><CountUp value={atRisk} /><small> klaim{hasBilled ? ` · ${formatRupiah(billedTotal)}` : ""}</small></strong></div></div>
       <div className="map-stat card"><span className="map-stat-icon tone-warn"><Flame size={18} aria-hidden="true" /></span>
-        <div><span>Porsi berisiko tertinggi</span><strong>{peak ? formatPercent(peak.share ?? 0) : "—"}<small>{peak ? ` · ${short(peak.date)} (rata-rata ${formatPercent(average)})` : ""}</small></strong></div></div>
+        <div><span>Porsi berisiko tertinggi</span><strong>{peak ? formatPercent(peak.share ?? 0) : "Belum ada"}<small>{peak ? ` · ${short(peak.date)} (rata-rata ${formatPercent(average)})` : ""}</small></strong></div></div>
     </section>
 
     <section className="card trend-card">
-      <div className="card-head"><div><h2><TrendingUp size={16} className="head-icon" aria-hidden="true" />Klaim per hari</h2>
-        <p>Tinggi dan sedang ditumpuk di atas klaim risiko rendah.</p></div>
+      <div className="card-head"><div><h2><TrendingUp size={16} className="head-icon" aria-hidden="true" />Klaim berisiko per hari</h2>
+        <p>Risiko tinggi dan sedang menurut tanggal layanan. Klaim risiko rendah diproses seperti biasa dan tidak digambar.</p></div>
         <div className="trend-legend" aria-hidden="true">
           <span><LaneDot lane="red" />Risiko tinggi</span><span><LaneDot lane="yellow" />Risiko sedang</span>
-          <span><i className="trend-swatch low" />Risiko rendah</span>
         </div>
       </div>
       <div className="chart-box" style={{ height: 300 }} role="img"
-        aria-label={`Klaim per hari dari ${long(rows[0].date)} sampai ${long(rows[rows.length - 1].date)}; rincian per hari ada di tabel di bawah.`}>
+        aria-label={`Klaim berisiko per hari dari ${long(rows[0].date)} sampai ${long(rows[rows.length - 1].date)}; rincian per hari ada di tabel di bawah.`}>
         <ResponsiveContainer>
           <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -12 }} barCategoryGap="18%">
             <CartesianGrid vertical={false} stroke={colors.grid} />
@@ -89,13 +88,30 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
             <Tooltip cursor={{ fill: colors.grid, opacity: 0.4 }} {...tooltip}
               labelFormatter={(_label, payload) => (payload?.[0]?.payload?.date ? long(payload[0].payload.date) : "")}
               formatter={(value: number, name: string) => [formatCount(value), name]} />
-            <Bar dataKey="low" name="Risiko rendah" stackId="claims" fill={colors.low} stroke={colors.surface} strokeWidth={1} isAnimationActive={false} />
-            <Bar dataKey="medium" name="Risiko sedang" stackId="claims" fill={colors.medium} stroke={colors.surface} strokeWidth={1} isAnimationActive={false} />
-            <Bar dataKey="high" name="Risiko tinggi" stackId="claims" fill={colors.high} stroke={colors.surface} strokeWidth={1} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="high" name="Risiko tinggi" stackId="claims" fill={colors.high} stroke={colors.surface} strokeWidth={1} isAnimationActive={false} />
+            <Bar dataKey="medium" name="Risiko sedang" stackId="claims" fill={colors.medium} stroke={colors.surface} strokeWidth={1} radius={[4, 4, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>
     </section>
+
+    {hasBilled && <section className="card trend-card" data-testid="trend-billed">
+      <div className="card-head"><div><h2>Nilai tagihan berisiko per hari</h2>
+        <p>Tagihan rumah sakit (FKL47) klaim risiko tinggi dan sedang, sebelum verifikasi. Bukan nilai kerugian.</p></div></div>
+      <div className="chart-box" style={{ height: 220 }} role="img" aria-label={`Nilai tagihan berisiko per hari, total ${formatRupiah(billedTotal)}.`}>
+        <ResponsiveContainer>
+          <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 8 }} barCategoryGap="18%">
+            <CartesianGrid vertical={false} stroke={colors.grid} />
+            <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={18} />
+            <YAxis {...axis} width={64} tickFormatter={(value: number) => `${(value / 1_000_000).toLocaleString("id-ID", { maximumFractionDigits: 0 })} jt`} />
+            <Tooltip cursor={{ fill: colors.grid, opacity: 0.4 }} {...tooltip}
+              labelFormatter={(_label, payload) => (payload?.[0]?.payload?.date ? long(payload[0].payload.date) : "")}
+              formatter={(value: number) => [formatRupiah(value), "Nilai tagihan berisiko"]} />
+            <Bar dataKey="billed_high_or_medium" name="Nilai tagihan berisiko" fill={colors.share} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </section>}
 
     <section className="card trend-card">
       <div className="card-head"><div><h2>Porsi klaim berisiko per hari</h2>
@@ -128,7 +144,7 @@ function TrendWorkspace({ activity }: { activity: DailyActivity }) {
             <td><span className="status-dot-text"><LaneDot lane="red" />{formatCount(day.high)}</span></td>
             <td><span className="status-dot-text"><LaneDot lane="yellow" />{formatCount(day.medium)}</span></td>
             <td>{day.share !== null ? formatPercent(day.share) : <span className="fine-print" title={`Kurang dari ${MIN_DAY_CLAIMS} klaim; porsi tidak dihitung`}>terlalu sedikit</span>}</td>
-            {hasBilled && <td>{day.billed_high_or_medium === null ? "—" : formatRupiah(day.billed_high_or_medium)}</td>}
+            {hasBilled && <td>{day.billed_high_or_medium === null ? "Tidak ada" : formatRupiah(day.billed_high_or_medium)}</td>}
           </tr>)}</tbody>
         </table>
       </div>

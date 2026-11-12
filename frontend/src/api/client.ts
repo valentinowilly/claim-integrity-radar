@@ -182,7 +182,23 @@ export interface DurationScreen {
   candidate_count: number; candidates_per_1000_assessed?: number | null; candidates: DurationCandidate[]; limitations: string[];
 }
 export type FraudPattern = "phantom_billing" | "cloning" | "repeat_billing" | "fictitious_claim" | "upcoding_stay";
+export interface RunOverview {
+  version: string; ai_confirmed_high: number; ai_threshold: number;
+  evidence: { services_requiring_evidence: number; services_complete: number; share_complete: number | null };
+  top_high_claims: Array<{ case_id: string; amount: number; indicators: string[]; fraud_patterns: string[] }>;
+  note: string;
+}
+export interface ReviewPipeline {
+  needs_action: number; decided: number;
+  stages: Array<{ stage: "pending_review" | "in_review" | "awaiting_evidence" | "escalated" | "closed"; count: number; billed: number }>;
+}
+export function getReviewPipeline(runId: string, signal?: AbortSignal): Promise<ReviewPipeline> {
+  return getJson(`/api/v1/runs/${encodeURIComponent(runId)}/review-pipeline`,
+    (value): value is ReviewPipeline => isRecord(value) && Array.isArray(value.stages), signal);
+}
 export interface RunCase {
+  /** Billed amount of the claim (FKL47, before verification; display only; uploaded example data only). */
+  claim_billed_amount?: number | null;
   ml_anomaly?: MlAnomalyRank | null;
   ml_inference?: MlInferenceStatus;
   /** Present when the claim is also a duration-screen candidate (runs from Phase 5 on). */
@@ -217,6 +233,8 @@ export interface RunResult {
   facility_groups?: FacilityGroups;
   /** Claims per service date with high/medium counts (absent on runs saved before it was added). */
   daily_activity?: DailyActivity;
+  /** Headline figures computed over every claim (absent on runs saved before it was added). */
+  overview?: RunOverview;
   /**
    * Set when the server returned a partial view of the stored result. In a "summary" view `cases`
    * is empty on purpose: use `case_count` and the paged case list, never treat it as "no flagged claims".
@@ -238,6 +256,10 @@ export interface FacilityGroup {
   peer_signals?: Array<{ kind: "severity" | "special"; share: number; peer_share: number; ratio: number | null; peer_groups: number; text: string }>;
   /** Display only: billed value of the group's high/medium-risk claims (absent on older runs). */
   billed_high_or_medium?: number;
+  /** Display only: billed value of the group's high-risk claims (absent on older runs). */
+  billed_high?: number;
+  /** High/medium-risk claims per fraud pattern, and high-risk only; a claim may count under several (absent on older runs). */
+  pattern_counts?: Record<string, number>; pattern_counts_red?: Record<string, number>;
   /** Proposal priority: weighted share of claims at risk (0–1) and risk × value (Rp million) ÷ records to request. */
   risk_score?: number; audit_priority_index?: number | null;
   level: "high" | "medium" | "low"; verdict: string;
@@ -253,7 +275,11 @@ export interface FacilityGroups {
   /** High/medium-risk share per province, facility class and ownership; absent on older runs. */
   fairness?: Fairness;
   exposure?: Exposure;
+  /** High/medium-risk claims and billed value per fraud pattern (absent on older runs). */
+  pattern_summary?: PatternSummary;
 }
+export interface PatternSummaryRow { pattern: FraudPattern; red: number; yellow: number; billed_red: number; billed_yellow: number }
+export interface PatternSummary { patterns: PatternSummaryRow[]; note: string }
 /** Billed value per risk level; a value awaiting re-verification, not a loss, and never used for scoring. */
 export interface Exposure {
   status: string; amount_source: string; claims_with_amount: number; billed_total: number;
@@ -322,10 +348,12 @@ export interface RunResultView {
   rule_flagged_listed_case_ids?: string[]; indicator_reason_summaries?: Record<string, string[]>;
 }
 export interface RunCaseListResponse {
-  availability: "available"; run_id: string; items: Array<{ case: RunCase; lane: LaneEntry | null }>;
+  availability: "available"; run_id: string; items: Array<{ case: RunCase; lane: LaneEntry | null;
+    /** Facility documents read for the claim, and how many of their values disagree with the claim data. */
+    documents?: { documents: number; mismatches: number } | null }>;
   total_matching: number; total_cases: number; reviewed_case_count: number | null; offset: number; limit: number; sort: string;
 }
-export type RunCaseSort = "rule_index" | "checks" | "similarity_rarity" | "ml_rank" | "review_updated" | "case_ref" | "stored";
+export type RunCaseSort = "rule_index" | "checks" | "similarity_rarity" | "ml_rank" | "review_updated" | "case_ref" | "stored" | "billed";
 export interface RunCaseQuery {
   offset: number; limit: number; sort: RunCaseSort; indicator?: string; search?: string; review_filter?: string; lane?: Lane;
   assigned?: "me" | "none";
@@ -1082,6 +1110,7 @@ export function getRuns(limit = 50, offset = 0, batchId?: string, signal?: Abort
 export interface RunTrendItem {
   run_id: string; created_at: string; source_type: string; records_considered: number | null;
   lane_counts: Record<Lane, number> | null; billed_high_or_medium: number | null;
+  billed_high?: number | null; billed_medium?: number | null;
 }
 export interface RunTrendResponse { items: RunTrendItem[]; availability: "available" }
 function isRunTrendResponse(value: unknown): value is RunTrendResponse {
@@ -1161,6 +1190,8 @@ export type NotificationKind = "validation_finished" | "run_finished" | "case_es
 export interface NotificationItem {
   id: string; kind: NotificationKind; occurred_at: string; status: string | null;
   run_id?: string; case_id?: string; source_type?: string; error_code?: string | null;
+  /** run_finished only: high-risk claims and high-risk facility groups of that analysis. */
+  high_risk_claims?: number; high_risk_facilities?: number;
 }
 export interface NotificationsResponse { availability: "available"; items: NotificationItem[]; next_since: string; server_time: string; }
 function isNotificationsResponse(value: unknown): value is NotificationsResponse {
@@ -1345,4 +1376,145 @@ export function getClinicalNote(runId: string, caseId: string, signal?: AbortSig
 export function requestClinicalAnalysis(runId: string, caseId: string): Promise<{ analysis: ClinicalAnalysis }> {
   return requestJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/clinical-analysis`,
     (value): value is { analysis: ClinicalAnalysis } => isRecord(value) && isClinicalAnalysis(value.analysis), { method: "POST" });
+}
+
+// ---- Claim packages from several sources (CSV, RME/FHIR JSON, PDF) and a claim's documents
+export interface IntakeMismatch {
+  field: string; label: string; column: string; data_value: string; document_value: string; page: number;
+  case_id?: string; file_name?: string;
+}
+export interface IntakeSummary {
+  files: { csv: number; fhir: number; pdf: number; ignored: number };
+  claims: { total: number; from_csv: number; from_fhir: number; from_pdf_only: number; duplicates_across_sources: number };
+  documents: {
+    total: number; linked: number; unlinked: number; unreadable: number; scanned: number; pages: number;
+    by_type: Record<string, number>; ocr_seconds: number; ocr_confidence: number | null; low_confidence: number;
+  };
+  enrichment: { claims_with_documents: number; notes_from_documents: number; fields_filled: number; filled_by_column: Record<string, number> };
+  mismatch_count: number; mismatches: IntakeMismatch[];
+  problem_files: Array<{ file_name: string; status: string; reason: string | null }>;
+  reader: { ocr_engine: string | null; model: IntakeModel | null; model_errors: number };
+  seconds: number;
+  /** Files that are not claim data, with the reason (absent on packages read before it was added). */
+  ignored_files?: Array<{ file_name: string; reason: string }>;
+  /** Claims present in both CSV and FHIR whose values differ; the FHIR row is used. */
+  source_conflicts?: { count: number; items: Array<{ case_id: string; columns: string[]; csv_file: string; fhir_file: string }> };
+  /** An earlier finished package with exactly the same files. */
+  same_as?: { package_id: string; name: string; finished_at: string | null } | null;
+}
+/** What a failed package reports: the rejected rows' files, never their content. */
+export interface IntakeFailure { code?: string; files?: string[]; error_count?: number; ignored_files?: Array<{ file_name: string; reason: string }> }
+export interface IntakeModel { configured: boolean; provider: string; model: string | null; where: string }
+export interface IntakePackage {
+  package_id: string; name: string; created_at: string; status: "uploading" | "processing" | "ready" | "failed" | "cancelled";
+  stage: string | null; progress_done: number; progress_total: number; file_count: number;
+  /** A finished package's summary; a failed one carries `{ failure }` instead. */
+  summary: (IntakeSummary & { failure?: undefined }) | { failure: IntakeFailure } | null;
+  /** Position in the processing queue while waiting for another package to finish. */
+  queue_position?: number | null;
+  batch_id: string | null; run_id: string | null; message_code: string | null; finished_at: string | null;
+}
+export interface IntakeStatus {
+  sources: string[]; ocr_engine: string; model: IntakeModel; limits: Record<string, number>;
+  /** How long PDF documents are kept, and when they are never removed. */
+  retention?: { document_days: number; cancelled_days: number; held_while: string[]; basis: string };
+}
+const isPackageResponse = (value: unknown): value is { package: IntakePackage } =>
+  isRecord(value) && isRecord(value.package) && isString(value.package.package_id) && isString(value.package.status);
+
+export interface IntakeSample { sample_id: string; label: string; description: string; file_name: string }
+export function getIntakeSamples(signal?: AbortSignal): Promise<{ items: IntakeSample[] }> {
+  return getJson("/api/v1/intake/samples", (value): value is { items: IntakeSample[] } => isRecord(value) && Array.isArray(value.items), signal);
+}
+export function intakeSampleUrl(sampleId: string): string {
+  return `/api/v1/intake/samples/${encodeURIComponent(sampleId)}`;
+}
+export function getIntakeStatus(signal?: AbortSignal): Promise<IntakeStatus> {
+  return getJson("/api/v1/intake/status", (value): value is IntakeStatus => isRecord(value) && isString(value.ocr_engine) && isRecord(value.model), signal);
+}
+export function getIntakePackages(signal?: AbortSignal): Promise<{ items: IntakePackage[] }> {
+  return getJson("/api/v1/intake/packages?limit=8", (value): value is { items: IntakePackage[] } => isRecord(value) && Array.isArray(value.items), signal);
+}
+export function createIntakePackage(name: string): Promise<{ package: IntakePackage }> {
+  return requestJson("/api/v1/intake/packages", isPackageResponse, { method: "POST", body: JSON.stringify({ name }) });
+}
+export function addIntakeFile(packageId: string, file: File): Promise<{ package: IntakePackage }> {
+  return requestJson(`/api/v1/intake/packages/${encodeURIComponent(packageId)}/files`, isPackageResponse, {
+    method: "PUT", body: file, headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) },
+  });
+}
+export function processIntakePackage(packageId: string): Promise<{ package: IntakePackage }> {
+  return requestJson(`/api/v1/intake/packages/${encodeURIComponent(packageId)}/process`, isPackageResponse, { method: "POST" });
+}
+export function cancelIntakePackage(packageId: string): Promise<{ package: IntakePackage }> {
+  return requestJson(`/api/v1/intake/packages/${encodeURIComponent(packageId)}`, isPackageResponse, { method: "DELETE" });
+}
+export function getIntakePackage(packageId: string, signal?: AbortSignal): Promise<{ package: IntakePackage }> {
+  return getJson(`/api/v1/intake/packages/${encodeURIComponent(packageId)}`, isPackageResponse, signal);
+}
+
+export interface DocumentFact {
+  field: string; label: string; value: string; page: number; quote: string; reader: string; verified: boolean; note: string | null;
+}
+export interface ClaimDocument {
+  document_id: string; file_name: string; doc_type: string; doc_type_label: string; evidence_code: string | null;
+  page_count: number; scanned_pages: number; ocr_confidence: number | null; reader: string; status: string; size_bytes: number;
+  facts: DocumentFact[]; mismatches: IntakeMismatch[]; warnings: string[]; model: string | null;
+}
+export interface ClaimDocumentsResponse {
+  items: ClaimDocument[]; mismatch_count: number; evidence_found: string[]; question_engine: "llm" | "text_search"; model: string | null;
+}
+export interface DocumentAnswer {
+  engine: "llm" | "text_search"; model: string | null; found: boolean; answer: string; unverified_citations: number; note: string | null;
+  citations: Array<{ document_id: string; file_name: string; doc_type_label: string; page: number; quote: string }>;
+}
+export function getClaimDocuments(runId: string, caseId: string, signal?: AbortSignal): Promise<ClaimDocumentsResponse> {
+  return getJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/documents`,
+    (value): value is ClaimDocumentsResponse => isRecord(value) && Array.isArray(value.items), signal);
+}
+export function askClaimDocuments(runId: string, caseId: string, question: string): Promise<DocumentAnswer> {
+  return requestJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/documents/ask`,
+    (value): value is DocumentAnswer => isRecord(value) && isString(value.answer) && Array.isArray(value.citations),
+    { method: "POST", body: JSON.stringify({ question }) });
+}
+export interface RunMismatches {
+  claims: Array<{ case_id: string; mismatches: Array<IntakeMismatch & { document_id: string; doc_type_label: string }> }>;
+  claim_count: number; mismatch_count: number;
+}
+/** Claims of a run whose documents disagree with the claim data (also claims no check flagged). */
+export function getRunMismatches(runId: string, signal?: AbortSignal): Promise<RunMismatches> {
+  return getJson(`/api/v1/runs/${encodeURIComponent(runId)}/document-mismatches`,
+    (value): value is RunMismatches => isRecord(value) && Array.isArray(value.claims), signal);
+}
+export function documentFileUrl(documentId: string, page?: number): string {
+  return `/api/v1/documents/${encodeURIComponent(documentId)}/file${page ? `#page=${page}` : ""}`;
+}
+
+// ---- Administrator: accounts and the security log
+export interface ManagedUser {
+  user_id: string; username: string; role: string; is_active: boolean; created_at: string; updated_at: string; last_login_at: string | null;
+}
+export interface SecurityEvent {
+  event_id: string; occurred_at: string; actor_user_id: string | null; actor_username: string | null; event_type: string;
+  target_type: string | null; target_id: string | null; target_username: string | null; metadata: Record<string, unknown>;
+}
+export interface SecurityEventsPage { items: SecurityEvent[]; total: number; event_types: string[] }
+type UserBody = { user: { user_id: string; username: string; role: string; is_active: boolean } };
+const isUserBody = (value: unknown): value is UserBody => isRecord(value) && isRecord(value.user) && isString(value.user.user_id);
+export function getUsers(signal?: AbortSignal): Promise<{ items: ManagedUser[] }> {
+  return getJson("/api/v1/auth/users", (value): value is { items: ManagedUser[] } => isRecord(value) && Array.isArray(value.items), signal);
+}
+export function createUser(username: string, password: string, role: string): Promise<UserBody> {
+  return requestJson("/api/v1/auth/users", isUserBody, { method: "POST", body: JSON.stringify({ username, password, role }) });
+}
+export function updateUser(userId: string, change: { role?: string; is_active?: boolean }): Promise<UserBody> {
+  return requestJson(`/api/v1/auth/users/${encodeURIComponent(userId)}`, isUserBody, { method: "PATCH", body: JSON.stringify(change) });
+}
+export function resetUserPassword(userId: string, password: string): Promise<UserBody> {
+  return requestJson(`/api/v1/auth/users/${encodeURIComponent(userId)}/password`, isUserBody, { method: "POST", body: JSON.stringify({ password }) });
+}
+export function getSecurityEvents(query: { limit: number; offset: number; eventType?: string }, signal?: AbortSignal): Promise<SecurityEventsPage> {
+  const params = new URLSearchParams({ limit: String(query.limit), offset: String(query.offset) });
+  if (query.eventType) params.set("event_type", query.eventType);
+  return getJson(`/api/v1/auth/security-events?${params}`, (value): value is SecurityEventsPage => isRecord(value) && Array.isArray(value.items), signal);
 }

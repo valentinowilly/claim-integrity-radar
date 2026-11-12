@@ -286,7 +286,31 @@ def list_run_cases(run_id: str, request: Request, offset: int = 0, limit: int = 
         raise ApiError(503, "RUN_STORAGE_UNAVAILABLE", str(exc), {}) from exc
     if page is None:
         raise ApiError(409, "RUN_RESULT_NOT_AVAILABLE", "Run ini tidak memiliki hasil kandidat tersimpan.", {})
+    if "review:read" in principal.permissions and page["items"]:
+        from app.services import intake
+
+        try:  # a badge only: the queue still loads when the document store cannot be read
+            counts = intake.document_counts(request.app.state.run_db_path, [item["case"]["case_id"] for item in page["items"]],
+                                            run_id=run_id)
+        except intake.IntakeStorageError:
+            counts = {}
+        page["items"] = [{**item, "documents": counts.get(item["case"]["case_id"])} for item in page["items"]]
     return {"availability": "available", "run_id": run_id, **page}
+
+
+@router.get("/{run_id}/review-pipeline")
+def review_pipeline(run_id: str, request: Request,
+                    _principal: Principal = Depends(require_permission("review:read"))):
+    """Claims that need action per review stage (not started, in review, clarification, audit, closed)."""
+    try:
+        pipeline = AnalysisRunStore(request.app.state.run_db_path).review_pipeline(run_id)
+    except RunInputError:
+        raise ApiError(404, "RUN_NOT_FOUND", "AnalysisRun tidak ditemukan.", {}) from None
+    except RunStorageError as exc:
+        raise ApiError(503, "RUN_STORAGE_UNAVAILABLE", str(exc), {}) from exc
+    if pipeline is None:
+        raise ApiError(409, "RUN_RESULT_NOT_AVAILABLE", "Run ini tidak memiliki hasil kandidat tersimpan.", {})
+    return pipeline
 
 
 @router.get("/{run_id}/cases/{case_id}", response_model=RunDetailResponse)

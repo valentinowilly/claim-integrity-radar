@@ -5,7 +5,7 @@ import { getRunCase, type FacilityGroup, type RunCase, type RunResult } from "..
 import { useAuth } from "../auth/AuthContext";
 import { EmptyState } from "../components/DataStates";
 import {
-  LANES, LEVELS, LaneDot, formatCount, formatDateTime, indicatorLabel, mlLevel, runTitle, shortRef,
+  LANES, LEVELS, LaneDot, formatCount, formatDateTime, formatRupiah, titleCase, indicatorLabel, mlLevel, runTitle, shortRef,
 } from "../components/Display";
 import { RunSelector, RunStateMessage, SourcePill } from "../components/PersistedRunWorkspace";
 import { provinceName } from "../components/provinces";
@@ -68,6 +68,9 @@ export default function FacilitiesPage() {
             <span className="lane-name">{LEVELS[key].label}</span>
             <span className="big-num">{formatCount(groups.level_counts[key])}</span>
             <span className="lane-meaning">kelompok faskes</span>
+            {levelBilled(groups.groups, key) !== null && <span className="lane-money" data-testid={`facility-level-amount-${key}`}
+              title="Tagihan klaim risiko tinggi dan sedang (FKL47) sebelum verifikasi, bukan nilai kerugian">
+              {formatRupiah(levelBilled(groups.groups, key))} <small>tagihan berisiko</small></span>}
           </button>
         ))}
       </section>
@@ -90,7 +93,7 @@ export default function FacilitiesPage() {
             <button type="button" aria-pressed={!byPriority} onClick={() => setOrder("risk")}>Tingkat risiko</button>
             <button type="button" aria-pressed={byPriority} onClick={() => setOrder("priority")}>Prioritas audit</button>
           </div>
-          {byPriority && <span className="fine-print">Skor risiko × nilai klaim berisiko ÷ berkas yang perlu diminta. Nilai tagihan belum diverifikasi; indeks ini membantu memilih faskes yang paling efisien diperiksa, bukan menaksir kerugian.</span>}
+          {byPriority && <span className="fine-print">Urutan ini menimbang banyaknya klaim berisiko dan nilai tagihannya terhadap jumlah berkas yang perlu diminta: faskes yang paling banyak terjawab dengan berkas paling sedikit ada di atas. Nilai tagihan belum diverifikasi; ini bukan taksiran kerugian.</span>}
         </div>}
         {shown.length === 0 ? <EmptyState title="Tidak ada kelompok faskes" message={province ? "Tidak ada kelompok faskes yang cukup besar di provinsi ini pada tingkat yang dipilih." : "Tidak ada kelompok pada tingkat ini."} />
           : <FacilityTable groups={shown} runQuery={runQuery} showPriority={byPriority} />}
@@ -151,13 +154,13 @@ export function FacilityDetailPage() {
           <div>
             <span className="eyebrow-text">Peringkat {group.rank} · {group.facility_type}</span>
             <h2>{group.title}</h2>
-            <p className="fine-print" style={{ fontSize: 14 }}>{group.region} · {formatCount(group.claim_count)} klaim dianalisis</p>
+            <p className="fine-print" style={{ fontSize: 14 }}>{titleCase(group.region)} · {formatCount(group.claim_count)} klaim dianalisis</p>
           </div>
           <Link className="button button-primary" to={`/facilities/${group.group_id}/paket${runQuery}`}><FileText size={15} />Buat paket bukti</Link>
         </div>
         <div className={`verdict-box ${group.level}`} style={{ marginTop: 16 }} data-testid="facility-verdict">
-          <span className="verdict-level">{LEVELS[group.level].label.toUpperCase()}</span>
-          <p>{group.verdict.replace(/^RISIKO \w+\. /, "")}</p>
+          <span className="verdict-level">{LEVELS[group.level].label}</span>
+          <VerdictReasons verdict={group.verdict} />
         </div>
         <PeerSignals group={group} />
       </section>
@@ -167,6 +170,7 @@ export function FacilityDetailPage() {
           <div key={lane} className={`lane-card ${lane}`}>
             <span className="lane-name"><LaneDot lane={lane} />{LANES[lane].name}</span>
             <span className="big-num">{formatCount(group.lane_counts[lane])}</span>
+            {laneBilled(group, lane) !== null && <span className="lane-money">{formatRupiah(laneBilled(group, lane))} <small>tagihan</small></span>}
             <span className="lane-action">{LANES[lane].action}</span>
           </div>
         ))}
@@ -235,6 +239,8 @@ export function EvidencePackPage() {
     return () => controller.abort();
   }, [group, runId, key]);
   const loaded = claims && claims.key === key ? claims.items : null;
+  const packHasMoney = Boolean(loaded?.some(item => typeof item?.claim_billed_amount === "number"));
+  const packTotal = (loaded ?? []).reduce((sum, item) => sum + (item?.claim_billed_amount ?? 0), 0);
 
   if (state.status !== "success") return <RunStateMessage state={state} retry={reload} />;
   if (!group) return <NoGroups result={result} />;
@@ -246,10 +252,10 @@ export function EvidencePackPage() {
     <section className="card">
       <span className="eyebrow-text">Paket bukti · Claim Integrity Radar</span>
       <h1>{group.title}</h1>
-      <p className="fine-print" style={{ fontSize: 14 }}>{group.facility_type} · {group.region} · {runTitle(state.detail.run)}</p>
+      <p className="fine-print" style={{ fontSize: 14 }}>{group.facility_type} · {titleCase(group.region)} · {runTitle(state.detail.run)}</p>
       <div className={`verdict-box ${group.level}`} style={{ marginTop: 14 }}>
-        <span className="verdict-level">{LEVELS[group.level].label.toUpperCase()}</span>
-        <p>{group.verdict.replace(/^RISIKO \w+\. /, "")}</p>
+        <span className="verdict-level">{LEVELS[group.level].label}</span>
+        <VerdictReasons verdict={group.verdict} />
         <PeerSignals group={group} />
       </div>
       <div className="lane-counts" style={{ marginTop: 12 }}>
@@ -261,23 +267,51 @@ export function EvidencePackPage() {
     </section>
     <section className="card">
       <div className="card-head"><div><h2>Rekam medis yang perlu diminta ({formatCount(group.records_to_request)} klaim)</h2>
-        <p>Nomor referensi adalah nomor samaran; cocokkan dengan nomor kunjungan asli di sistem internal BPJS.</p></div></div>
+        <p>Titik warna = tingkat risiko. Nomor referensi adalah nomor samaran; cocokkan dengan nomor kunjungan asli di sistem internal BPJS.</p></div></div>
       <div className="table-scroll"><table className="data-table" aria-label="Daftar klaim sampel">
-        <thead><tr><th>No</th><th>Ref. klaim</th><th>Risiko</th><th>Alasan</th><th>AI</th></tr></thead>
+        <thead><tr><th>No</th><th>Ref. klaim</th><th>Alasan</th><th>AI</th>{packHasMoney && <th className="num">Tagihan</th>}</tr></thead>
         <tbody>{group.sample_case_ids.map((caseId, index) => {
           const item = loaded?.[index];
           const percentile = item?.ml_anomaly ? item.ml_anomaly.reference_percentile ?? item.ml_anomaly.anomaly_percentile : null;
           const lane = (group.sample_lanes[caseId] ?? "green") as "red";
           return <tr key={caseId}>
             <td>{index + 1}</td>
-            <td><code>{shortRef(caseId)}</code></td>
-            <td><LaneDot lane={lane} /> {LANES[lane].name}</td>
-            <td>{item ? item.indicators.map(indicatorLabel).join(", ") : loaded ? "—" : "Memuat…"}</td>
-            <td>{percentile !== null ? mlLevel(percentile).label : "—"}</td>
+            <td><span className="pack-ref"><LaneDot lane={lane} /><code>{shortRef(caseId)}</code><span className="sr-only">{LANES[lane].name}</span></span></td>
+            <td>{item ? item.indicators.map(indicatorLabel).join(", ") : loaded ? "Tidak dapat dimuat" : "Memuat…"}</td>
+            <td>{percentile !== null ? mlLevel(percentile).label : "Tidak dinilai"}</td>
+            {packHasMoney && <td className="num">{typeof item?.claim_billed_amount === "number" ? formatRupiah(item.claim_billed_amount) : "Tidak ada"}</td>}
           </tr>;
         })}</tbody>
+        {packHasMoney && <tfoot><tr><td colSpan={4}><strong>Total tagihan {formatCount(group.sample_case_ids.length)} klaim</strong> (FKL47, sebelum verifikasi)</td>
+          <td className="num"><strong>{formatRupiah(packTotal)}</strong></td></tr></tfoot>}
       </table></div>
     </section>
     <p className="fine-print">Dibuat {formatDateTime(new Date().toISOString())} oleh {username}. Paket ini adalah prioritas tinjauan, bukan temuan kecurangan; keputusan tetap pada verifikator dan tim anti-kecurangan.</p>
   </article>;
+}
+
+/** Billed value of a level's facility groups (high and medium-risk claims); null when the data carries no amounts. */
+function levelBilled(groups: FacilityGroup[], level: Level): number | null {
+  const rows = groups.filter(group => group.level === level);
+  if (!rows.some(group => typeof group.billed_high_or_medium === "number")) return null;
+  return rows.reduce((sum, group) => sum + (group.billed_high_or_medium ?? 0), 0);
+}
+
+/** Billed value of a group's high or medium-risk claims; null for low risk or without amounts. */
+function laneBilled(group: FacilityGroup, lane: "red" | "yellow" | "green"): number | null {
+  if (lane === "green" || typeof group.billed_high !== "number") return null;
+  return lane === "red" ? group.billed_high : Math.max(0, (group.billed_high_or_medium ?? group.billed_high) - group.billed_high);
+}
+
+/** The server's verdict sentence ("Alasan: (1) …; (2) …. Saran: …") as numbered reasons and one advice line. */
+export function VerdictReasons({ verdict }: { verdict: string }) {
+  const body = verdict.replace(/^RISIKO \w+\.\s*/, "");
+  const match = /^Alasan:\s*(.*?)\.\s*Saran:\s*(.*)$/s.exec(body);
+  const reasons = match ? match[1].split(/;\s*(?=\(\d+\)\s)/).map(text => text.replace(/^\(\d+\)\s*/, "").trim()).filter(Boolean) : [];
+  if (!match || !reasons.length) return <p>{body}</p>;
+  const advice = match[2].replace(/\.$/, "");
+  return <div className="verdict-reasons">
+    <ol>{reasons.map((text, index) => <li key={index}><span className="verdict-num">{index + 1}</span><span>{text}</span></li>)}</ol>
+    <p className="verdict-advice"><strong>Saran:</strong> {advice.charAt(0).toUpperCase() + advice.slice(1)}.</p>
+  </div>;
 }

@@ -7,12 +7,12 @@ import type { MlAnomaly, RunManifest, RunSourceType } from "../api/client";
    available in "Detail teknis"; nothing here changes analytical results. */
 
 export function formatCount(value: number | null | undefined): string {
-  return value === null || value === undefined ? "—" : new Intl.NumberFormat("id-ID").format(value);
+  return value === null || value === undefined ? "Tidak ada" : new Intl.NumberFormat("id-ID").format(value);
 }
 
 /** Rupiah with a short scale word (ribu, juta, miliar, triliun), Indonesian decimals. */
 export function formatRupiah(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (value === null || value === undefined || !Number.isFinite(value)) return "Tidak ada";
   const scales: Array<[number, string]> = [[1e12, "triliun"], [1e9, "miliar"], [1e6, "juta"], [1e3, "ribu"]];
   for (const [size, word] of scales) {
     if (Math.abs(value) >= size) return `Rp${(value / size).toLocaleString("id-ID", { maximumFractionDigits: 1 })} ${word}`;
@@ -26,14 +26,14 @@ export function formatPercent(part: number, whole: number): string {
 }
 
 export function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
+  if (!value) return "Belum ada";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 export function formatDate(value: string | null | undefined): string {
-  if (!value) return "—";
+  if (!value) return "Belum ada";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(date);
@@ -220,6 +220,8 @@ export function PatternOnlyNotice({ evidence }: { evidence: unknown }) {
   if (evidence !== "not_available") return null;
   return <p className="notice-inline" data-testid="repeat-pattern-only">{PATTERN_ONLY_TEXT}</p>;
 }
+/** Every check the system runs, for the help page. */
+export const INDICATOR_CODES = Object.keys(INDICATORS);
 export function indicatorLabel(code: string): string {
   return INDICATORS[code]?.[0] ?? code.replace(/_/g, " ");
 }
@@ -380,7 +382,7 @@ export function TechnicalDetails({
           <div key={item.label}>
             <dt>{item.label}</dt>
             <dd>
-              <code>{item.value ?? "—"}</code>
+              <code>{item.value ?? "kosong"}</code>
               {item.copy && item.value && <CopyIdButton value={item.value} />}
             </dd>
           </div>
@@ -613,4 +615,9 @@ export function CountUp({ value, format = formatCount }: { value: number; format
 /** Compact analysis name for pickers: the file name (or FKRTL period) and the time, without a prefix. */
 export function shortRunTitle(run: Parameters<typeof runTitle>[0]): string {
   return runTitle(run).replace(/^Berkas "(.*?)"/, "$1");
+}
+
+/** Region names arrive in capitals ("MALAKA, NUSA TENGGARA TIMUR"); shown as "Malaka, Nusa Tenggara Timur". */
+export function titleCase(text: string): string {
+  return text.toLowerCase().replace(/(^|[\s,(/-])(\p{L})/gu, (_match, lead: string, char: string) => lead + char.toUpperCase());
 }

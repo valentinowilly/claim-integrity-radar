@@ -74,6 +74,8 @@ class RunDetailResponse(BaseModel):
 class RunCaseListItem(BaseModel):
     case: dict[str, Any]
     lane: dict[str, Any] | None
+    # Facility documents read for this claim: how many, and how many values disagree with the claim data.
+    documents: dict[str, int] | None = None
 
 
 class RunCaseListResponse(BaseModel):
@@ -102,6 +104,8 @@ class RunTrendItem(BaseModel):
     records_considered: int | None
     lane_counts: RunTrendLanes | None
     billed_high_or_medium: float | None
+    billed_high: float | None = None
+    billed_medium: float | None = None
 
 
 class RunTrendResponse(BaseModel):
