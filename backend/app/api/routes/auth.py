@@ -3,7 +3,9 @@
 from fastapi import APIRouter, Depends, Request, Response
 
 from app.api.errors import ApiError
-from app.schemas.auth import LoginRequest, SessionResponse, UserCreateRequest, UserResponse, UserUpdateRequest
+from app.schemas.auth import (
+    LoginRequest, PasswordResetRequest, SessionResponse, UserCreateRequest, UserResponse, UserUpdateRequest,
+)
 from app.security.auth import (
     CSRF_COOKIE, SESSION_COOKIE, AuthStore, AuthenticationError,
     AuthenticationStorageError, Principal, ROLE_PERMISSIONS,
@@ -124,3 +126,41 @@ def update_user(user_id: str, payload: UserUpdateRequest,
     if user is None:
         raise ApiError(404, "USER_NOT_FOUND", "Akun tidak ditemukan.", {})
     return {"user": user}
+
+
+@router.get("/users")
+def list_users(_principal: Principal = Depends(require_permission("users:manage")),
+               store: AuthStore = Depends(auth_store)):
+    """Every account, its role, whether it is active, and when it last signed in."""
+    try:
+        return {"items": store.list_users()}
+    except AuthenticationStorageError as exc:
+        raise ApiError(503, "AUTH_STORAGE_UNAVAILABLE", "Layanan autentikasi sementara tidak tersedia.", {}) from exc
+
+
+@router.post("/users/{user_id}/password", response_model=UserResponse)
+def reset_password(user_id: str, payload: PasswordResetRequest,
+                   principal: Principal = Depends(require_permission("users:manage")),
+                   _csrf: Principal = Depends(require_csrf),
+                   store: AuthStore = Depends(auth_store)):
+    """Set a new password for an account (for example a forgotten one); its open sessions end."""
+    try:
+        user = store.reset_password(user_id, payload.password, principal.user_id)
+    except ValueError as exc:
+        raise ApiError(422, "INVALID_PAYLOAD", str(exc), {}) from exc
+    except AuthenticationStorageError as exc:
+        raise ApiError(503, "AUTH_STORAGE_UNAVAILABLE", "Layanan autentikasi sementara tidak tersedia.", {}) from exc
+    if user is None:
+        raise ApiError(404, "USER_NOT_FOUND", "Akun tidak ditemukan.", {})
+    return {"user": user}
+
+
+@router.get("/security-events")
+def security_events(limit: int = 50, offset: int = 0, event_type: str | None = None,
+                    _principal: Principal = Depends(require_permission("security_audit:read")),
+                    store: AuthStore = Depends(auth_store)):
+    """The security log: sign-ins, failed sign-ins, account changes, password resets (newest first)."""
+    try:
+        return store.audit_events_page(max(1, min(limit, 200)), max(0, offset), event_type or None)
+    except AuthenticationStorageError as exc:
+        raise ApiError(503, "AUTH_STORAGE_UNAVAILABLE", "Layanan autentikasi sementara tidak tersedia.", {}) from exc

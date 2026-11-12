@@ -43,4 +43,4 @@ Langkah berikutnya, sebelum dipakai:
 | T-6 | Pembanding model selain Gemma | Tidak tersedia di layanan gratis |
 | T-7 | Ketepatan baca berkas nyata | Baru diuji pada berkas sintetis cetak dan pindai; perlu tahap pilot |
 | T-8 | Kecepatan AI di layanan gratis (30 sampai 80 detik) | Bukan ukuran kecepatan di server sendiri; layar menampilkan tahap dan perkiraan waktunya |
-| B-22 | Masa simpan berkas PDF rekam medis | Keputusan BPJS sesuai aturan rekam medis; saat ini berkas disimpan sampai dihapus |
+| B-22 | Masa simpan berkas PDF | Diterapkan: 10 tahun (UU 8/1997 Pasal 11), paket batal 30 hari (UU PDP), ditahan selama klaim ditinjau atau terbukti bermasalah; bisa diubah lewat pengaturan bila BPJS menetapkan lain |

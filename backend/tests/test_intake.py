@@ -440,3 +440,46 @@ def test_abandoned_uploads_are_cleaned_up_and_only_claim_like_pages_go_to_the_mo
     monkeypatch.setattr(docs, "read_with_model", lambda *args, **kwargs: calls.append(1) or ([], "lainnya", {}))
     docs.read_document(law)
     assert calls == []
+
+
+def test_documents_are_kept_for_their_retention_and_never_while_they_are_evidence(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from app.data_sources.bpjs_csv import UPLOAD_PSEUDONYM_SECRET
+    from app.data_sources.bpjs_fkrtl_adapter import pseudonymous_case_id
+    from app.services import intake
+
+    app, _batch_db, users = setup(tmp_path)
+    verifier = verifier_session(app, users)
+    csrf = {"X-CSRF-Token": verifier["cir_csrf"]}
+    db_path = app.state.run_db_path
+    rows = _rows(40)
+    kept, evidence = dict(rows[3], CATATAN_KLINIS=NOTE), dict(rows[5], CATATAN_KLINIS=NOTE)
+    package = _package(app, verifier, [("klaim.csv", _csv(rows)), ("a.pdf", _pdf("resume_medis", kept)),
+                                       ("b.pdf", _pdf("rincian_tagihan", evidence))])
+    run_id = package["run_id"]
+    evidence_case = pseudonymous_case_id(evidence["PSTV01"], evidence["FKL02"], secret=UPLOAD_PSEUDONYM_SECRET)
+    kept_case = pseudonymous_case_id(kept["PSTV01"], kept["FKL02"], secret=UPLOAD_PSEUDONYM_SECRET)
+    # One claim is escalated to audit: its document is evidence and stays.
+    assert call(app, "PATCH", f"/api/v1/runs/{run_id}/cases/{evidence_case}/review", cookies=verifier,
+                json_body={"review_status": "escalated", "note": None}, headers=csrf).status_code == 200
+    policy = call(app, "GET", "/api/v1/intake/status", cookies=verifier).json()["retention"]
+    assert policy["document_days"] == 3653 and policy["cancelled_days"] == 30
+
+    assert intake.purge_expired_documents(db_path) == {"purged": 0, "held": 0}  # within retention
+    later = datetime.now(timezone.utc) + timedelta(days=3654)
+    assert intake.purge_expired_documents(db_path, now=later) == {"purged": 1, "held": 1}
+    url = f"/api/v1/runs/{run_id}/cases/{{}}/documents"
+    assert call(app, "GET", url.format(kept_case), cookies=verifier).json()["items"] == []
+    assert len(call(app, "GET", url.format(evidence_case), cookies=verifier).json()["items"]) == 1
+    with intake._connection(db_path) as connection:
+        purged = connection.execute("SELECT file_name, sha256, pages_json, purged_at FROM claim_documents WHERE purged_at IS NOT NULL").fetchall()
+    assert len(purged) == 1 and purged[0]["pages_json"] == "[]" and purged[0]["sha256"]  # the trail stays, the content goes
+    assert not (intake.document_directory(db_path) / purged[0]["sha256"][:2] / f"{purged[0]['sha256']}.pdf").exists()
+
+    # A cancelled package's documents go after 30 days.
+    other = _package(app, verifier, [("klaim.csv", _csv(_rows(20))), ("c.pdf", _pdf("resume_medis", dict(_rows(20)[2], CATATAN_KLINIS=NOTE)))],
+                     name="Salah kirim")
+    call(app, "DELETE", f"/api/v1/intake/packages/{other['package_id']}", cookies=verifier, headers=csrf)
+    monkeypatch.setenv("CIR_CANCELLED_DOCUMENT_DAYS", "30")
+    assert intake.purge_expired_documents(db_path, now=datetime.now(timezone.utc) + timedelta(days=31))["purged"] == 1

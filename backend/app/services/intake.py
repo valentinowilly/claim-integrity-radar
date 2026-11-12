@@ -17,6 +17,16 @@ a FHIR Bundle without visits) is listed with its reason and the rest of the pack
 Packages are processed one at a time (others wait in a queue with their position). A package can be cancelled
 while it is being uploaded, and a finished one can be cancelled too: its analysis is archived and its documents are
 released from the claims. Packages left in "uploading" for a day are cleaned up.
+
+Retention of the PDF documents (B-22). The hospital keeps the medical record itself (at least 25 years, PMK
+24/2022 art. 39); what this system holds is the payer's working copy, kept as supporting evidence of a claim
+payment. Default: 10 years after the package was processed (``CIR_DOCUMENT_RETENTION_DAYS``), the period for
+supporting documents of financial administration in UU 8/1997 art. 11. Documents of a cancelled or failed package
+were sent by mistake and serve no purpose, so they go after 30 days (``CIR_CANCELLED_DOCUMENT_DAYS``), following the
+data-minimisation duty of UU 27/2022 (PDP). A document is never removed while its claim is still under review
+(in review, awaiting clarification, escalated to audit) or has an authorised audit result "confirmed issue": it is
+evidence then. Removal deletes the stored file (unless another kept document has the same content) and the page
+texts and facts; the row stays with its name, hash and ``purged_at`` so the audit trail shows what was held.
 Documents are stored on disk under ``CIR_DOCUMENT_DIR`` (named by content hash) with their page texts, facts and
 checks in the operational database, keyed by the pseudonymous case reference.
 """
@@ -60,6 +70,11 @@ MAX_DATA_BYTES = 200 * 1024 * 1024
 MAX_PACKAGE_BYTES = 1024 * 1024 * 1024
 MAX_LISTED = 200
 ABANDONED_AFTER_HOURS = 24
+RETENTION_VARIABLE = "CIR_DOCUMENT_RETENTION_DAYS"
+CANCELLED_RETENTION_VARIABLE = "CIR_CANCELLED_DOCUMENT_DAYS"
+DEFAULT_RETENTION_DAYS = 3653  # 10 years
+DEFAULT_CANCELLED_DAYS = 30
+HOLD_STATUSES = ("in_review", "awaiting_evidence", "escalated")
 # One package is processed at a time: OCR and the analysis use every core, and two at once only slow both down.
 _WORKER = threading.Lock()
 _QUEUE: list[str] = []
@@ -103,7 +118,8 @@ CREATE TABLE IF NOT EXISTS claim_documents (
     facts_json TEXT NOT NULL,
     pages_json TEXT NOT NULL,
     checks_json TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    purged_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_claim_documents_case ON claim_documents(case_id);
 CREATE INDEX IF NOT EXISTS idx_claim_documents_package ON claim_documents(package_id);
@@ -152,6 +168,9 @@ def _upgrade_sqlite(connection: Any) -> None:
     """A SQLite file made before packages could be cancelled gets the wider status check (PostgreSQL: 0012)."""
     if is_postgres(connection):
         return
+    columns = {item[1] for item in connection.execute("PRAGMA table_info(claim_documents)").fetchall()}
+    if columns and "purged_at" not in columns:
+        connection.execute("ALTER TABLE claim_documents ADD COLUMN purged_at TEXT")
     row = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='intake_packages'").fetchone()
     if row is None or "'cancelled'" in row[0]:
         return
@@ -330,6 +349,77 @@ def cancel_package(db_path: str | Path, package_id: str, user_id: str) -> dict[s
                            "WHERE package_id=?", (_now(), package_id))
     _remove_staging(db_path, package_id)
     return get_package(db_path, package_id)
+
+
+def _setting_days(variable: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(variable, "") or default)
+    except ValueError:
+        return default
+    return value if value >= 1 else default
+
+
+def retention_policy() -> dict[str, Any]:
+    """The document retention in force, with its basis (shown to users and in the API)."""
+    return {"document_days": _setting_days(RETENTION_VARIABLE, DEFAULT_RETENTION_DAYS),
+            "cancelled_days": _setting_days(CANCELLED_RETENTION_VARIABLE, DEFAULT_CANCELLED_DAYS),
+            "held_while": list(HOLD_STATUSES) + ["confirmed_issue"],
+            "basis": "UU 8/1997 Pasal 11 (data pendukung administrasi keuangan, 10 tahun); UU 27/2022 PDP (data yang "
+                     "tidak lagi diperlukan dihapus); rekam medis asli tetap disimpan faskes (PMK 24/2022 Pasal 39)."}
+
+
+def _held_cases(connection: Any) -> set[tuple[str, str]]:
+    """(run, claim) pairs whose documents are evidence: still under review, or an audit confirmed an issue."""
+    from app.db import table_exists
+
+    held: set[tuple[str, str]] = set()
+    if table_exists(connection, "run_case_reviews"):
+        marks = ",".join("?" * len(HOLD_STATUSES))
+        held |= {(row[0], row[1]) for row in connection.execute(
+            f"SELECT run_id, case_id FROM run_case_reviews WHERE review_status IN ({marks})", HOLD_STATUSES)}
+    if table_exists(connection, "run_case_audit_confirmations"):
+        held |= {(row[0], row[1]) for row in connection.execute(
+            "SELECT run_id, case_id FROM run_case_audit_confirmations WHERE audit_result='confirmed_issue'")}
+    return held
+
+
+def purge_expired_documents(db_path: str | Path, now: datetime | None = None) -> dict[str, int]:
+    """Remove the documents whose retention has ended (see the module notes). Returns counts."""
+    from app.db import configured_database
+
+    if configured_database() is None and not Path(db_path).is_file():
+        return {"purged": 0, "held": 0}
+    now = now or datetime.now(timezone.utc)
+    policy = retention_policy()
+    kept_until = (now.timestamp() - policy["document_days"] * 86400, now.timestamp() - policy["cancelled_days"] * 86400)
+    purged = held_count = 0
+    directory = document_directory(db_path)
+    with _connection(db_path) as connection:
+        held = _held_cases(connection)
+        rows = connection.execute(
+            "SELECT d.document_id, d.sha256, d.case_id, p.status, p.run_id, COALESCE(p.finished_at, p.created_at) AS since "
+            "FROM claim_documents d JOIN intake_packages p ON p.package_id = d.package_id WHERE d.purged_at IS NULL").fetchall()
+        expired = []
+        for row in rows:
+            limit = kept_until[1] if row["status"] in ("cancelled", "failed") else kept_until[0]
+            if datetime.fromisoformat(row["since"]).timestamp() >= limit:
+                continue
+            if row["case_id"] and (row["run_id"], row["case_id"]) in held:
+                held_count += 1
+                continue
+            expired.append(row)
+        stamp = now.isoformat()
+        for row in expired:
+            connection.execute("UPDATE claim_documents SET purged_at=?, status='unlinked', pages_json='[]', facts_json='[]' "
+                               "WHERE document_id=?", (stamp, row["document_id"]))
+        purged = len(expired)
+        still_used = {item[0] for item in connection.execute("SELECT DISTINCT sha256 FROM claim_documents WHERE purged_at IS NULL")}
+    for sha in {row["sha256"] for row in expired} - still_used:
+        try:
+            (directory / sha[:2] / f"{sha}.pdf").unlink(missing_ok=True)
+        except OSError:
+            _log.warning("A purged document file could not be removed.")
+    return {"purged": purged, "held": held_count}
 
 
 def cleanup_abandoned(db_path: str | Path, max_age_hours: float = ABANDONED_AFTER_HOURS) -> int:
@@ -695,7 +785,9 @@ def _save_documents(db_path: str | Path, package_id: str, read: list[dict[str, A
                       "reason": item.get("reason"), "model": result.llm if result else None,
                       "model_error": result.llm_error if result else None}
             connection.execute(
-                "INSERT INTO claim_documents VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO claim_documents(document_id,package_id,case_id,file_name,sha256,size_bytes,page_count,scanned_pages,"
+                "ocr_confidence,doc_type,reader,status,facts_json,pages_json,checks_json,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (f"doc_{uuid4().hex}", package_id, item.get("case_id"), item["file_name"][:200], item["sha256"], len(item["raw"]),
                  len(reading.pages) if reading else 0, reading.scanned_pages if reading else 0,
                  round(sum(confidences) / len(confidences), 4) if confidences else None,

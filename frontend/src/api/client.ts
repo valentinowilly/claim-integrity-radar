@@ -1414,7 +1414,11 @@ export interface IntakePackage {
   queue_position?: number | null;
   batch_id: string | null; run_id: string | null; message_code: string | null; finished_at: string | null;
 }
-export interface IntakeStatus { sources: string[]; ocr_engine: string; model: IntakeModel; limits: Record<string, number> }
+export interface IntakeStatus {
+  sources: string[]; ocr_engine: string; model: IntakeModel; limits: Record<string, number>;
+  /** How long PDF documents are kept, and when they are never removed. */
+  retention?: { document_days: number; cancelled_days: number; held_while: string[]; basis: string };
+}
 const isPackageResponse = (value: unknown): value is { package: IntakePackage } =>
   isRecord(value) && isRecord(value.package) && isString(value.package.package_id) && isString(value.package.status);
 
@@ -1484,4 +1488,33 @@ export function getRunMismatches(runId: string, signal?: AbortSignal): Promise<R
 }
 export function documentFileUrl(documentId: string, page?: number): string {
   return `/api/v1/documents/${encodeURIComponent(documentId)}/file${page ? `#page=${page}` : ""}`;
+}
+
+// ---- Administrator: accounts and the security log
+export interface ManagedUser {
+  user_id: string; username: string; role: string; is_active: boolean; created_at: string; updated_at: string; last_login_at: string | null;
+}
+export interface SecurityEvent {
+  event_id: string; occurred_at: string; actor_user_id: string | null; actor_username: string | null; event_type: string;
+  target_type: string | null; target_id: string | null; target_username: string | null; metadata: Record<string, unknown>;
+}
+export interface SecurityEventsPage { items: SecurityEvent[]; total: number; event_types: string[] }
+type UserBody = { user: { user_id: string; username: string; role: string; is_active: boolean } };
+const isUserBody = (value: unknown): value is UserBody => isRecord(value) && isRecord(value.user) && isString(value.user.user_id);
+export function getUsers(signal?: AbortSignal): Promise<{ items: ManagedUser[] }> {
+  return getJson("/api/v1/auth/users", (value): value is { items: ManagedUser[] } => isRecord(value) && Array.isArray(value.items), signal);
+}
+export function createUser(username: string, password: string, role: string): Promise<UserBody> {
+  return requestJson("/api/v1/auth/users", isUserBody, { method: "POST", body: JSON.stringify({ username, password, role }) });
+}
+export function updateUser(userId: string, change: { role?: string; is_active?: boolean }): Promise<UserBody> {
+  return requestJson(`/api/v1/auth/users/${encodeURIComponent(userId)}`, isUserBody, { method: "PATCH", body: JSON.stringify(change) });
+}
+export function resetUserPassword(userId: string, password: string): Promise<UserBody> {
+  return requestJson(`/api/v1/auth/users/${encodeURIComponent(userId)}/password`, isUserBody, { method: "POST", body: JSON.stringify({ password }) });
+}
+export function getSecurityEvents(query: { limit: number; offset: number; eventType?: string }, signal?: AbortSignal): Promise<SecurityEventsPage> {
+  const params = new URLSearchParams({ limit: String(query.limit), offset: String(query.offset) });
+  if (query.eventType) params.set("event_type", query.eventType);
+  return getJson(`/api/v1/auth/security-events?${params}`, (value): value is SecurityEventsPage => isRecord(value) && Array.isArray(value.items), signal);
 }

@@ -51,7 +51,8 @@ def intake_status(_principal: Principal = Depends(require_permission("batches:re
     """What reads the documents here: the OCR engine and the language model (name only)."""
     return {"sources": ["csv", "fhir", "pdf", "zip"], "ocr_engine": OCR_ENGINE_NAME, "model": llm.describe(),
             "limits": {"max_files": intake.MAX_FILES, "max_pdf_bytes": intake.MAX_PDF_BYTES,
-                       "max_data_bytes": intake.MAX_DATA_BYTES}}
+                       "max_data_bytes": intake.MAX_DATA_BYTES},
+            "retention": intake.retention_policy()}
 
 
 @router.get("/intake/samples")

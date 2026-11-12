@@ -280,3 +280,38 @@ def test_demo_tester_has_every_workflow_but_no_account_management():
     tester, admin = ROLE_PERMISSIONS["demo_tester"], ROLE_PERMISSIONS["platform_admin"]
     assert admin - tester == {"users:manage", "security_audit:read"}
     assert tester < admin
+
+
+def test_the_administrator_lists_accounts_resets_a_password_and_reads_the_security_log(tmp_path):
+    app, store = setup_app(tmp_path)
+    admin = bootstrap(store)
+    _response, cookies = login(app, admin["username"], "Synthetic-admin-password-2026!")
+    created = call(app, "POST", "/api/v1/auth/users", cookies=cookies, csrf=True,
+                   json_body={"username": "verif-satu", "password": "Synthetic-verifier-pass-2026!", "role": "verifikator"})
+    assert created.status_code == 201
+    user_id = created.json()["user"]["user_id"]
+    login(app, "verif-satu", "Synthetic-verifier-pass-2026!")
+    listed = call(app, "GET", "/api/v1/auth/users", cookies=cookies).json()["items"]
+    verifier = next(item for item in listed if item["user_id"] == user_id)
+    assert verifier["role"] == "verifikator" and verifier["is_active"] and verifier["last_login_at"]
+    assert "password_hash" not in json.dumps(listed)
+
+    # Too short: refused. A valid one: set, the old one stops working, the old session ends.
+    url = f"/api/v1/auth/users/{user_id}/password"
+    assert call(app, "POST", url, cookies=cookies, csrf=True, json_body={"password": "pendek"}).status_code == 422
+    assert call(app, "POST", url, cookies=cookies, json_body={"password": "Synthetic-new-pass-2026!!"}).status_code == 403
+    assert call(app, "POST", url, cookies=cookies, csrf=True, json_body={"password": "Synthetic-new-pass-2026!!"}).status_code == 200
+    assert login(app, "verif-satu", "Synthetic-verifier-pass-2026!")[0].status_code == 401
+    assert login(app, "verif-satu", "Synthetic-new-pass-2026!!")[0].status_code == 200
+
+    page = call(app, "GET", "/api/v1/auth/security-events?limit=5", cookies=cookies).json()
+    assert page["total"] >= 5 and len(page["items"]) == 5 and "password_reset_by_admin" in page["event_types"]
+    reset = call(app, "GET", "/api/v1/auth/security-events?event_type=password_reset_by_admin", cookies=cookies).json()["items"]
+    assert reset[0]["actor_username"] == admin["username"] and reset[0]["target_username"] == "verif-satu"
+    body = json.dumps(page) + json.dumps(reset)
+    assert "Synthetic-new-pass-2026!!" not in body and "Synthetic-verifier-pass-2026!" not in body
+
+    # A verifier can do neither.
+    _r, verifier_cookies = login(app, "verif-satu", "Synthetic-new-pass-2026!!")
+    assert call(app, "GET", "/api/v1/auth/users", cookies=verifier_cookies).status_code == 403
+    assert call(app, "GET", "/api/v1/auth/security-events", cookies=verifier_cookies).status_code == 403

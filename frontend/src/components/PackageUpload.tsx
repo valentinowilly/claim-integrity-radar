@@ -224,6 +224,10 @@ export function PackageUpload({ canWrite, onDone }: { canWrite: boolean; onDone:
       {status.model.configured ? "Isian formulir dibaca langsung; catatan dan dokumen bebas dibaca AI pembaca dokumen."
         : "Isian formulir dibaca langsung; catatan dan dokumen bebas dibaca dengan aturan teks."}
     </p>}
+    {status?.retention && <p className="fine-print" data-testid="retention-note">
+      Berkas PDF disimpan {Math.round(status.retention.document_days / 365)} tahun sebagai bukti pendukung pembayaran klaim; rekam medis aslinya tetap di faskes.
+      Berkas dari paket yang dibatalkan dihapus setelah {status.retention.cancelled_days} hari. Berkas klaim yang sedang ditinjau, diminta klarifikasi,
+      masuk audit, atau terbukti bermasalah tidak dihapus.</p>}
     {current && current.status === "processing" && <PackageProgress pkg={current} />}
     {current && current.status === "failed" && <PackageFailed pkg={current} />}
     {current && current.status === "ready" && current.summary && !("failure" in current.summary && current.summary.failure)

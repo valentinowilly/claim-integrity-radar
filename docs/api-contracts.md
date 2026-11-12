@@ -698,3 +698,21 @@ Urutan tambahan: tagihan klaim (FKL47) terbesar dulu; klaim tanpa nilai di akhir
 ### `GET /api/v1/notifications` (tambahan)
 
 Item `run_finished` kini memuat `high_risk_claims` dan `high_risk_facilities` (jumlah saja), agar pemberitahuan bisa menautkan ke daftar faskes.
+
+## Masa simpan berkas dan kelola akun (November 2026)
+
+### Masa simpan berkas PDF (`GET /api/v1/intake/status` → `retention`)
+
+`{document_days, cancelled_days, held_while[], basis}`. Bawaan: berkas disimpan 3.653 hari (10 tahun, UU 8/1997 Pasal 11 untuk data pendukung administrasi keuangan) sejak paket selesai; berkas dari paket `cancelled` atau `failed` dihapus setelah 30 hari (UU 27/2022 PDP: data yang tidak lagi diperlukan dihapus). Diatur lewat `CIR_DOCUMENT_RETENTION_DAYS` dan `CIR_CANCELLED_DOCUMENT_DAYS`. Berkas klaim berstatus `in_review`, `awaiting_evidence`, `escalated`, atau dengan hasil audit `confirmed_issue` tidak dihapus. Penghapusan berjalan bersama pemeliharaan per jam: berkas di disk dan teks halamannya dihapus, barisnya tetap (nama, hash, `purged_at`). Rekam medis asli tetap disimpan faskes (PMK 24/2022 Pasal 39, minimal 25 tahun). Migrasi `0013_document_retention`.
+
+### `GET /api/v1/auth/users`
+
+Izin `users:manage`. `{items[]}`; tiap akun `{user_id, username, role, is_active, created_at, updated_at, last_login_at}`. Tanpa data kata sandi.
+
+### `POST /api/v1/auth/users/{user_id}/password`
+
+Izin `users:manage`, CSRF. Body `{password}` (minimal 12 karakter). Kata sandi baru berlaku, semua sesi akun itu diakhiri, dan kejadian `password_reset_by_admin` dicatat. `404 USER_NOT_FOUND`, `422 INVALID_PAYLOAD`.
+
+### `GET /api/v1/auth/security-events?limit=&offset=&event_type=`
+
+Izin `security_audit:read`. `{items[], total, event_types[]}`; tiap kejadian `{event_id, occurred_at, actor_user_id, actor_username, event_type, target_type, target_id, target_username, metadata}`. Terbaru dulu; `limit` paling banyak 200. Kata sandi, token, dan catatan tinjauan tidak pernah dicatat.

@@ -638,3 +638,21 @@ button:disabled, .button:disabled, .button[aria-disabled="true"], select:disable
   .queue-item-side .queue-amount { margin-right: 4px; }
   .queue-head { flex-wrap: wrap; }
 }
+
+/* Administrator: accounts and the security log. */
+.admin-tabs { margin-bottom: 18px; }
+.admin-tabs button { display: inline-flex; gap: 6px; align-items: center; min-height: 40px; padding: 0 16px; font-size: 13.5px; }
+.admin-form { display: grid; grid-template-columns: minmax(0, 1fr) 180px minmax(0, 1.3fr) auto; gap: 12px; align-items: end; }
+@media (max-width: 900px) { .admin-form { grid-template-columns: minmax(0, 1fr); } }
+.admin-form label, .admin-form-field, .admin-filter { display: grid; gap: 6px; color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.admin-form small { font-weight: 400; }
+.admin-form input, .admin-form select, .admin-form-field input, .admin-filter select, .admin-table select { min-height: 40px; padding: 0 10px;
+  border: 1px solid var(--border-subtle); border-radius: 10px; color: var(--text-primary); background: var(--surface-bg); font: inherit; font-size: 14px; }
+.admin-password { display: flex; gap: 8px; }
+.admin-password input { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.admin-table td { vertical-align: middle; }
+.admin-table tr.is-inactive td { color: var(--text-secondary); }
+.admin-table tr.is-warning td:nth-child(2) { color: var(--lane-red-ink); font-weight: 700; }
+.admin-you { display: block; color: var(--text-secondary); font-size: 12px; }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.admin-dialog { width: min(520px, 100%); }

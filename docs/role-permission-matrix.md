@@ -9,7 +9,7 @@ Sistem dipakai pada **tahap verifikasi**. Karena itu yang dipakai dalam operasi 
 | Peran | Yang dapat dilakukan |
 |---|---|
 | `verifikator` | Semua pekerjaan verifikasi dengan satu login: memasukkan paket klaim (CSV, JSON RME/FHIR, PDF), menjalankan analisis, membuka antrean dan berkas, bertanya ke berkas, meminta pembacaan catatan, dan mencatat keputusan serta hasil audit. |
-| `platform_admin` | Semua yang dapat dilakukan verifikator, ditambah mengelola akun dan membaca log keamanan (`users:manage`, `security_audit:read`). |
+| `platform_admin` | Semua yang dapat dilakukan verifikator, ditambah mengelola akun dan membaca log keamanan (`users:manage`, `security_audit:read`) lewat menu **Kelola akun**: tambah akun, ubah peran, nonaktifkan, atur ulang kata sandi, dan baca log keamanan. |
 
 Alasannya: pengelolaan akun dipisah agar satu akun yang bocor atau satu kesalahan tidak dapat mengunci semua pengguna, dan setiap keputusan tetap tercatat atas nama pembuatnya. Faskes tidak login ke sistem ini; berkasnya masuk lewat sistem klaim yang sudah ada.
 

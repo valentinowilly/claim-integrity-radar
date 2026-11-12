@@ -101,7 +101,7 @@ Semua butir ini diuji langsung pada salinan basis data, dengan data sintetis.
 |---|---|---|---|---|---|
 | B-20 | P2 | Klaim yang sama ada di CSV dan FHIR | Yang diunggah lebih dulu menang; aturannya tidak jelas | RME (FHIR) diutamakan; perbedaannya dicatat | **Selesai** |
 | B-21 | P2 | Paket yang sama diunggah dua kali | Dua hasil analisis tanpa peringatan | Peringatkan bahwa paket ini sudah pernah dianalisis | **Selesai** |
-| B-22 | P3 | Masa simpan berkas medis (PDF) | Tersimpan selamanya | Kebijakan retensi sesuai aturan rekam medis | **Keputusan** BPJS (dicatat di docs/skenario-uji-penerimaan.md) |
+| B-22 | P3 | Masa simpan berkas medis (PDF) | Tersimpan selamanya | Kebijakan retensi sesuai aturan rekam medis | **Selesai** (10 tahun berdasar UU 8/1997; paket batal 30 hari; dapat diubah) |
 | B-23 | P2 | Banyak paket besar diproses bersamaan | Semua berjalan bersamaan dan berebut CPU | Antrean pemrosesan dengan posisi antrean | **Selesai** |
 | B-24 | P2 | Sesi habis di tengah unggahan ribuan berkas | Gagal di tengah; paket tertinggal | Lanjutkan unggahan, atau pesan jelas lalu dibersihkan (B-14) | **Selesai** |
 
@@ -174,7 +174,7 @@ Butir yang saling terkait dikerjakan sekaligus:
 
 ## 6. Hasil pengerjaan (12 November 2026)
 
-Semua butir yang bisa dikerjakan di kode sudah selesai. Yang tersisa adalah keputusan (T-1, T-9, B-22), langkah di komputer Anda (T-3), dan hal yang butuh lingkungan lain (T-4 sampai T-8).
+Semua butir yang bisa dikerjakan di kode sudah selesai. Yang tersisa adalah keputusan (T-1, T-9), langkah di komputer Anda (T-3), dan hal yang butuh lingkungan lain (T-4 sampai T-8).
 
 Bukti:
 
@@ -183,3 +183,5 @@ Bukti:
 - Stack Docker dengan PostgreSQL: migrasi `0012_intake_cancel` terpasang; batal unggah, berkas keliru, batal paket, dan alur tinjauan diuji langsung.
 - Simulasi uji penerimaan: 7/7 skenario lulus (docs/skenario-uji-penerimaan.md).
 - Ponsel 390 px: tidak ada geser samping di 6 halaman utama; tidak ada tombol di bawah 44 px (kecuali kotak provinsi di Peta yang punya padanan daftar).
+
+Tambahan setelah rekap: layar **Kelola akun** untuk administrator (tambah akun, ubah peran, nonaktifkan, atur ulang kata sandi, log keamanan).
