@@ -12,6 +12,7 @@ import {
 import { formatDocumentValue } from "./ClaimDocuments";
 import { formatCount, formatDateTime, shortRef } from "./Display";
 import { Term } from "./Term";
+import { FileCheckBadge, FilePreviewDialog, PreviewButton, useFileChecks } from "./FilePreview";
 
 const ACCEPT = ".csv,.json,.pdf,.zip,text/csv,application/json,application/pdf,application/zip";
 /** Why a package failed, and what to do next. */
@@ -82,6 +83,9 @@ export function PackageUpload({ canWrite, onDone }: { canWrite: boolean; onDone:
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [preview, setPreview] = useState<File | null>(null);
+  const checks = useFileChecks(files, fileKey);
+  const flagged = files.filter(file => checks[fileKey(file)] && !checks[fileKey(file)].ok).length;
   const cancelRequested = useRef(false);
   const done = useRef(onDone);
   done.current = onDone;
@@ -169,7 +173,6 @@ export function PackageUpload({ canWrite, onDone }: { canWrite: boolean; onDone:
     }
   };
 
-  const unknown = files.filter(file => fileKind(file) === "lain");
   const busy = Boolean(uploading) || processing;
   return <section className="card package-upload" aria-label="Unggah data klaim" id="unggah" data-testid="package-upload">
     <div className="card-head">
@@ -200,13 +203,15 @@ export function PackageUpload({ canWrite, onDone }: { canWrite: boolean; onDone:
         <ul>{files.slice(0, 50).map(file => <li key={fileKey(file)} className={fileKind(file) === "lain" ? "is-unknown" : undefined}>
           <span className="picked-kind">{KIND_LABEL[fileKind(file)]}</span>
           <span className="picked-name" title={file.name}>{file.name}</span>
+          <FileCheckBadge check={checks[fileKey(file)]} />
           <span className="picked-size">{fileSize(file.size)}</span>
+          <PreviewButton name={file.name} onClick={() => setPreview(file)} />
           {!busy && <button type="button" className="picked-remove" aria-label={`Hapus ${file.name} dari daftar`}
             onClick={() => setFiles(list => list.filter(item => fileKey(item) !== fileKey(file)))}><X size={14} /></button>}
         </li>)}</ul>
         {files.length > 50 && <p className="fine-print">dan {formatCount(files.length - 50)} berkas lain.</p>}
-        {unknown.length > 0 && <p className="picked-warn" role="status"><TriangleAlert size={14} aria-hidden="true" />
-          {formatCount(unknown.length)} berkas bukan CSV, JSON, PDF, atau ZIP dan akan diabaikan. Hapus dari daftar bila tidak sengaja dipilih.</p>}
+        {flagged > 0 && <p className="picked-warn" role="status"><TriangleAlert size={14} aria-hidden="true" />
+          {formatCount(flagged)} berkas tampaknya bukan data klaim dan akan diabaikan saat diproses. Tekan "Lihat" untuk memeriksa isinya, atau hapus dari daftar.</p>}
       </div>}
       <div className="package-form-row">
         <label className="upload-name">
@@ -245,6 +250,7 @@ export function PackageUpload({ canWrite, onDone }: { canWrite: boolean; onDone:
       <span className="intake-fact"><ScanText size={15} aria-hidden="true" />Catatan bebas dibaca:{" "}
         <Term id={status.model.configured ? "ai-pembaca" : "aturan-teks"}>{status.model.configured ? "AI pembaca dokumen" : "aturan teks"}</Term></span>
     </div>}
+    {preview && <FilePreviewDialog file={preview} check={checks[fileKey(preview)]} onClose={() => setPreview(null)} />}
     {current && current.status === "processing" && <PackageProgress pkg={current} />}
     {current && current.status === "failed" && <PackageFailed pkg={current} />}
     {current && current.status === "ready" && current.summary && !("failure" in current.summary && current.summary.failure)

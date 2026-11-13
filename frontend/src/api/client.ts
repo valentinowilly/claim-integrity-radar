@@ -1519,3 +1519,22 @@ export function getSecurityEvents(query: { limit: number; offset: number; eventT
   if (query.eventType) params.set("event_type", query.eventType);
   return getJson(`/api/v1/auth/security-events?${params}`, (value): value is SecurityEventsPage => isRecord(value) && Array.isArray(value.items), signal);
 }
+
+// ---- Whether the reasons shown for a claim helped (proposal indicator 20)
+export type FeedbackReason = "unclear" | "not_matching" | "too_long" | "other";
+export interface MyFeedback { helpful: boolean; reason: FeedbackReason | null }
+export interface FeedbackSummary {
+  total: number; helpful: number; share_helpful: number | null;
+  items: Array<{ indicator: string; helpful: number; not_helpful: number; reasons: Partial<Record<FeedbackReason, number>> }>;
+}
+export function getMyFeedback(runId: string, caseId: string, signal?: AbortSignal): Promise<{ items: Record<string, MyFeedback> }> {
+  return getJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/explanation-feedback`,
+    (value): value is { items: Record<string, MyFeedback> } => isRecord(value) && isRecord(value.items), signal);
+}
+export function rateExplanation(runId: string, caseId: string, indicator: string, helpful: boolean, reason: FeedbackReason | null = null): Promise<unknown> {
+  return requestJson(`/api/v1/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/explanation-feedback`,
+    (value): value is unknown => isRecord(value), { method: "POST", body: JSON.stringify({ indicator, helpful, reason }) });
+}
+export function getFeedbackSummary(signal?: AbortSignal): Promise<FeedbackSummary> {
+  return getJson("/api/v1/explanation-feedback/summary", (value): value is FeedbackSummary => isRecord(value) && Array.isArray(value.items), signal);
+}

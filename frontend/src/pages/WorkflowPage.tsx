@@ -395,7 +395,7 @@ export default function WorkflowPage() {
             {batchDetail && <BatchCard batch={batchDetail.batch} />}
             {canWriteRuns && batchReady && (
               <div className="inline-actions" style={{ marginTop: 12 }}>
-                <button className="button button-secondary" disabled={busy} onClick={() => void submitRun(batchDetail!.batch.batch_id)}>
+                <button className="button button-primary" disabled={busy} onClick={() => void submitRun(batchDetail!.batch.batch_id)}>
                   <Play size={15} />{busy ? "Menganalisis…" : "Analisis ulang berkas ini"}
                 </button>
                 <span className="fine-print">Hasil baru menggantikan analisis sebelumnya atas berkas ini; yang lama dipindahkan ke Arsip.</span>

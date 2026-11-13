@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { UserRound, ArrowDown, ArrowLeft, FileSearch, History, Lightbulb, Lock, Save, ShieldCheck, ChartScatter } from "lucide-react";
 import { Link } from "react-router-dom";
+import { ExplanationFeedback, useMyFeedback } from "../components/ExplanationFeedback";
 import { useNotify } from "../notifications/NotificationCenter";
 import {
   auditResultLabels, getRunCase, getRunCaseReview, recordRunCaseAuditConfirmation, recordRunCaseOutcome, reviewOutcomeLabels,
@@ -68,6 +69,7 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
   const canRead = permissions.includes("review:read") && permissions.includes("runs:results:read");
   const canUpdateStatus = permissions.includes("review:write");
   const canUpdateOutcome = permissions.includes("review:manage");
+  const [myFeedback, setMyFeedback] = useMyFeedback(runId, caseId);
   const [run, setRun] = useState<RunDetailResponse | null>(null);
   const [review, setReview] = useState<RunReviewResponse | null>(null);
   const [status, setStatus] = useState<RunReviewStatus>("pending_review");
@@ -298,6 +300,8 @@ export function CaseReviewPanel({ runId, caseId, backTo, onSaved }: { runId: str
           <EvidenceList evidence={reason.evidence} />
           {(REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)) && <div className="guidance review-hint"><Lightbulb size={15} /><span><strong>Yang perlu diperiksa:</strong> {REVIEW_HINTS[reason.indicator] ?? indicatorGuidance(reason.indicator)}</span></div>}
           <EvidenceLink indicator={reason.indicator} evidence={evidence} />
+          <ExplanationFeedback runId={runId} caseId={caseId} indicator={reason.indicator} current={myFeedback[reason.indicator]}
+            canRate={canUpdateStatus} onSaved={value => setMyFeedback(current => ({ ...current, [reason.indicator]: value }))} />
         </article>} /> : <p className="fine-print">Lolos pemeriksaan aturan. Klaim ini masuk daftar karena penilaian AI di bawah.</p>}
       </div>
     </section>

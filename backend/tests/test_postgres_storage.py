@@ -35,7 +35,7 @@ def test_schema_is_created_from_an_empty_database_and_versions_are_checked(opera
     assert status["ok"] and status["applied"] == ["0001_initial", "0002_event_insertion_order", "0003_data_migration_log",
                                              "0004_list_visibility", "0005_inbox",
                                              "0006_retention", "0007_case_assignments",
-                                             "0008_drop_retention", "0009_clinical_ai", "0010_rate_limits", "0011_intake", "0012_intake_cancel", "0013_document_retention"]
+                                             "0008_drop_retention", "0009_clinical_ai", "0010_rate_limits", "0011_intake", "0012_intake_cancel", "0013_document_retention", "0014_explanation_feedback"]
     assert upgrade(database) == []  # idempotent
     with db_connection("unused") as connection:
         tables = {row[0] for row in connection.execute(

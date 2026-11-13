@@ -9,6 +9,7 @@ import { formatPercent } from "../components/RiskMap";
 import { ReviewAccuracy } from "../components/ReviewAccuracy";
 import { usePersistedRunSnapshot } from "../hooks/usePersistedRunSnapshot";
 import { DayBars, FEW_DAYS } from "../components/DayBars";
+import { FeedbackSummaryCard } from "../components/ExplanationFeedback";
 import { useThemeColors } from "../theme/theme";
 
 // Days with fewer claims than this are left out of the share line: a few claims make the share jump.
@@ -40,6 +41,7 @@ export default function TrendPage() {
         message="Data klaim pada analisis ini tidak memuat tanggal layanan." /></div>
       : <TrendWorkspace activity={activity} />}
     {state.status === "success" && <ReviewAccuracy />}
+    {state.status === "success" && <FeedbackSummaryCard />}
   </>;
 }
 
