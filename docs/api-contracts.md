@@ -716,3 +716,19 @@ Izin `users:manage`, CSRF. Body `{password}` (minimal 12 karakter). Kata sandi b
 ### `GET /api/v1/auth/security-events?limit=&offset=&event_type=`
 
 Izin `security_audit:read`. `{items[], total, event_types[]}`; tiap kejadian `{event_id, occurred_at, actor_user_id, actor_username, event_type, target_type, target_id, target_username, metadata}`. Terbaru dulu; `limit` paling banyak 200. Kata sandi, token, dan catatan tinjauan tidak pernah dicatat.
+
+## Penilaian penjelasan oleh petugas (November 2026)
+
+Indikator 20 proposal (kepuasan pengguna): petugas menilai apakah alasan sebuah klaim membantu. Satu jawaban per petugas, klaim, dan pemeriksaan; jawaban baru menggantikan yang lama. Tabel `explanation_feedback`, migrasi `0014_explanation_feedback`. Penilaian tidak mengubah lampu, skor, atau status tinjauan.
+
+### `POST /api/v1/runs/{run_id}/cases/{case_id}/explanation-feedback`
+
+Izin `review:write`, CSRF. Body `{indicator, helpful, reason?}`; `indicator` huruf kecil/angka/garis bawah (maks. 80), `reason` salah satu `unclear`, `not_matching`, `too_long`, `other` (diabaikan menjadi `null` bila `helpful: true`). Respons `{indicator, helpful, reason, recorded_at}`. `404` bila klaim bukan milik run, `422 INDICATOR_NOT_ON_CLAIM` bila pemeriksaan itu tidak menandai klaim, `403` tanpa CSRF, `503 FEEDBACK_STORAGE_UNAVAILABLE`.
+
+### `GET /api/v1/runs/{run_id}/cases/{case_id}/explanation-feedback`
+
+Izin `review:read`. Penilaian petugas yang masuk pada klaim ini: `{items: {indicator: {helpful, reason}}}`.
+
+### `GET /api/v1/explanation-feedback/summary?run_id=`
+
+Izin `review:read`. Rekap semua petugas, seluruh analisis atau satu `run_id`: `{total, helpful, share_helpful, items[]}`; tiap item `{indicator, helpful, not_helpful, reasons: {reason: jumlah}}`. `share_helpful` bernilai `null` bila belum ada penilaian. Tanpa identitas petugas.
