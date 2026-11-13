@@ -1273,3 +1273,17 @@ details[open] > *:not(summary) { animation: cir-page-in 0.24s ease both; }
 
 /* The clinical-note matches card and the AI reading are separate cards. */
 .clinical-ai { margin-top: 14px; }
+
+/* Motion: in-page jumps glide instead of snapping, folded sections open smoothly, dialogs fade in.
+   Route changes still reset to the top instantly (App.tsx); everything here is off for reduced motion. */
+[id] { scroll-margin-top: 76px; }
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+  :root { interpolate-size: allow-keywords; }
+  details::details-content { block-size: 0; overflow: clip;
+    transition: block-size 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), content-visibility 0.28s allow-discrete; }
+  details[open]::details-content { block-size: auto; }
+  .palette-scrim { animation: cir-fade 0.18s ease-out both; }
+  .palette-scrim > .breakdown { animation: cir-rise 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+}
+@keyframes cir-fade { from { opacity: 0; } to { opacity: 1; } }
