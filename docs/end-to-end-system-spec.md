@@ -181,4 +181,4 @@ Detail kompatibilitas kolom ada di docs/bpjs-sample-compatibility.md.
 
 - Proposal hlm. 2 positioning; hlm. 4 modus dan catatan periode; hlm. 6–10 solusi, checker, action lane, formula/effort; hlm. 11–12 data/algoritma/skenario/privacy; hlm. 13 status prototype; hlm. 14 transkripsi visual pengguna (dummy/unverified); hlm. 16 angka ilustratif; hlm. 17–19 fase, skala dan etika.
 - Panduan hlm. 6–7 hubungan datasets; hlm. 18–25 FKRTL; hlm. 30–31 secondary diagnosis.
-- Repository: AGENTS.md, docs/api-contracts.md, analytics-spec.md, synthetic-data-spec.md, evaluation-spec.md; backend/app/main.py, services, api, schemas, analytics, data_sources, tests; frontend/src/App.tsx, api/client.ts, pages dan README.
+- Repository: docs/api-contracts.md, analytics-spec.md, synthetic-data-spec.md, evaluation-spec.md; backend/app/main.py, services, api, schemas, analytics, data_sources, tests; frontend/src/App.tsx, api/client.ts, pages dan README.

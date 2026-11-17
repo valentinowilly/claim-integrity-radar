@@ -113,4 +113,4 @@ Tahap kerja dan kesimpulan manusia harus terpisah.
 ## 8. Sumber
 
 - Proposal, hlm. 11: RBAC dan audit trail sebagai rancangan; hlm. 19: pseudonimisasi, minimisasi, role access, enkripsi, human review.
-- Repository: `AGENTS.md`; `backend/app/main.py`; `backend/app/api/routes/reviews.py`; `backend/app/services/reviews.py`; `backend/app/schemas/analytics.py`; `backend/tests/test_review_workflow.py`; `docs/api-contracts.md`.
+- Repository: `backend/app/main.py`; `backend/app/api/routes/reviews.py`; `backend/app/services/reviews.py`; `backend/app/schemas/analytics.py`; `backend/tests/test_review_workflow.py`; `docs/api-contracts.md`.

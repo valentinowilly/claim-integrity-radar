@@ -6,7 +6,7 @@
 
 Panduan asli 31 halaman diekstrak secara lokal dengan tata letak. Tabel FKRTL halaman 19–25 dan tabel diagnosis sekunder halaman 31 dapat diekstrak dengan mode table. Halaman 7 menjelaskan hubungan dataset, tetapi tata letak relasinya padat; join operasional perlu konfirmasi terhadap spesifikasi file resmi. proposal-page14.png tidak ditemukan di lokasi referensi atau repository; angka proposal halaman 14 berasal dari transkripsi visual pengguna.
 
-**Format sumber dan pertukaran (dipisahkan menurut bukti):** AGENTS.md menyatakan file BPJS `.dta` berada di luar repository; panduan yang ditinjau mendefinisikan kamus dan relasi, tetapi ekstraksi yang diperiksa tidak menetapkan format seluruh file sampel. Karena itu `.dta` adalah format file sumber yang disebut instruksi proyek, bukan hasil inspeksi dataset. CSV dapat dipilih sebagai format pertukaran fixture sintetis yang portabel, tetapi generator saat ini mengembalikan objek Python dan tidak menyediakan importer/exporter CSV. CSV adalah rekomendasi format pertukaran sintetis, bukan kemampuan implementasi atau format yang dinyatakan panduan BPJS.
+**Format sumber dan pertukaran (dipisahkan menurut bukti):** file BPJS `.dta` disimpan di luar repository; panduan yang ditinjau mendefinisikan kamus dan relasi, tetapi ekstraksi yang diperiksa tidak menetapkan format seluruh file sampel. Karena itu `.dta` adalah format file sumber yang disebut instruksi proyek, bukan hasil inspeksi dataset. CSV dapat dipilih sebagai format pertukaran fixture sintetis yang portabel, tetapi generator saat ini mengembalikan objek Python dan tidak menyediakan importer/exporter CSV. CSV adalah rekomendasi format pertukaran sintetis, bukan kemampuan implementasi atau format yang dinyatakan panduan BPJS.
 
 Dalam tabel berikut, **Fakta panduan** berarti teks kamus; **Implementasi** berarti source canonical saat ini; **Gap/rekomendasi** berarti pemetaan belum disahkan.
 
@@ -95,7 +95,7 @@ Adapter mapping `bpjs-fkrtl-sample-map-v2` (v2: kolom wajib PSTV01/FKL02/FKL03, 
 
 Signature eksploratif berversi dijelaskan di `docs/analytics-spec.md`. Angka dari populasi/definisi berbeda tidak dapat dibandingkan sebagai rekonsiliasi sampai keduanya dijalankan pada populasi eligible yang sama dengan unit hitung seragam. Tidak ada pemrosesan dataset aktual yang dilakukan dalam tahap ini.
 
-- panduan-data-sample-bpjs.pdf: hlm. 6–7 dataset/relasi; 18–25 FKRTL; 30–31 diagnosis sekunder. Tabel penting diekstrak dalam mode table. Format `.dta` dirujuk terpisah oleh AGENTS.md, bukan dipastikan dari kamus/isi dataset.
+- panduan-data-sample-bpjs.pdf: hlm. 6–7 dataset/relasi; 18–25 FKRTL; 30–31 diagnosis sekunder. Tabel penting diekstrak dalam mode table. Format `.dta` dirujuk dari catatan penyimpanan data tim, bukan dipastikan dari kamus/isi dataset.
 - proposal-healthkathon.pdf: hlm. 11–12 data sintetis, checker, dan batasan; 17–19 izin, modularitas, privasi, validasi.
 - Repository: backend/app/analytics/{repeat_billing,similar_claim_pattern,near_duplicate_claims,capacity,temporal_patterns,evidence_completeness,normalization,risk_scoring,audit_priority}.py; backend/app/data_sources/{synthetic,synthetic_generator,synthetic_benchmark_generator}.py; docs/analytics-spec.md.
 

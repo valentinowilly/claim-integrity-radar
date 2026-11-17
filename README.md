@@ -15,7 +15,8 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-Isolation%20Forest-F7931E?logo=scikitlearn&logoColor=white)
-![Ollama](https://img.shields.io/badge/Ollama-Qwen3%204B%20lokal-000000?logo=ollama&logoColor=white)
+![Gemma](https://img.shields.io/badge/Model%20bahasa-Gemma%204%2031B-4285F4?logo=google&logoColor=white)
+![OCR](https://img.shields.io/badge/OCR-PP--OCRv6-0062B0)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL%20%7C%20SQLite-4169E1?logo=postgresql&logoColor=white)
 
 [Masalah](#-masalah) · [Cara kerja](#%EF%B8%8F-cara-kerja) · [Modus](#-lima-modus-yang-dikenali) · [Fitur](#-fitur-unggulan) · [Hasil uji](#-hasil-uji) · [Menjalankan](#-menjalankan-secara-lokal)
@@ -62,7 +63,7 @@ flowchart LR
 |---|---|
 | 📏 **Pemeriksaan aturan** | *Kejanggalan apa yang ada, dan modus apa?* Alasannya bisa dibaca dan diperiksa ulang. |
 | 🤖 **AI Pola Klaim** (Isolation Forest) | *Seberapa jarang pola klaim ini dibanding klaim lain?* Memperkuat temuan aturan dan menemukan klaim janggal yang lolos dari aturan. |
-| 📝 **AI Pembaca Catatan** (LLM lokal) | *Apakah catatan klinis mendukung diagnosis, keparahan, dan lama rawat yang ditagihkan?* |
+| 📝 **AI Pembaca Catatan dan Berkas** (model bahasa di server internal) | *Apakah catatan klinis mendukung diagnosis, keparahan, dan lama rawat yang ditagihkan?* |
 | 👩‍⚕️ **Petugas** | *Benar perlu ditindaklanjuti, atau ternyata wajar?* Keputusan ini menjadi ukuran ketepatan sistem. |
 
 ## 🧭 Lima modus yang dikenali

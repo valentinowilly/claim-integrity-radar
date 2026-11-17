@@ -116,4 +116,4 @@ P0 authentication/RBAC, DataBatch, AnalysisRun persistence, review linkage, and 
 
 - Proposal hlm. 2, 6–13, 14 (transkripsi visual pengguna; dummy/unverified), 16–19.
 - Panduan hlm. 6–7, 18–25, 30–31.
-- Repository AGENTS.md; docs/api-contracts.md, analytics-spec.md, synthetic-data-spec.md, evaluation-spec.md; backend/app, backend/tests, frontend/src dan README.
+- Repository: docs/api-contracts.md, analytics-spec.md, synthetic-data-spec.md, evaluation-spec.md; backend/app, backend/tests, frontend/src dan README.

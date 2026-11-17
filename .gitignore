@@ -55,3 +55,6 @@ frontend/playwright-report/
 
 # Model trained on the real BPJS sample (and its aggregate companion files): local or private deployment only.
 backend/models/
+
+# Instruksi kerja untuk asisten pengembang (lokal saja)
+AGENTS.md

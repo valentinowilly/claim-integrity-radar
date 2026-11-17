@@ -1,6 +1,6 @@
 # DESIGN.md: Claim Integrity Radar
 
-Arahan desain untuk semua perubahan tampilan. Isinya diturunkan dari tampilan yang sudah ada dan sudah lolos 20 besar, bukan gaya baru. Aturan antislop (`antislop`) dipakai sebagai penyaring di atas arahan ini.
+Arahan desain untuk semua perubahan tampilan. Isinya diturunkan dari tampilan yang sudah ada dan sudah lolos 20 besar, bukan gaya baru.
 
 ## Siapa dan untuk apa
 

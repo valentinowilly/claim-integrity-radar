@@ -127,20 +127,31 @@ Validasi sumber FKRTL berjalan sebagai job latar belakang (`POST` → `202`, UI 
 
 Lalu di UI: login sebagai `data_operator` → **Data Klaim** → kartu "Sampel FKRTL BPJS (lokal)" → **Analisis sampel FKRTL**; buka hasil sebagai verifikator/audit lead dan tinjau kandidat seperti biasa. Bila konfigurasi kurang, kartu dan `POST /api/v1/runs` menampilkan kode masalah (`FKRTL_SOURCE_NOT_CONFIGURED`, `FKRTL_SOURCE_FILE_UNAVAILABLE`, `FKRTL_READER_UNAVAILABLE`, `FKRTL_PSEUDONYM_KEY_INVALID`, `FKRTL_CONFIGURATION_INVALID`, `FKRTL_DATE_WINDOW_NOT_CONFIGURED`, `FKRTL_WINDOW_EXCEEDS_CAP`, `FKRTL_SOURCE_READ_FAILED`). Hasil run (case reference pseudonim dan nama atribut, tanpa nilai) tersimpan di SQLite lokal `outputs/` yang diabaikan Git. Seleksi baris memakai **jendela tanggal datang (FKL03) inklusif**: seluruh file dipindai per chunk dan hanya baris di dalam jendela yang dipetakan; hasilnya sama untuk ukuran chunk dan urutan file apa pun. Batas, jumlah baris terpilih, dan baris yang dikecualikan tercatat di `configuration.source.selection`. Hasil hanya mewakili jendela itu, bukan seluruh sampel. Karena kunci repeat dan near-duplicate memuat tanggal datang, pasangan di dalam jendela lengkap tercakup; fitur frekuensi ML dan jumlah kunjungan per peserta hanya menggambarkan jendela. Pengukuran lokal (agregat): volume 2024 ≈ 5–7 ribu baris/hari, 7 hari maks. 38.410 baris; jendela 2024-03-04..10 = 35.565 baris, baca ≈ 23 s, pipeline ≈ 32 s. **FKL30 kosong**: kamus tidak mendefinisikan arti nilai kosong (41,7% baris berisi string kosong), sehingga record tanpa prosedur tetap *belum dinilai* oleh pemeriksaan repeat. Urutan analitik near-duplicate memakai digest fitur non-identitas (seed `ordering_seed`), bukan case ID pseudonim, sehingga kunci pseudonim tidak memengaruhi pasangan yang diperiksa.
 
-### Pembacaan catatan klinis (tahap 2)
+### Pembacaan catatan klinis dan berkas (tahap 2)
 
-Bawaan: model bahasa lokal lewat [Ollama](https://ollama.com) di komputer/server yang sama (sesuai tata kelola AI BPJS: data tidak dikirim ke layanan AI publik). Tanpa model, tombol pembacaan tetap bekerja dengan pembacaan cadangan (aturan teks).
+Model bahasa membaca catatan klinis, mengambil isian dari berkas PDF yang tidak terbaca pembaca formulir, dan menjawab "Tanya berkas". Semua dipanggil lewat satu endpoint kompatibel OpenAI (`app/services/llm.py`):
+
+- **Produksi:** Gemma 4 31B di server GPU internal lewat vLLM; data tidak keluar dari jaringan. Lihat `docs/panduan-penerapan.md` dan profil `gpu` di `docker-compose.yml`.
+- **Demo dan pengembangan, hanya data sintetis:** model yang sama lewat Gemini API.
+
+Tanpa model, semua tombol tetap bekerja dengan pembacaan cadangan (pola formulir dan aturan teks).
 
 ```powershell
-$env:OLLAMA_MODELS = "D:\ollama-models"          # lokasi model (disk dengan ruang cukup)
-ollama pull qwen3:4b                              # ±2,5 GB; jawaban ±40 dtk per klaim di CPU laptop
-$env:CIR_CLINICAL_AI_PROVIDER = "ollama"          # atau "anthropic" (akun enterprise, ANTHROPIC_API_KEY)
-$env:CIR_CLINICAL_AI_MODEL = "qwen3:4b"           # opsional
-$env:CIR_OLLAMA_URL = "http://127.0.0.1:11434"    # opsional
-$env:CIR_CLINICAL_AI = "off"                      # opsional: matikan model bahasa (cadangan tetap jalan)
-python -m scripts.evaluate_clinical_reader --per-label 8   # ukur pembacaan pada klaim demo berlabel
-python -m scripts.evaluate_clinical_reader --set independent  # 16 catatan tulisan tangan (scripts/clinical_reader_cases.py)
+# Produksi: endpoint vLLM internal
+$env:CIR_LLM_BASE_URL = "http://llm.internal:8000/v1"
+$env:CIR_LLM_MODEL    = "google/gemma-4-31b-it"
+# Demo dengan data sintetis: Gemini API
+$env:CIR_LLM_PROVIDER = "gemini"
+$env:GEMINI_API_KEY   = "<kunci, jangan disimpan di repositori>"
+$env:CIR_LLM_MODEL    = "gemma-4-31b-it"
+# Opsional
+$env:CIR_LLM_MAX_REQUESTS_PER_MINUTE = "15"   # batas permintaan per menit
+$env:CIR_CLINICAL_AI = "off"                  # matikan model bahasa (cadangan tetap jalan)
+python -m scripts.evaluate_clinical_reader --set independent   # 16 catatan uji tulisan tangan
+python -m scripts.evaluate_document_reader                      # ketepatan baca berkas PDF paket demo-4
 ```
+
+Penyedia lama tetap bisa dipilih untuk pembacaan catatan bila diperlukan: `CIR_CLINICAL_AI_PROVIDER=ollama` (model lokal, `CIR_OLLAMA_URL`) atau `anthropic` (akun enterprise). Riwayat uji Qwen3 4B lewat Ollama ada di `docs/analytics-spec.md`.
 
 ## AnalysisRun persisten (P0 Stage 4)
 

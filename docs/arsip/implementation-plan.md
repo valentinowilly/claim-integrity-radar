@@ -4,7 +4,7 @@ Rencana bertahap ini menjaga pengembangan dapat ditinjau. Tahap 1 adalah fondasi
 
 ## Tahap 1 — Fondasi kontrak
 
-**Cakupan:** instruksi proyek bernama `AGENTS.md`, kontrak endpoint, spesifikasi analitik, dan rencana implementasi.
+**Cakupan:** instruksi proyek, kontrak endpoint, spesifikasi analitik, dan rencana implementasi.
 
 **Selesai bila:** dokumen menetapkan bentuk respons/status/error, filtering dan pagination, alasan risiko dan batas analitik; contoh JSON diberi label ilustrasi; tidak ada angka yang diklaim sebagai hasil; skrip lama utuh.
 
